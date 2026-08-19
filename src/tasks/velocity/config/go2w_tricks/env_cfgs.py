@@ -1120,17 +1120,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       },
     ),
     # A wheel-legged aerial flip should not be paid for by throwing every leg
-    # to its joint limits.  This activates only after genuine lift-off and
-    # allows 0.18 rad of completely free travel around the normal four-wheel
-    # geometry; it is neither a target pose nor a reference trajectory.
+    # to its joint limits.  This acts throughout an active attempt, including
+    # the short push-off on the ground: otherwise PPO can generate angular
+    # momentum with a large pre-flight swing and pay no compactness cost until
+    # the wheels leave the floor.  The 0.18-rad deadband is free travel around
+    # normal four-wheel geometry; it is neither a target pose nor a reference
+    # trajectory.
     "airborne_leg_excursion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
-      weight=-2.0,
+      weight=-6.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "free_deviation": 0.18,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
+        "airborne_only": False,
       },
     ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),

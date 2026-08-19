@@ -1266,15 +1266,17 @@ def aerial_airborne_joint_excursion_l2(
   sensor_name: str,
   free_deviation: float,
   asset_cfg: SceneEntityCfg,
+  airborne_only: bool = True,
 ) -> torch.Tensor:
-  """Penalize only unnecessary airborne leg opening.
+  """Penalize unnecessary leg opening in an active aerial attempt.
 
-  This is a mechanical compactness regularizer, not a reference motion: it
+  This is a mechanical compactness regularizer, not a reference motion.  It
   has no phase, mode-dependent pose, or desired trajectory.  Every joint can
   move freely inside ``free_deviation`` from the nominal wheel-standing
-  geometry.  Only the excess excursion after liftoff is charged, leaving the
-  policy free to discover its own shared push-off and direction-specific body
-  rotation while removing the reward-free incentive to fling the legs wide.
+  geometry.  When ``airborne_only`` is false, the same excess cost is also
+  charged during push-off and recovery.  That prevents a policy from using a
+  large ground-side swing to create angular momentum and then becoming compact
+  only after liftoff.
   """
   if free_deviation < 0.0:
     raise ValueError("free_deviation must be non-negative.")
@@ -1287,7 +1289,12 @@ def aerial_airborne_joint_excursion_l2(
   )
   excess = torch.relu(deviation - free_deviation)
   airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
-  return aerial_active(env, command_name) * airborne.float() * torch.sum(torch.square(excess), dim=1)
+  phase_gate = airborne.float() if airborne_only else 1.0
+  return (
+    aerial_active(env, command_name)
+    * phase_gate
+    * torch.sum(torch.square(excess), dim=1)
+  )
 
 
 def aerial_axis_rate_exp(

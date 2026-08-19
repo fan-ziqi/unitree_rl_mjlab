@@ -16,6 +16,7 @@ def _trick_runner_cfg(
   desired_kl: float | None = 0.01,
   schedule: str = "adaptive",
   num_learning_epochs: int = 5,
+  clip_actions: float | None = None,
 ) -> RslRlOnPolicyRunnerCfg:
   return RslRlOnPolicyRunnerCfg(
     actor=RslRlModelCfg(
@@ -49,6 +50,11 @@ def _trick_runner_cfg(
     save_interval=100,
     num_steps_per_env=num_steps_per_env,
     max_iterations=10000,
+    # This must be set in the runner, rather than only documented next to an
+    # action scale: RSL-RL's Gaussian policy otherwise emits unbounded samples.
+    # The vector wrapper applies this bound identically in train, evaluator,
+    # and video recorder.
+    clip_actions=clip_actions,
   )
 
 
@@ -91,6 +97,10 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     "go2w_aerial_rotation",
     num_steps_per_env=96,
     gamma=0.997,
+    # Position-action scales below are intended as a compact mechanical
+    # envelope.  Make +/- one a real bound so exploration cannot turn a
+    # nominal 0.55-rad calf residual into a multi-radian joint target.
+    clip_actions=1.0,
     # The one-frame baseline's learned scalar action std kept rising beyond
     # 1.6, which turns completed rotations into crashes.  Exploration remains
     # broad at reset (init_std=1), while this smaller bonus lets PPO consolidate
