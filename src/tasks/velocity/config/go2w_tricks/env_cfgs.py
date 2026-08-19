@@ -1091,7 +1091,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
-      weight=8.0,
+      # A half-turn ending in a body strike used to earn too little relative
+      # to the termination cost for PPO to cross the full-turn discovery
+      # barrier.  This remains a one-shot reward on measured rotation, not a
+      # target joint motion or reference trajectory.
+      weight=14.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1099,6 +1103,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "target_angle": math.tau,
         "clearance_start": 0.04,
         "clearance_full": 0.20,
+      },
+    ),
+    "directed_axis_rate": RewardTermCfg(
+      func=trick_rewards.aerial_positive_axis_rate,
+      # Progress rewards the final angle, but does not distinguish a slow
+      # half-turn from a compact, high-momentum takeoff that is about to pass
+      # the turn barrier.  Pay only the measured, commanded-direction angular
+      # rate while airborne.  The actor still gets only its one-hot command;
+      # no axis or rate target is exposed as an observation or command.
+      weight=15.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "axes": _AERIAL_AXES,
+        "rate_clip": 20.0,
       },
     ),
     "late_phase_recovery": RewardTermCfg(
