@@ -1014,7 +1014,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   cfg.rewards = {
     "landing_orientation": RewardTermCfg(
       func=trick_rewards.aerial_landing_gravity_exp,
-      weight=5.0,
+      weight=8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1025,27 +1025,42 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.aerial_base_clearance,
-      weight=2.0,
-      params={"command_name": "trick", "min_clearance": 0.16},
+      weight=4.0,
+      params={"command_name": "trick", "min_clearance": 0.24},
     ),
     "airborne": RewardTermCfg(
       func=trick_rewards.aerial_airborne,
-      weight=2.0,
+      weight=3.0,
       params={"command_name": "trick", "sensor_name": wheel_contact_cfg.name},
     ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
-      weight=6.0,
+      weight=8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "axes": _AERIAL_AXES,
         "target_angle": math.tau,
+        "clearance_start": 0.04,
+        "clearance_full": 0.20,
+      },
+    ),
+    "late_phase_recovery": RewardTermCfg(
+      func=trick_rewards.aerial_late_phase_recovery_exp,
+      weight=8.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "activation_angle": 0.80 * math.tau,
+        "gravity_std": 0.60,
+        "target_axis_rate": 4.0,
+        "axis_rate_std": 4.0,
       },
     ),
     "over_rotation": RewardTermCfg(
       func=trick_rewards.AerialOverRotation,
-      weight=-1.0,
+      weight=-3.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1055,7 +1070,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      weight=30.0,
+      weight=60.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1095,4 +1110,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     command_cfg = cfg.commands["trick"]
     assert isinstance(command_cfg, AerialRotationCommandCfg)
     command_cfg.idle_probability = 0.05
+  # Ten 20-ms observations give the policy a 200-ms local motion window for
+  # takeoff timing and airborne rotation without introducing a reference phase
+  # or any privileged state.  Commands stay in the stack as ordinary inputs.
+  for group_name in ("actor", "critic"):
+    cfg.observations[group_name].history_length = 10
   return cfg

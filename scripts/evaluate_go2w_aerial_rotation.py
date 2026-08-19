@@ -27,6 +27,7 @@ TARGET_ANGLE = math.tau
 @dataclass
 class EvalConfig:
   checkpoint_file: Path
+  task_id: str = TASK_ID
   mode: int = 0
   num_envs: int = 256
   duration_s: float = 3.0
@@ -68,7 +69,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
     raise ValueError("num_envs and duration_s must be positive")
 
   torch.manual_seed(cfg.seed)
-  env_cfg = load_env_cfg(TASK_ID, play=True)
+  env_cfg = load_env_cfg(cfg.task_id, play=True)
   env_cfg.scene.num_envs = cfg.num_envs
   # A trial's desired mode must not be replaced by the normal periodic command
   # sampler before its evaluation interval has elapsed.
@@ -77,10 +78,10 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
   env_cfg.episode_length_s = cfg.duration_s + 0.5
 
-  agent_cfg = load_rl_cfg(TASK_ID)
+  agent_cfg = load_rl_cfg(cfg.task_id)
   base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device)
   env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
-  runner_cls = load_runner_cls(TASK_ID) or MjlabOnPolicyRunner
+  runner_cls = load_runner_cls(cfg.task_id) or MjlabOnPolicyRunner
   runner = runner_cls(env, asdict(agent_cfg), device=cfg.device)
   runner.load(str(cfg.checkpoint_file), load_cfg={"actor": True}, strict=True)
   policy = runner.get_inference_policy(device=cfg.device)

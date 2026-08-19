@@ -88,5 +88,12 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
 
 def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   return _trick_runner_cfg(
-    "go2w_aerial_rotation", num_steps_per_env=96, gamma=0.997
+    "go2w_aerial_rotation",
+    num_steps_per_env=96,
+    gamma=0.997,
+    # The one-frame baseline's learned scalar action std kept rising beyond
+    # 1.6, which turns completed rotations into crashes.  Exploration remains
+    # broad at reset (init_std=1), while this smaller bonus lets PPO consolidate
+    # a discovered landing instead of continually diffusing it away.
+    entropy_coef=0.002,
   )

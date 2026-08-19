@@ -1275,8 +1275,56 @@ def aerial_landing_gravity_exp(
   )
 
 
+def aerial_late_phase_recovery_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  target_angle: float,
+  activation_angle: float,
+  gravity_std: float,
+  target_axis_rate: float,
+  axis_rate_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward a physically recoverable final part of an airborne turn.
+
+  The phase comes from the *measured* accumulated angle around the axis fixed
+  at launch.  It is not a reference trajectory: until roughly the last fifth
+  of a completed turn this term is exactly zero.  Once there, it encourages
+  the robot to return upright and bleed angular speed before wheel contact.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  command_term = env.command_manager.get_term(command_name)
+  active = aerial_active(env, command_name) > 0.5
+  contacts = _wheel_contacts(env, sensor_name)
+  airborne = ~torch.any(contacts, dim=1)
+  progress = getattr(command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device))
+  launch_axis_w = getattr(
+    command_term,
+    "_launch_axis_w",
+    torch.zeros(env.num_envs, 3, device=env.device),
+  )
+  phase = torch.clamp(
+    (progress - activation_angle) / (target_angle - activation_angle), min=0.0, max=1.0
+  )
+  normal_gravity = torch.tensor(
+    (0.0, 0.0, -1.0),
+    dtype=asset.data.projected_gravity_b.dtype,
+    device=env.device,
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+  )
+  axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+  recovery = torch.exp(
+    -gravity_error / gravity_std**2
+    -torch.square(axis_rate - target_axis_rate) / axis_rate_std**2
+  )
+  return active.float() * airborne.float() * phase * recovery
+
+
 class AerialRotationProgress:
-  """Reward only new directed progress, capped at one complete turn."""
+  """Reward high-clearance new directed progress, capped at one complete turn."""
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     self.progress = torch.zeros(env.num_envs, device=env.device)
@@ -1299,6 +1347,8 @@ class AerialRotationProgress:
     sensor_name: str,
     axes: tuple[tuple[float, float, float], ...],
     target_angle: float = math.tau,
+    clearance_start: float = 0.04,
+    clearance_full: float = 0.20,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     asset: Entity = env.scene[asset_cfg.name]
@@ -1335,11 +1385,20 @@ class AerialRotationProgress:
     progress_delta = torch.clamp(self.best_progress, max=target_angle) - torch.clamp(
       old_best, max=target_angle
     )
+    default_root_state = asset.data.default_root_state
+    assert default_root_state is not None
+    clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
+    # A low wheel-hop can no longer collect the same angular reward as a real
+    # aerial maneuver.  The angle is still integrated independently above, so
+    # one eventual completion is judged from raw physics rather than this gate.
+    clearance_gate = torch.clamp(
+      (clearance - clearance_start) / (clearance_full - clearance_start), min=0.0, max=1.0
+    )
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     # Convert angular displacement back to a rate because RewardManager applies
     # dt.  The integrated return is therefore proportional to unique angle.
-    return progress_delta / env.step_dt
+    return clearance_gate * progress_delta / env.step_dt
 
 
 class AerialOverRotation:
