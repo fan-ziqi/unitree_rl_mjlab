@@ -1323,6 +1323,57 @@ def aerial_late_phase_recovery_exp(
   return active.float() * airborne.float() * phase * recovery
 
 
+def aerial_soft_landing_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  target_angle: float,
+  angle_std: float,
+  gravity_std: float,
+  axis_rate_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Score an actual near-target, four-wheel touchdown before hard success.
+
+  This is deliberately an outcome reward, rather than a pose reference.  It
+  fires only after the robot has really been airborne and then has all four
+  wheels on the ground.  A soft score supplies the missing gradient between a
+  crash and the strict zero-speed, settled hard-completion condition.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  command_term = env.command_manager.get_term(command_name)
+  active = aerial_active(env, command_name) > 0.5
+  was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
+  contacts = _wheel_contacts(env, sensor_name)
+  four_wheel_landing = torch.all(contacts, dim=1)
+  progress = getattr(command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device))
+  launch_axis_w = getattr(
+    command_term,
+    "_launch_axis_w",
+    torch.zeros(env.num_envs, 3, device=env.device),
+  )
+  angle_error = torch.square(progress - target_angle)
+  normal_gravity = torch.tensor(
+    (0.0, 0.0, -1.0),
+    dtype=asset.data.projected_gravity_b.dtype,
+    device=env.device,
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+  )
+  axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+  return (
+    active.float()
+    * was_airborne.float()
+    * four_wheel_landing.float()
+    * torch.exp(
+      -angle_error / angle_std**2
+      -gravity_error / gravity_std**2
+      -torch.square(axis_rate) / axis_rate_std**2
+    )
+  )
+
+
 class AerialRotationProgress:
   """Reward high-clearance new directed progress, capped at one complete turn."""
 

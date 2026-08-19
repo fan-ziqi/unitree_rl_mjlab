@@ -1014,7 +1014,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   cfg.rewards = {
     "landing_orientation": RewardTermCfg(
       func=trick_rewards.aerial_landing_gravity_exp,
-      weight=8.0,
+      weight=16.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1047,20 +1047,32 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "late_phase_recovery": RewardTermCfg(
       func=trick_rewards.aerial_late_phase_recovery_exp,
-      weight=8.0,
+      weight=50.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "activation_angle": 0.80 * math.tau,
-        "gravity_std": 0.60,
-        "target_axis_rate": 4.0,
-        "axis_rate_std": 4.0,
+        "activation_angle": 0.85 * math.tau,
+        "gravity_std": 0.75,
+        "target_axis_rate": 6.0,
+        "axis_rate_std": 5.0,
+      },
+    ),
+    "soft_landing": RewardTermCfg(
+      func=trick_rewards.aerial_soft_landing_exp,
+      weight=100.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "angle_std": 1.20,
+        "gravity_std": 0.90,
+        "axis_rate_std": 8.0,
       },
     ),
     "over_rotation": RewardTermCfg(
       func=trick_rewards.AerialOverRotation,
-      weight=-3.0,
+      weight=-8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1070,7 +1082,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      weight=60.0,
+      weight=200.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1089,7 +1101,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       weight=-5.0,
       params={"asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS)},
     ),
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
   cfg.curriculum = {
     "aerial_command_difficulty": CurriculumTermCfg(
