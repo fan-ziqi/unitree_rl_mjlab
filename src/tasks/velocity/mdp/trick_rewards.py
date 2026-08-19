@@ -1483,8 +1483,17 @@ def aerial_positive_axis_rate(
     if stop_angle_fade == 0.0:
       drive_gate = (progress < stop_angle).float()
     else:
+      # ``stop_angle`` is the point at which momentum drive begins to hand
+      # over to recovery—not the end of its fade.  Keeping the full rate
+      # signal through this point and fading across the *following* interval
+      # lets a compact front/side flip cross its one-turn barrier before the
+      # braking terms take over.  The prior expression faded over the
+      # preceding interval, so a nominal 0.70-turn hand-off had already
+      # reduced drive at 0.55 turn and made those modes stall below one turn.
       drive_gate = torch.clamp(
-        (stop_angle - progress) / stop_angle_fade, min=0.0, max=1.0
+        (stop_angle + stop_angle_fade - progress) / stop_angle_fade,
+        min=0.0,
+        max=1.0,
       )
     result = result * drive_gate
   return result
