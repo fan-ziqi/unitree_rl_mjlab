@@ -29,6 +29,11 @@ class TrainConfig:
   video_length: int = 200
   video_interval: int = 2000
   enable_nan_guard: bool = False
+  # Some tasks deliberately reset every episode into a fixed physical state
+  # and rely on an initial exploration grace period (for example, Go2W's
+  # four-wheel-idle to two-wheel transition).  Randomizing the first episode
+  # clock would skip that grace period for a fraction of environments.
+  init_at_random_ep_len: bool = True
   torchrunx_log_dir: str | None = None
   gpu_ids: list[int] | Literal["all"] | None = field(default_factory=lambda: [0])
 
@@ -136,7 +141,8 @@ def run_train(task_id: str, cfg: TrainConfig, log_dir: Path) -> None:
     dump_yaml(log_dir / "params" / "agent.yaml", agent_cfg)
 
   runner.learn(
-    num_learning_iterations=cfg.agent.max_iterations, init_at_random_ep_len=True
+    num_learning_iterations=cfg.agent.max_iterations,
+    init_at_random_ep_len=cfg.init_at_random_ep_len,
   )
 
   env.close()
