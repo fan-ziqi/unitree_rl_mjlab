@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import os
 from pathlib import Path
+
+# A training server normally has no X11 display.  Choose MuJoCo's GPU-backed
+# EGL renderer before importing any package that can import ``mujoco``.  An
+# explicit caller setting is respected, so local interactive recording keeps
+# its chosen backend.
+os.environ.setdefault("MUJOCO_GL", "egl")
 
 import torch
 import tyro
