@@ -1148,10 +1148,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       params={
         "command_name": "trick",
         "stages": (
-          # All five one-hots remain uniformly represented in the fused
-          # policy's batches.  Reweighting toward the hard modes caused the
-          # policy to lose its shared landing discovery altogether.
+          # First discover the shared jump/landing mechanism on all modes.
           {"step": 0, "idle_probability": 0.05},
+          # Then spend the central, high-exploration part of training on the
+          # three modes that otherwise lag behind the two side flips.
+          {"step": 80_000_000, "idle_probability": 0.05,
+           "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28)},
+          # Restore the deployment distribution for shared-policy retention.
+          {"step": 240_000_000, "idle_probability": 0.05,
+           "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20)},
         ),
       },
     ),

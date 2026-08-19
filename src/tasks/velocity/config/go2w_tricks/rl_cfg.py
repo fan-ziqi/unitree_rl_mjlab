@@ -96,9 +96,4 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # broad at reset (init_std=1), while this smaller bonus lets PPO consolidate
     # a discovered landing instead of continually diffusing it away.
     entropy_coef=0.002,
-    # Five dynamically distinct aerial one-hots share a 10-frame (590-D)
-    # proprioceptive history.  The compact MLP consistently learned the two
-    # side flips first and then collapsed the pitch/yaw branches.  Give this
-    # fused task enough conditional capacity without separating policies.
-    hidden_dims=(1024, 512, 256),
   )
