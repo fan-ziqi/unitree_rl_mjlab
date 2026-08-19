@@ -1012,8 +1012,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   # their full joint range.  Keep enough calf travel for a compact push-off and
   # landing compliance, but shift useful contact authority to the wheels.  At
   # the velocity actuator's 0.5 damping, the previous 5-rad/s wheel target
-  # supplied only about 2.5 Nm for a unit action; 40 rad/s lets a normal action
-  # reach the wheel's effort limit while position residuals remain compact.
+  # supplied only about 2.5 Nm for a unit action.  A 20-rad/s target supplies
+  # useful wheel impulse without the immediate crashes caused by saturation at
+  # the full wheel effort limit during initial Gaussian exploration.
   # This is an action-space prior, not a prescribed joint pose or trajectory.
   cfg.actions["joint_pos"] = JointPositionActionCfg(
     entity_name="robot",
@@ -1021,14 +1022,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     scale={
       r".*_hip_joint": 0.20,
       r".*_thigh_joint": 0.35,
-      r".*_calf_joint": 0.45,
+      r".*_calf_joint": 0.55,
     },
     use_default_offset=True,
   )
   cfg.actions["joint_vel"] = JointVelocityActionCfg(
     entity_name="robot",
     actuator_names=GO2W_WHEEL_JOINTS,
-    scale=40.0,
+    scale=20.0,
     use_default_offset=True,
   )
   for group_name in ("actor", "critic"):
@@ -1117,7 +1118,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "max_overrotation": 0.75,
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.10),
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),
     "joint_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=-2.5e-6),
     "joint_limits": RewardTermCfg(
       func=envs_mdp.joint_pos_limits,
