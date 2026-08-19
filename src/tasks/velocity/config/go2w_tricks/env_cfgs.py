@@ -1052,15 +1052,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   # the velocity actuator's 0.5 damping, a 20-rad/s target can supply only
   # 10 Nm, less than half of the modelled 23.5-Nm wheel capability.  A
   # 45-rad/s target lets compact, clipped actions use nearly all of that
-  # contact authority
-  # rather than compensating with a large leg swing; effort limits still cap
-  # the torque safely below 23.5 Nm.
+  # contact authority rather than compensating with a large leg swing.
+  # Effort limits still cap the torque safely below 23.5 Nm.
   # This is an action-space prior, not a prescribed joint pose or trajectory.
   cfg.actions["joint_pos"] = JointPositionActionCfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      r".*_hip_joint": 0.20,
+      # At Kp=80, +/-0.20 rad could create only 16 Nm even though the Go2W
+      # hip is capped at 23.5 Nm.  +/-0.30 rad reaches that existing cap, is
+      # still a compact 17-degree target shift, and remains well within the
+      # measured 0.70-rad physical envelope below.
+      r".*_hip_joint": 0.30,
       r".*_thigh_joint": 0.35,
       r".*_calf_joint": 0.55,
     },
