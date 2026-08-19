@@ -1199,6 +1199,60 @@ def aerial_base_clearance(
   )
 
 
+class AerialClearanceProgress:
+  """Reward new takeoff clearance once, never continued time in the air.
+
+  A dense height reward is harmful for a one-shot aerial skill: after a jump,
+  it pays the policy every control step for postponing the landing.  This term
+  instead pays only each increase in the best normalized root clearance, so
+  its full episode return is bounded by one regardless of hang time.  It does
+  not encode a joint pose, a flight phase, or a demonstration trajectory.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.best_clearance = torch.zeros(env.num_envs, device=env.device)
+    self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.best_clearance[env_ids] = 0.0
+    self.previous_active[env_ids] = False
+    self.previous_mode[env_ids] = -1
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    min_clearance: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if min_clearance <= 0.0:
+      raise ValueError("min_clearance must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    mode = torch.argmax(command[:, :5], dim=1)
+    reset = env.episode_length_buf == 0
+    new_skill = active & ((~self.previous_active) | (mode != self.previous_mode) | reset)
+    clear = new_skill | reset | (~active)
+    self.best_clearance[clear] = 0.0
+
+    default_root_state = asset.data.default_root_state
+    assert default_root_state is not None
+    normalized_clearance = torch.clamp(
+      (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]) / min_clearance,
+      min=0.0,
+      max=1.0,
+    )
+    old_best = self.best_clearance.clone()
+    self.best_clearance = torch.maximum(self.best_clearance, normalized_clearance * active)
+    progress = self.best_clearance - old_best
+    self.previous_active = active
+    self.previous_mode = torch.where(active, mode, self.previous_mode)
+    # Preserve a one-off configured return under RewardManager's dt scaling.
+    return progress / env.step_dt
+
+
 def aerial_airborne(
   env: "ManagerBasedRlEnv", command_name: str, sensor_name: str
 ) -> torch.Tensor:

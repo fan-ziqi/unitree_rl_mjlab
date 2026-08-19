@@ -1048,14 +1048,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       },
     ),
     "takeoff_clearance": RewardTermCfg(
-      func=trick_rewards.aerial_base_clearance,
-      weight=4.0,
+      func=trick_rewards.AerialClearanceProgress,
+      # Bounded progress reward: a one-shot jump is encouraged, but hovering
+      # cannot out-earn the required four-wheel landing by staying airborne.
+      weight=8.0,
       params={"command_name": "trick", "min_clearance": 0.24},
-    ),
-    "airborne": RewardTermCfg(
-      func=trick_rewards.aerial_airborne,
-      weight=3.0,
-      params={"command_name": "trick", "sensor_name": wheel_contact_cfg.name},
     ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
@@ -1071,32 +1068,34 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "late_phase_recovery": RewardTermCfg(
       func=trick_rewards.aerial_late_phase_recovery_exp,
-      weight=50.0,
+      weight=60.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
         "activation_angle": 0.85 * math.tau,
         "gravity_std": 0.75,
-        "target_axis_rate": 6.0,
-        "axis_rate_std": 5.0,
+        # This is the braking half of the maneuver.  The old 6-rad/s target
+        # actively trained a policy to keep spinning through touchdown.
+        "target_axis_rate": 1.5,
+        "axis_rate_std": 2.5,
       },
     ),
     "soft_landing": RewardTermCfg(
       func=trick_rewards.aerial_soft_landing_exp,
-      weight=100.0,
+      weight=150.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "angle_std": 1.20,
-        "gravity_std": 0.90,
-        "axis_rate_std": 8.0,
+        "angle_std": 0.70,
+        "gravity_std": 0.55,
+        "axis_rate_std": 2.5,
       },
     ),
     "over_rotation": RewardTermCfg(
       func=trick_rewards.AerialOverRotation,
-      weight=-8.0,
+      weight=-12.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
