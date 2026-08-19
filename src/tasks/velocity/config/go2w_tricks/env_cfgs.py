@@ -1065,10 +1065,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   }
   # The aerial maneuver must use a short, wheel-legged impulse—not a full
   # quadruped crouch/extension.  These are maximum residuals around the normal
-  # four-wheel geometry, not a desired pose or reference trajectory.  With
-  # the specialised gains above, each small residual still reaches the
-  # unchanged model effort cap (23.5/23.5/35.5 Nm respectively).  This gives
-  # PPO a compact AS2-W-like mechanism without faking AS2-W torque.
+  # four-wheel geometry, not a desired pose or reference trajectory.  The
+  # specialized high-gain aerial actuator reaches its task-local effort cap
+  # from these small residuals, giving PPO a compact, high-force mechanism.
   cfg.actions["joint_pos"] = JointPositionActionCfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
@@ -1104,6 +1103,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       "command_name": "trick",
       "max_deviation": 0.42,
       "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
+    },
+  )
+  # A command requests one rotation, not an indefinitely fast spin.  Ending
+  # a measured overrun gives PPO a clear failure signal and releases reset
+  # samples for the four-wheel landing outcome; it does not expose a phase to
+  # the actor or prescribe any joint action.
+  cfg.terminations["rotation_overrun"] = TerminationTermCfg(
+    func=trick_rewards.aerial_rotation_overrun,
+    params={
+      "command_name": "trick",
+      "target_angle": math.tau,
+      "max_overrotation": 0.75,
     },
   )
   for group_name in ("actor", "critic"):
@@ -1237,6 +1248,24 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "gravity_std": 0.75,
         "axis_rate_std": 3.0,
         "descent_speed": 1.5,
+      },
+    ),
+    "post_turn_landing_progress": RewardTermCfg(
+      func=trick_rewards.AerialPostTurnLandingProgress,
+      # The evaluated m200 policy could perform one or more turns but earned
+      # virtually no post-turn signal because touchdown is too sparse.  Pay
+      # only new, physically measured descent after a full turn, with normal
+      # attitude and a reduced angular rate.  No joint pose or reference path
+      # is supplied to the actor.
+      weight=120.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "max_overrotation": 0.75,
+        "gravity_std": 0.90,
+        "axis_rate_clip": 16.0,
+        "descent_distance": 0.35,
       },
     ),
     "over_rotation": RewardTermCfg(

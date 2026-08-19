@@ -1377,6 +1377,31 @@ def aerial_leg_excursion_exceeded(
   )
 
 
+def aerial_rotation_overrun(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  target_angle: float,
+  max_overrotation: float,
+) -> torch.Tensor:
+  """End an attempt that has spun irrecoverably past its one-turn target.
+
+  The command term integrates *measured* rotation around the launch axis.  A
+  continued multi-turn spin is not a valid substitute for a one-turn flip
+  followed by a wheel landing, so it is a task failure instead of an
+  indefinitely timed-out rollout.  This selects no joint pose, phase, or
+  reference trajectory.
+  """
+  if target_angle <= 0.0 or max_overrotation <= 0.0:
+    raise ValueError("turn and overrotation limits must be positive.")
+  command_term = env.command_manager.get_term(command_name)
+  progress = getattr(
+    command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+  )
+  return aerial_active(env, command_name).bool() & (
+    progress > target_angle + max_overrotation
+  )
+
+
 def aerial_axis_rate_exp(
   env: "ManagerBasedRlEnv",
   command_name: str,
@@ -1631,6 +1656,107 @@ def aerial_post_turn_descent(
   )
   downward = torch.clamp(-asset.data.root_link_lin_vel_w[:, 2] / descent_speed, min=0.0, max=1.0)
   return active.float() * airborne.float() * turn_gate * upright_and_braked * downward
+
+
+class AerialPostTurnLandingProgress:
+  """Reward new physical descent after an upright, measured full turn.
+
+  The old four-wheel touchdown reward is necessarily sparse: it has no value
+  until the robot has already found the entire landing.  This potential-like
+  progress term records only a *new lower* base clearance after a full turn,
+  while the robot is still upright and slowing down.  It therefore bridges
+  from airborne recovery to the contact-only landing reward without dictating
+  a leg pose, a time-indexed trajectory, or an actor-side phase input.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.lowest_clearance = torch.zeros(env.num_envs, device=env.device)
+    self.started = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.lowest_clearance[env_ids] = 0.0
+    self.started[env_ids] = False
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    sensor_name: str,
+    target_angle: float,
+    max_overrotation: float,
+    gravity_std: float,
+    axis_rate_clip: float,
+    descent_distance: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if (
+      target_angle <= 0.0
+      or max_overrotation <= 0.0
+      or gravity_std <= 0.0
+      or axis_rate_clip <= 0.0
+      or descent_distance <= 0.0
+    ):
+      raise ValueError("post-turn landing-progress parameters must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    command_term = env.command_manager.get_term(command_name)
+    active = aerial_active(env, command_name) > 0.5
+    reset = (env.episode_length_buf == 0) | (~active)
+    self.started[reset] = False
+    self.lowest_clearance[reset] = 0.0
+
+    contacts = _wheel_contacts(env, sensor_name)
+    airborne = ~torch.any(contacts, dim=1)
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+    )
+    in_landing_window = (
+      active
+      & airborne
+      & (progress >= target_angle)
+      & (progress <= target_angle + max_overrotation)
+    )
+    default_root_state = asset.data.default_root_state
+    assert default_root_state is not None
+    clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
+
+    first_window_step = in_landing_window & (~self.started)
+    continuing = in_landing_window & self.started
+    previous_lowest = self.lowest_clearance.clone()
+    improvement = torch.where(
+      continuing,
+      torch.clamp(previous_lowest - clearance, min=0.0),
+      torch.zeros_like(clearance),
+    )
+    self.lowest_clearance[first_window_step] = clearance[first_window_step]
+    self.lowest_clearance[continuing] = torch.minimum(
+      self.lowest_clearance[continuing], clearance[continuing]
+    )
+    self.started |= in_landing_window
+
+    normal_gravity = torch.tensor(
+      (0.0, 0.0, -1.0),
+      dtype=asset.data.projected_gravity_b.dtype,
+      device=env.device,
+    )
+    gravity_error = torch.sum(
+      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+    )
+    launch_axis_w = getattr(
+      command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device)
+    )
+    axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+    upright = torch.exp(-gravity_error / gravity_std**2)
+    braking = torch.clamp(1.0 - torch.abs(axis_rate) / axis_rate_clip, min=0.0, max=1.0)
+    # RewardManager integrates terms over ``step_dt``.  Dividing the physical
+    # clearance improvement by dt makes the total return proportional to
+    # actual newly achieved descent rather than its simulation discretization.
+    return (
+      in_landing_window.float()
+      * upright
+      * braking
+      * improvement
+      / (descent_distance * env.step_dt)
+    )
 
 
 class AerialRotationProgress:
