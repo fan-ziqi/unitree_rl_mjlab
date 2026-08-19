@@ -1051,7 +1051,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   # landing compliance, but shift useful contact authority to the wheels.  At
   # the velocity actuator's 0.5 damping, a 20-rad/s target can supply only
   # 10 Nm, less than half of the modelled 23.5-Nm wheel capability.  A
-  # 38-rad/s target lets compact, clipped actions use that contact authority
+  # 45-rad/s target lets compact, clipped actions use nearly all of that
+  # contact authority
   # rather than compensating with a large leg swing; effort limits still cap
   # the torque safely below 23.5 Nm.
   # This is an action-space prior, not a prescribed joint pose or trajectory.
@@ -1068,7 +1069,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   cfg.actions["joint_vel"] = JointVelocityActionCfg(
     entity_name="robot",
     actuator_names=GO2W_WHEEL_JOINTS,
-    scale=38.0,
+    scale=45.0,
     use_default_offset=True,
   )
   # A bounded action target alone cannot prevent a falling articulated body
@@ -1112,6 +1113,23 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # without rewarding hover duration or expanding joint travel.
       weight=12.0,
       params={"command_name": "trick", "min_clearance": 0.32},
+    ),
+    "takeoff_momentum": RewardTermCfg(
+      func=trick_rewards.AerialTakeoffMomentum,
+      # Aerial progress only reports an angle after a flight has happened.
+      # Pay once, at the actual wheel liftoff, for the two measurable
+      # ingredients of a compact ballistic turn: upward root speed and
+      # positive commanded-axis angular speed.  This is not a phase or pose
+      # reference; it gives PPO a direct credit assignment path from compact
+      # ground impulse to the one-shot maneuver.
+      weight=35.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "axes": _AERIAL_AXES,
+        "axis_rate_clip": 16.0,
+        "vertical_speed_clip": 2.0,
+      },
     ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,

@@ -1253,6 +1253,67 @@ class AerialClearanceProgress:
     return progress / env.step_dt
 
 
+class AerialTakeoffMomentum:
+  """Pay once for a compact liftoff that has both jump and turn momentum.
+
+  This is a measured event reward, not an imitation target.  It activates only
+  when the wheels actually leave the floor, then scores the positive angular
+  velocity selected internally by the one-hot and the upward root velocity.
+  A large leg swing cannot collect it after the compact-excursion termination
+  has ended the rollout.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.was_airborne[env_ids] = False
+    self.previous_active[env_ids] = False
+    self.previous_mode[env_ids] = -1
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    sensor_name: str,
+    axes: tuple[tuple[float, float, float], ...],
+    axis_rate_clip: float,
+    vertical_speed_clip: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if axis_rate_clip <= 0.0 or vertical_speed_clip <= 0.0:
+      raise ValueError("axis_rate_clip and vertical_speed_clip must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    mode = torch.argmax(command[:, :5], dim=1)
+    reset = env.episode_length_buf == 0
+    new_skill = active & ((~self.previous_active) | (mode != self.previous_mode) | reset)
+    self.was_airborne[new_skill | reset | (~active)] = False
+
+    airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+    liftoff = active & airborne & ~self.was_airborne
+    axes_tensor = torch.tensor(
+      axes, dtype=asset.data.root_link_ang_vel_b.dtype, device=env.device
+    )
+    axis_rate = torch.sum(asset.data.root_link_ang_vel_b * axes_tensor[mode], dim=1)
+    axis_score = torch.clamp(axis_rate / axis_rate_clip, min=0.0, max=1.0)
+    vertical_score = torch.clamp(
+      asset.data.root_link_lin_vel_w[:, 2] / vertical_speed_clip, min=0.0, max=1.0
+    )
+    # The geometric mean refuses the degenerate alternatives: an in-place
+    # spin and a straight hop both score zero, while preserving a smooth
+    # ranking once a compact takeoff has both ingredients.
+    score = torch.sqrt(axis_score * vertical_score)
+
+    self.was_airborne = torch.where(active, self.was_airborne | airborne, self.was_airborne)
+    self.previous_active = active
+    self.previous_mode = torch.where(active, mode, self.previous_mode)
+    return liftoff.float() * score / env.step_dt
+
+
 def aerial_airborne(
   env: "ManagerBasedRlEnv", command_name: str, sensor_name: str
 ) -> torch.Tensor:
