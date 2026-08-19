@@ -100,9 +100,12 @@ def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
     # The higher damping is intentional.  It leaves the effort-limited
     # push-off unchanged, but absorbs rebound velocity after touchdown rather
     # than letting a small position target turn into a large passive swing.
-    (".*hip_.*",): (80.0, 2.0),
-    (".*thigh_.*",): (70.0, 2.0),
-    (".*calf_.*",): (65.0, 2.0),
+    # The gains keep the actuator capable of reaching its *existing* effort
+    # limit with the deliberately short residuals selected below.  This is a
+    # compact high-force impulse, not a change to the Go2W hardware model.
+    (".*hip_.*",): (85.0, 2.0),
+    (".*thigh_.*",): (75.0, 2.0),
+    (".*calf_.*",): (80.0, 2.0),
   }
   articulation.actuators = tuple(
     replace(
@@ -1046,26 +1049,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       debug_vis=False,
     )
   }
-  # The airborne trick should not be won by opening and closing the legs over
-  # their full joint range.  Keep enough calf travel for a compact push-off and
-  # landing compliance, but shift useful contact authority to the wheels.  At
-  # the velocity actuator's 0.5 damping, a 20-rad/s target can supply only
-  # 10 Nm, less than half of the modelled 23.5-Nm wheel capability.  A
-  # 45-rad/s target lets compact, clipped actions use nearly all of that
-  # contact authority rather than compensating with a large leg swing.
-  # Effort limits still cap the torque safely below 23.5 Nm.
-  # This is an action-space prior, not a prescribed joint pose or trajectory.
+  # The aerial maneuver must use a short, wheel-legged impulse—not a full
+  # quadruped crouch/extension.  These are maximum residuals around the normal
+  # four-wheel geometry, not a desired pose or reference trajectory.  With
+  # the specialised gains above, each small residual still reaches the
+  # unchanged model effort cap (23.5/23.5/35.5 Nm respectively).  This gives
+  # PPO a compact AS2-W-like mechanism without faking AS2-W torque.
   cfg.actions["joint_pos"] = JointPositionActionCfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      # At Kp=80, +/-0.20 rad could create only 16 Nm even though the Go2W
-      # hip is capped at 23.5 Nm.  +/-0.30 rad reaches that existing cap, is
-      # still a compact 17-degree target shift, and remains well within the
-      # measured 0.70-rad physical envelope below.
-      r".*_hip_joint": 0.30,
-      r".*_thigh_joint": 0.35,
-      r".*_calf_joint": 0.55,
+      # +/-[0.28, 0.32, 0.45] rad is sufficient to saturate the unchanged
+      # effort caps at [85, 75, 80] Nm/rad.  The calf no longer receives the
+      # old 0.55-rad request that made the motion look like a large leg swing.
+      r".*_hip_joint": 0.28,
+      r".*_thigh_joint": 0.32,
+      r".*_calf_joint": 0.45,
     },
     use_default_offset=True,
   )
@@ -1079,15 +1078,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   # from overshooting that target after a collision.  AS2W-like flips require
   # a compact *physical* leg envelope, so leaving it is an immediate failed
   # attempt—not merely a small cost traded against angular-rate reward.  The
-  # 0.70-rad threshold retains the full 0.55-rad calf push-off envelope plus
-  # normal contact compliance, while excluding the 1+ rad flailing observed
-  # in v17.  It is neutral across all one-hot directions and has no phase or
-  # reference pose.
+  # A 0.55-rad threshold retains the compact 0.45-rad calf impulse plus
+  # normal contact compliance, but rejects the 0.6--1+ rad flailing that was
+  # still visually unlike AS2-W.  It is neutral across all one-hot directions
+  # and has no phase or reference pose.
   cfg.terminations["leg_excursion"] = TerminationTermCfg(
     func=trick_rewards.aerial_leg_excursion_exceeded,
     params={
       "command_name": "trick",
-      "max_deviation": 0.70,
+      "max_deviation": 0.55,
       "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
     },
   )
@@ -1222,14 +1221,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     # momentum with a large pre-flight swing and pay no compactness cost until
     # the wheels leave the floor.  The 0.18-rad deadband is free travel around
     # normal four-wheel geometry; it is neither a target pose nor a reference
-    # trajectory.
+    # trajectory.  The small 0.12-rad free zone makes a large leg opening an
+    # expensive way to generate rotation even below the hard bound.
     "airborne_leg_excursion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
-      weight=-8.0,
+      weight=-16.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "free_deviation": 0.16,
+        "free_deviation": 0.12,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
         "airborne_only": False,
       },

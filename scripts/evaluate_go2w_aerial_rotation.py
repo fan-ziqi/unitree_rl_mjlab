@@ -127,8 +127,8 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   peak_height_delta = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_axis_rate = torch.zeros(cfg.num_envs, device=base_env.device)
   # This does not prescribe a motion.  It makes the compact-wheel-leg
-  # requirement measurable during validation: values above roughly 0.5 rad
-  # mean that the policy is again using a large leg swing for its flip.
+  # requirement measurable during validation: the task rejects an excursion
+  # above 0.55 rad, so values near that bound show a large leg swing.
   peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_leg_excess_l2 = torch.zeros(cfg.num_envs, device=base_env.device)
   leg_envelope_violated = torch.zeros_like(trial_open)
@@ -173,7 +173,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
           torch.zeros_like(peak_leg_deviation),
         ),
       )
-      leg_excess_l2 = torch.sum(torch.square(torch.relu(leg_deviation - 0.18)), dim=1)
+      leg_excess_l2 = torch.sum(torch.square(torch.relu(leg_deviation - 0.12)), dim=1)
       peak_leg_excess_l2 = torch.maximum(
         peak_leg_excess_l2,
         torch.where(trial_open, leg_excess_l2, torch.zeros_like(peak_leg_excess_l2)),
@@ -181,7 +181,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
       # Keep this separate from the generic failure rate.  The environment
       # ends these episodes immediately, but the terminal state is still the
       # clearest validation evidence that a policy tried to use a large swing.
-      leg_envelope_violated |= trial_open & torch.any(leg_deviation > 0.70, dim=1)
+      leg_envelope_violated |= trial_open & torch.any(leg_deviation > 0.55, dim=1)
 
       post_active = torch.sum(command_term.command, dim=1) > 0.5
       # AerialRotationCommand clears a nonzero one-hot only after it has
