@@ -1249,6 +1249,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       params={
         "command_name": "trick",
         "stages": (
+          # ``common_step_counter`` counts synchronized control steps, not
+          # the total samples across all 4096 environments.  These thresholds
+          # therefore correspond to roughly 48M, 112M, and 240M samples at
+          # the production environment count and 20-ms control rate.
           # Discover compact rotation after a modest, physically real jump.
           # This does not alter the full-turn landing objective.
           {
@@ -1262,7 +1266,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
           # Require a larger ballistic arc before rotation receives its full
           # reward, still with all five directions in one actor.
           {
-            "step": 48_000_000,
+            "step": 12_000,
             "idle_probability": 0.05,
             "rotation_progress_clearance_start": 0.05,
             "rotation_progress_clearance_full": 0.22,
@@ -1272,7 +1276,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
           # Focus the central exploration segment on the lagging modes, now
           # at the strict final ballistic gates.
           {
-            "step": 112_000_000,
+            "step": 27_500,
             "idle_probability": 0.05,
             "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28),
             "rotation_progress_clearance_start": 0.06,
@@ -1282,7 +1286,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
           },
           # Restore the deployment distribution for shared-policy retention.
           {
-            "step": 240_000_000,
+            "step": 58_500,
             "idle_probability": 0.05,
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "rotation_progress_clearance_start": 0.06,
