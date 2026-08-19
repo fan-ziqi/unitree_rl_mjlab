@@ -14,6 +14,7 @@ from pathlib import Path
 
 import torch
 import tyro
+from tensordict import TensorDict
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
@@ -57,6 +58,27 @@ def _pin_mode(command_term, mode: int) -> None:
   command_term._new_skill.fill_(True)
 
 
+def _fixed_reset_observation(base_env: ManagerBasedRlEnv, mode: int) -> TensorDict:
+  """Pin one command and rebuild the ordinary observation-history window.
+
+  The aerial actor consumes ten consecutive observations.  ``env.reset()``
+  necessarily constructs that history using the command sampled by the normal
+  reset path; simply overwriting the command afterwards therefore evaluates a
+  policy that sees nine stale one-hots.  A stationary pre-roll at the same
+  physical reset state gives the requested command its proper 200-ms history
+  without changing simulation state or granting privileged information.
+  """
+  command_term = base_env.command_manager.get_term("trick")
+  _pin_mode(command_term, mode)
+  base_env.observation_manager._obs_buffer = None
+  observations = None
+  for _ in range(10):
+    observations = base_env.observation_manager.compute(update_history=True)
+  assert observations is not None
+  base_env.obs_buf = observations
+  return TensorDict(observations, batch_size=[base_env.num_envs])
+
+
 def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   import mjlab.tasks  # noqa: F401
   import src.tasks  # noqa: F401
@@ -86,9 +108,9 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   runner.load(str(cfg.checkpoint_file), load_cfg={"actor": True}, strict=True)
   policy = runner.get_inference_policy(device=cfg.device)
 
-  obs, _ = env.reset()
+  env.reset()
+  obs = _fixed_reset_observation(base_env, cfg.mode)
   command_term = base_env.command_manager.get_term("trick")
-  _pin_mode(command_term, cfg.mode)
   robot = base_env.scene["robot"]
   wheel_sensor = base_env.scene[command_cfg.sensor_name]
   normal_gravity = torch.tensor((0.0, 0.0, -1.0), device=base_env.device)

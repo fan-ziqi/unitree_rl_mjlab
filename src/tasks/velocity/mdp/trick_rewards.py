@@ -1206,6 +1206,36 @@ def aerial_airborne(
   return aerial_active(env, command_name) * (~torch.any(contacts, dim=1)).float()
 
 
+def aerial_airborne_joint_excursion_l2(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  free_deviation: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Penalize only unnecessary airborne leg opening.
+
+  This is a mechanical compactness regularizer, not a reference motion: it
+  has no phase, mode-dependent pose, or desired trajectory.  Every joint can
+  move freely inside ``free_deviation`` from the nominal wheel-standing
+  geometry.  Only the excess excursion after liftoff is charged, leaving the
+  policy free to discover its own shared push-off and direction-specific body
+  rotation while removing the reward-free incentive to fling the legs wide.
+  """
+  if free_deviation < 0.0:
+    raise ValueError("free_deviation must be non-negative.")
+  if isinstance(asset_cfg.joint_ids, slice):
+    raise ValueError("aerial_airborne_joint_excursion_l2 requires explicit joints.")
+  asset: Entity = env.scene[asset_cfg.name]
+  deviation = torch.abs(
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  excess = torch.relu(deviation - free_deviation)
+  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+  return aerial_active(env, command_name) * airborne.float() * torch.sum(torch.square(excess), dim=1)
+
+
 def aerial_axis_rate_exp(
   env: "ManagerBasedRlEnv",
   command_name: str,

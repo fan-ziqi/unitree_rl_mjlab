@@ -1118,6 +1118,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "max_overrotation": 0.75,
       },
     ),
+    # A wheel-legged aerial flip should not be paid for by throwing every leg
+    # to its joint limits.  This activates only after genuine lift-off and
+    # allows 0.18 rad of completely free travel around the normal four-wheel
+    # geometry; it is neither a target pose nor a reference trajectory.
+    "airborne_leg_excursion": RewardTermCfg(
+      func=trick_rewards.aerial_airborne_joint_excursion_l2,
+      weight=-2.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "free_deviation": 0.18,
+        "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
+      },
+    ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),
     "joint_acc": RewardTermCfg(func=envs_mdp.joint_acc_l2, weight=-2.5e-6),
     "joint_limits": RewardTermCfg(
