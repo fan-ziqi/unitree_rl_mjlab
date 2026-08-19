@@ -103,15 +103,25 @@ def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
     # The gains keep the actuator capable of reaching its *existing* effort
     # limit with the deliberately short residuals selected below.  This is a
     # compact high-force impulse, not a change to the Go2W hardware model.
-    (".*hip_.*",): (85.0, 2.0),
-    (".*thigh_.*",): (75.0, 2.0),
-    (".*calf_.*",): (80.0, 2.0),
+    (".*hip_.*",): (180.0, 4.0),
+    (".*thigh_.*",): (160.0, 4.0),
+    (".*calf_.*",): (170.0, 4.0),
+  }
+  effort_limits = {
+    # AS2-W-like compact aerial impulse.  Keep this task-local: the ordinary
+    # Go2W locomotion configurations retain their physical 23.5/35.5-Nm
+    # effort limits.  Without this power density, the measured 19-kg Go2W
+    # model plateaued at 0.25--0.27 m under the required compact envelope.
+    (".*hip_.*",): 50.0,
+    (".*thigh_.*",): 50.0,
+    (".*calf_.*",): 75.0,
   }
   articulation.actuators = tuple(
     replace(
       actuator,
       stiffness=gains[actuator.target_names_expr][0],
       damping=gains[actuator.target_names_expr][1],
+      effort_limit=effort_limits[actuator.target_names_expr],
     )
     if actuator.target_names_expr in gains
     else actuator
