@@ -1114,23 +1114,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       weight=12.0,
       params={"command_name": "trick", "min_clearance": 0.32},
     ),
-    "takeoff_momentum": RewardTermCfg(
-      func=trick_rewards.AerialTakeoffMomentum,
-      # Aerial progress only reports an angle after a flight has happened.
-      # Pay once, at the actual wheel liftoff, for the two measurable
-      # ingredients of a compact ballistic turn: upward root speed and
-      # positive commanded-axis angular speed.  This is not a phase or pose
-      # reference; it gives PPO a direct credit assignment path from compact
-      # ground impulse to the one-shot maneuver.
-      weight=35.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "axes": _AERIAL_AXES,
-        "axis_rate_clip": 16.0,
-        "vertical_speed_clip": 2.0,
-      },
-    ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
       # A half-turn ending in a body strike used to earn too little relative
@@ -1154,17 +1137,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # Progress rewards the final angle, but does not distinguish a slow
       # half-turn from a compact, high-momentum takeoff that is about to pass
       # the turn barrier.  Pay only the measured, commanded-direction angular
-      # rate while airborne.  The actor still gets only its one-hot command;
+      # rate only after the base has reached meaningful clearance.  This
+      # binds the two real outcomes that a compact flip needs—ballistic
+      # flight and correct angular momentum—without a target pose, phase, or
+      # reference trajectory.  The actor still gets only its one-hot command;
       # no axis or rate target is exposed as an observation or command.
       # RewardManager integrates every term over the 20-ms control step.  A
       # lower weight was numerically present but too small to alter the
       # half-turn-and-crash local optimum relative to termination.
-      weight=35.0,
+      weight=45.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "axes": _AERIAL_AXES,
         "rate_clip": 20.0,
+        "clearance_start": 0.08,
+        "clearance_full": 0.24,
         # Drive only the takeoff/tumbling portion.  From about 0.7 turn the
         # late-phase recovery and landing terms must be free to bleed angular
         # momentum instead of competing with an always-on spin reward.
