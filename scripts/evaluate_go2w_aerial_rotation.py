@@ -25,6 +25,9 @@ from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
 TASK_ID = "Unitree-Go2W-Aerial-Rotation-Flat"
 MODE_NAMES = ("front", "back", "left", "right", "yaw")
 TARGET_ANGLE = math.tau
+# Keep validation aligned with the aerial environment's physical compactness
+# termination.  This is a measured quality constraint, not an actor input.
+COMPACT_LEG_DEVIATION_LIMIT = 0.42
 
 
 @dataclass
@@ -129,7 +132,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   takeoff_vertical_speed = torch.zeros(cfg.num_envs, device=base_env.device)
   # This does not prescribe a motion.  It makes the compact-wheel-leg
   # requirement measurable during validation: the task rejects an excursion
-  # above 0.55 rad, so values near that bound show a large leg swing.
+  # above 0.42 rad, so values near that bound show a large leg swing.
   peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_leg_excess_l2 = torch.zeros(cfg.num_envs, device=base_env.device)
   leg_envelope_violated = torch.zeros_like(trial_open)
@@ -186,7 +189,9 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
       # Keep this separate from the generic failure rate.  The environment
       # ends these episodes immediately, but the terminal state is still the
       # clearest validation evidence that a policy tried to use a large swing.
-      leg_envelope_violated |= trial_open & torch.any(leg_deviation > 0.55, dim=1)
+      leg_envelope_violated |= trial_open & torch.any(
+        leg_deviation > COMPACT_LEG_DEVIATION_LIMIT, dim=1
+      )
 
       post_active = torch.sum(command_term.command, dim=1) > 0.5
       # AerialRotationCommand clears a nonzero one-hot only after it has
