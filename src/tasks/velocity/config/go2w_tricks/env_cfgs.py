@@ -1148,10 +1148,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       params={
         "command_name": "trick",
         "stages": (
-          # Every active sample asks for a full turn.  The curriculum only
-          # reduces idle samples after the policy learns a calm reset stance.
-          {"step": 0, "idle_probability": 0.10},
-          {"step": 40_000, "idle_probability": 0.05},
+          # The side flips discover a stable four-wheel landing earlier than
+          # the sagittal and yaw turns.  Uniform sampling then lets those easy
+          # successes dominate the shared PPO batch before the harder three
+          # receive a useful braking gradient.  This remains one fused policy
+          # and one five-way command; it only allocates more early rollouts to
+          # front/back/yaw, then restores the deployment-uniform mixture.
+          {
+            "step": 0,
+            "idle_probability": 0.05,
+            "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28),
+          },
+          {
+            "step": 140_000_000,
+            "idle_probability": 0.05,
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+          },
         ),
       },
     ),
