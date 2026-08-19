@@ -1129,10 +1129,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "sensor_name": wheel_contact_cfg.name,
         "axes": _AERIAL_AXES,
         "target_angle": math.tau,
-        # Do not let a low compact hop earn the same angular-progress signal
-        # as a viable full-turn ballistic takeoff.
-        "clearance_start": 0.06,
-        "clearance_full": 0.28,
+        # Read the current ballistic gate from the command term.  The
+        # one-policy curriculum tightens it without adding an observation.
+        "clearance_start": None,
+        "clearance_full": None,
       },
     ),
     "directed_axis_rate": RewardTermCfg(
@@ -1154,8 +1154,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "sensor_name": wheel_contact_cfg.name,
         "axes": _AERIAL_AXES,
         "rate_clip": 20.0,
-        "clearance_start": 0.08,
-        "clearance_full": 0.24,
+        "clearance_start": None,
+        "clearance_full": None,
         # Drive only the takeoff/tumbling portion.  From about 0.7 turn the
         # late-phase recovery and landing terms must be free to bleed angular
         # momentum instead of competing with an always-on spin reward.
@@ -1249,15 +1249,47 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       params={
         "command_name": "trick",
         "stages": (
-          # First discover the shared jump/landing mechanism on all modes.
-          {"step": 0, "idle_probability": 0.05},
-          # Then spend the central, high-exploration part of training on the
-          # three modes that otherwise lag behind the two side flips.
-          {"step": 80_000_000, "idle_probability": 0.05,
-           "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28)},
+          # Discover compact rotation after a modest, physically real jump.
+          # This does not alter the full-turn landing objective.
+          {
+            "step": 0,
+            "idle_probability": 0.05,
+            "rotation_progress_clearance_start": 0.03,
+            "rotation_progress_clearance_full": 0.14,
+            "rotation_rate_clearance_start": 0.04,
+            "rotation_rate_clearance_full": 0.14,
+          },
+          # Require a larger ballistic arc before rotation receives its full
+          # reward, still with all five directions in one actor.
+          {
+            "step": 48_000_000,
+            "idle_probability": 0.05,
+            "rotation_progress_clearance_start": 0.05,
+            "rotation_progress_clearance_full": 0.22,
+            "rotation_rate_clearance_start": 0.06,
+            "rotation_rate_clearance_full": 0.20,
+          },
+          # Focus the central exploration segment on the lagging modes, now
+          # at the strict final ballistic gates.
+          {
+            "step": 112_000_000,
+            "idle_probability": 0.05,
+            "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28),
+            "rotation_progress_clearance_start": 0.06,
+            "rotation_progress_clearance_full": 0.28,
+            "rotation_rate_clearance_start": 0.08,
+            "rotation_rate_clearance_full": 0.24,
+          },
           # Restore the deployment distribution for shared-policy retention.
-          {"step": 240_000_000, "idle_probability": 0.05,
-           "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20)},
+          {
+            "step": 240_000_000,
+            "idle_probability": 0.05,
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "rotation_progress_clearance_start": 0.06,
+            "rotation_progress_clearance_full": 0.28,
+            "rotation_rate_clearance_start": 0.08,
+            "rotation_rate_clearance_full": 0.24,
+          },
         ),
       },
     ),

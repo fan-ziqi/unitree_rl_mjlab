@@ -1372,18 +1372,22 @@ def aerial_positive_axis_rate(
   )
   if (clearance_start is None) != (clearance_full is None):
     raise ValueError("clearance_start and clearance_full must be specified together.")
-  if clearance_start is not None and clearance_full is not None:
-    if clearance_full <= clearance_start:
-      raise ValueError("clearance_full must be greater than clearance_start.")
-    default_root_state = asset.data.default_root_state
-    assert default_root_state is not None
-    clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
-    clearance_gate = torch.clamp(
-      (clearance - clearance_start) / (clearance_full - clearance_start),
-      min=0.0,
-      max=1.0,
-    )
-    result = result * clearance_gate
+  if clearance_start is None:
+    command_term = env.command_manager.get_term(command_name)
+    clearance_start = command_term.cfg.rotation_rate_clearance_start
+    clearance_full = command_term.cfg.rotation_rate_clearance_full
+  assert clearance_full is not None
+  if clearance_start < 0.0 or clearance_full <= clearance_start:
+    raise ValueError("Rotation-rate clearance limits must be an ordered range.")
+  default_root_state = asset.data.default_root_state
+  assert default_root_state is not None
+  clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
+  clearance_gate = torch.clamp(
+    (clearance - clearance_start) / (clearance_full - clearance_start),
+    min=0.0,
+    max=1.0,
+  )
+  result = result * clearance_gate
   if stop_angle is not None:
     if stop_angle <= 0.0:
       raise ValueError("stop_angle must be positive when provided.")
@@ -1565,10 +1569,19 @@ class AerialRotationProgress:
     sensor_name: str,
     axes: tuple[tuple[float, float, float], ...],
     target_angle: float = math.tau,
-    clearance_start: float = 0.04,
-    clearance_full: float = 0.20,
+    clearance_start: float | None = None,
+    clearance_full: float | None = None,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
+    if (clearance_start is None) != (clearance_full is None):
+      raise ValueError("clearance_start and clearance_full must be specified together.")
+    if clearance_start is None:
+      command_term = env.command_manager.get_term(command_name)
+      clearance_start = command_term.cfg.rotation_progress_clearance_start
+      clearance_full = command_term.cfg.rotation_progress_clearance_full
+    assert clearance_full is not None
+    if clearance_start < 0.0 or clearance_full <= clearance_start:
+      raise ValueError("Rotation-progress clearance limits must be an ordered range.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
