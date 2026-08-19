@@ -8,6 +8,7 @@ or an aerial-rotation one-hot whose zero vector means idle.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
   GO2W_JOINTS,
@@ -77,6 +78,39 @@ _AERIAL_AXES = (
   (-1.0, 0.0, 0.0),
   (0.0, 0.0, 1.0),
 )
+
+
+def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
+  """Use full motor torque inside the compact aerial target envelope.
+
+  Position residuals are deliberately bounded by the aerial runner at +/- one
+  action.  With the ordinary 20-Nm/rad position gain, the largest permitted
+  calf residual (0.55 rad) can create only 11 Nm, despite the model allowing
+  35.5 Nm.  That makes a compact jump physically under-powered and encourages
+  the unbounded target excursions we explicitly do not want.
+
+  These gains make the same small residuals reach the existing, model-level
+  effort caps.  They therefore change available *force*, not the joint-space
+  envelope and not a desired joint pose or trajectory.
+  """
+  robot_cfg = cfg.scene.entities["robot"]
+  articulation = robot_cfg.articulation
+  assert articulation is not None
+  gains = {
+    (".*hip_.*",): (80.0, 1.0),
+    (".*thigh_.*",): (70.0, 1.0),
+    (".*calf_.*",): (65.0, 1.0),
+  }
+  articulation.actuators = tuple(
+    replace(
+      actuator,
+      stiffness=gains[actuator.target_names_expr][0],
+      damping=gains[actuator.target_names_expr][1],
+    )
+    if actuator.target_names_expr in gains
+    else actuator
+    for actuator in articulation.actuators
+  )
 
 
 def _make_base_go2w_trick_cfg(play: bool) -> tuple[
@@ -995,6 +1029,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
 def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   """One-shot front/back/side/yaw jump rotations with no rate command."""
   cfg, wheel_contact_cfg, _ = _make_base_go2w_trick_cfg(play)
+  _configure_compact_aerial_actuators(cfg)
   cfg.episode_length_s = 3.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": AerialRotationCommandCfg(
