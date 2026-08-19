@@ -19,6 +19,8 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
+from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
+
 
 TASK_ID = "Unitree-Go2W-Aerial-Rotation-Flat"
 MODE_NAMES = ("front", "back", "left", "right", "yaw")
@@ -115,6 +117,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   wheel_sensor = base_env.scene[command_cfg.sensor_name]
   normal_gravity = torch.tensor((0.0, 0.0, -1.0), device=base_env.device)
   default_height = robot.data.default_root_state[:, 2]
+  leg_joint_ids, _ = robot.find_joints(GO2W_LEG_JOINTS, preserve_order=True)
 
   trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
   ever_airborne = torch.zeros_like(trial_open)
@@ -123,6 +126,11 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   peak_progress = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_height_delta = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_axis_rate = torch.zeros(cfg.num_envs, device=base_env.device)
+  # This does not prescribe a motion.  It makes the compact-wheel-leg
+  # requirement measurable during validation: values above roughly 0.5 rad
+  # mean that the policy is again using a large leg swing for its flip.
+  peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
+  peak_leg_excess_l2 = torch.zeros(cfg.num_envs, device=base_env.device)
   completion_gravity_error = torch.zeros(cfg.num_envs, device=base_env.device)
   completion_linear_speed = torch.zeros(cfg.num_envs, device=base_env.device)
   completion_angular_speed = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -151,6 +159,23 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
       peak_axis_rate = torch.maximum(
         peak_axis_rate,
         torch.where(trial_open & airborne, axis_rate, torch.zeros_like(axis_rate)),
+      )
+      leg_deviation = torch.abs(
+        robot.data.joint_pos[:, leg_joint_ids]
+        - robot.data.default_joint_pos[:, leg_joint_ids]
+      )
+      peak_leg_deviation = torch.maximum(
+        peak_leg_deviation,
+        torch.where(
+          trial_open,
+          torch.max(leg_deviation, dim=1).values,
+          torch.zeros_like(peak_leg_deviation),
+        ),
+      )
+      leg_excess_l2 = torch.sum(torch.square(torch.relu(leg_deviation - 0.18)), dim=1)
+      peak_leg_excess_l2 = torch.maximum(
+        peak_leg_excess_l2,
+        torch.where(trial_open, leg_excess_l2, torch.zeros_like(peak_leg_excess_l2)),
       )
 
       post_active = torch.sum(command_term.command, dim=1) > 0.5
@@ -191,6 +216,10 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
     "mean_peak_rotation_turns": (peak_progress / TARGET_ANGLE).mean().item(),
     "mean_peak_height_delta_m": peak_height_delta.mean().item(),
     "mean_peak_axis_rate_rad_s": peak_axis_rate.mean().item(),
+    "mean_peak_leg_deviation_rad": peak_leg_deviation.mean().item(),
+    "p95_peak_leg_deviation_rad": torch.quantile(peak_leg_deviation, 0.95).item(),
+    "max_peak_leg_deviation_rad": peak_leg_deviation.max().item(),
+    "mean_peak_leg_excess_l2": peak_leg_excess_l2.mean().item(),
     "completion_four_wheel_contact_rate": completion_all_wheels.float().sum().item()
     / max(completed_count, 1),
     "completion_mean_gravity_error": completion_gravity_error[completion_mask].mean().item()
