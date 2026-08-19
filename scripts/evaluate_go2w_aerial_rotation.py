@@ -131,6 +131,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   # mean that the policy is again using a large leg swing for its flip.
   peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_leg_excess_l2 = torch.zeros(cfg.num_envs, device=base_env.device)
+  leg_envelope_violated = torch.zeros_like(trial_open)
   completion_gravity_error = torch.zeros(cfg.num_envs, device=base_env.device)
   completion_linear_speed = torch.zeros(cfg.num_envs, device=base_env.device)
   completion_angular_speed = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -177,6 +178,10 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
         peak_leg_excess_l2,
         torch.where(trial_open, leg_excess_l2, torch.zeros_like(peak_leg_excess_l2)),
       )
+      # Keep this separate from the generic failure rate.  The environment
+      # ends these episodes immediately, but the terminal state is still the
+      # clearest validation evidence that a policy tried to use a large swing.
+      leg_envelope_violated |= trial_open & torch.any(leg_deviation > 0.70, dim=1)
 
       post_active = torch.sum(command_term.command, dim=1) > 0.5
       # AerialRotationCommand clears a nonzero one-hot only after it has
@@ -220,6 +225,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
     "p95_peak_leg_deviation_rad": torch.quantile(peak_leg_deviation, 0.95).item(),
     "max_peak_leg_deviation_rad": peak_leg_deviation.max().item(),
     "mean_peak_leg_excess_l2": peak_leg_excess_l2.mean().item(),
+    "leg_envelope_violation_rate": leg_envelope_violated.float().mean().item(),
     "completion_four_wheel_contact_rate": completion_all_wheels.float().sum().item()
     / max(completed_count, 1),
     "completion_mean_gravity_error": completion_gravity_error[completion_mask].mean().item()
