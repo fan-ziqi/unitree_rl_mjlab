@@ -1105,16 +1105,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
     },
   )
-  # A command requests one rotation, not an indefinitely fast spin.  Ending
-  # a measured overrun gives PPO a clear failure signal and releases reset
-  # samples for the four-wheel landing outcome; it does not expose a phase to
-  # the actor or prescribe any joint action.
+  # A command requests one rotation, not an indefinitely fast spin.  The
+  # overrun failure starts only after compact full-turn discovery (16k global
+  # control steps), then gives PPO a clear landing-stage failure signal.  It
+  # does not expose a phase to the actor or prescribe any joint action.
   cfg.terminations["rotation_overrun"] = TerminationTermCfg(
     func=trick_rewards.aerial_rotation_overrun,
     params={
       "command_name": "trick",
       "target_angle": math.tau,
       "max_overrotation": 0.75,
+      "activation_step": 16_000,
     },
   )
   for group_name in ("actor", "critic"):
@@ -1257,7 +1258,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # only new, physically measured descent after a full turn, with normal
       # attitude and a reduced angular rate.  No joint pose or reference path
       # is supplied to the actor.
-      weight=120.0,
+      # Keep this zero through compact turn discovery.  Turning it on too
+      # early made the shared policy become conservative before all modes had
+      # crossed one complete turn; the curriculum below enables it after the
+      # first ballistic-rotation stage.
+      weight=0.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1372,6 +1377,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
             "rotation_rate_clearance_full": 0.24,
           },
         ),
+      },
+    ),
+    "aerial_landing_progress_weight": CurriculumTermCfg(
+      func=mdp.reward_weight,
+      params={
+        "reward_name": "post_turn_landing_progress",
+        "weight_stages": [
+          {"step": 0, "weight": 0.0},
+          # 16k synchronized steps is approximately 65M samples at 4096
+          # environments.  By this point the unmodified compact curriculum
+          # has demonstrated full turns; now optimize the real return-to-four
+          # wheels rather than suppressing initial momentum discovery.
+          {"step": 16_000, "weight": 120.0},
+        ],
       },
     ),
   }

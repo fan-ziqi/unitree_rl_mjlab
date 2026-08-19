@@ -1382,6 +1382,7 @@ def aerial_rotation_overrun(
   command_name: str,
   target_angle: float,
   max_overrotation: float,
+  activation_step: int = 0,
 ) -> torch.Tensor:
   """End an attempt that has spun irrecoverably past its one-turn target.
 
@@ -1391,8 +1392,13 @@ def aerial_rotation_overrun(
   indefinitely timed-out rollout.  This selects no joint pose, phase, or
   reference trajectory.
   """
-  if target_angle <= 0.0 or max_overrotation <= 0.0:
-    raise ValueError("turn and overrotation limits must be positive.")
+  if target_angle <= 0.0 or max_overrotation <= 0.0 or activation_step < 0:
+    raise ValueError("turn limits must be positive and activation_step non-negative.")
+  # Full-turn discovery needs broad exploration before a precise overrun
+  # failure becomes useful.  This is a training curriculum measured in global
+  # environment steps; it never appears in the actor observation.
+  if env.common_step_counter < activation_step:
+    return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
   command_term = env.command_manager.get_term(command_name)
   progress = getattr(
     command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
