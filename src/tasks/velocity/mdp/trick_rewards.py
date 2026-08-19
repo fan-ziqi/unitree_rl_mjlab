@@ -1253,6 +1253,58 @@ class AerialClearanceProgress:
     return progress / env.step_dt
 
 
+class AerialTakeoffVerticalSpeed:
+  """Reward a single compact ballistic launch, never continued airtime.
+
+  The clearance-progress term measures the eventual apex.  This companion
+  term pays only at the first loss of all wheel contacts, using the measured
+  world-frame upward base velocity at that instant.  It therefore favors the
+  physical quantity needed for a full aerial turn—launch impulse—without
+  specifying a joint posture, a phase clock, or a reference trajectory.
+  Dividing by ``step_dt`` makes the configured reward a one-off return under
+  RewardManager's normal time integration.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.was_airborne[env_ids] = False
+    self.previous_active[env_ids] = False
+    self.previous_mode[env_ids] = -1
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    sensor_name: str,
+    target_speed: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if target_speed <= 0.0:
+      raise ValueError("target_speed must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    mode = torch.argmax(command[:, :5], dim=1)
+    reset = env.episode_length_buf == 0
+    new_skill = active & ((~self.previous_active) | (mode != self.previous_mode) | reset)
+    clear = new_skill | reset | (~active)
+    self.was_airborne[clear] = False
+
+    airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+    liftoff = active & airborne & (~self.was_airborne)
+    vertical_speed = torch.clamp(asset.data.root_link_lin_vel_w[:, 2], min=0.0)
+    reward = liftoff.float() * torch.clamp(vertical_speed / target_speed, max=1.0)
+
+    self.was_airborne = torch.where(active, self.was_airborne | airborne, torch.zeros_like(airborne))
+    self.previous_active = active
+    self.previous_mode = torch.where(active, mode, self.previous_mode)
+    return reward / env.step_dt
+
+
 def aerial_airborne(
   env: "ManagerBasedRlEnv", command_name: str, sensor_name: str
 ) -> torch.Tensor:

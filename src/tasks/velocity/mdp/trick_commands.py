@@ -581,10 +581,10 @@ class AerialRotationCommandCfg(CommandTermCfg):
   # Reward gates only; neither is exposed to the policy as a phase, pose, or
   # additional command.  The completed maneuver remains one full normal-wheel
   # landing at ``target_angle`` throughout training.
-  rotation_progress_clearance_start: float = 0.06
-  rotation_progress_clearance_full: float = 0.28
-  rotation_rate_clearance_start: float = 0.08
-  rotation_rate_clearance_full: float = 0.24
+  rotation_progress_clearance_start: float = 0.12
+  rotation_progress_clearance_full: float = 0.34
+  rotation_rate_clearance_start: float = 0.14
+  rotation_rate_clearance_full: float = 0.32
 
   def build(self, env) -> AerialRotationCommand:
     return AerialRotationCommand(self, env)

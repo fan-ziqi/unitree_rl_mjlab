@@ -126,6 +126,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
   peak_progress = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_height_delta = torch.zeros(cfg.num_envs, device=base_env.device)
   peak_axis_rate = torch.zeros(cfg.num_envs, device=base_env.device)
+  takeoff_vertical_speed = torch.zeros(cfg.num_envs, device=base_env.device)
   # This does not prescribe a motion.  It makes the compact-wheel-leg
   # requirement measurable during validation: the task rejects an excursion
   # above 0.55 rad, so values near that bound show a large leg swing.
@@ -150,6 +151,10 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
       obs, _, dones, _ = env.step(policy(obs))
       contacts = _wheel_contacts(wheel_sensor)
       airborne = ~torch.any(contacts, dim=1)
+      first_liftoff = trial_open & airborne & ~ever_airborne
+      takeoff_vertical_speed[first_liftoff] = torch.clamp(
+        robot.data.root_link_lin_vel_w[first_liftoff, 2], min=0.0
+      )
       ever_airborne |= trial_open & airborne
       height_delta = robot.data.root_link_pos_w[:, 2] - default_height
       peak_height_delta = torch.maximum(
@@ -221,6 +226,7 @@ def run(cfg: EvalConfig) -> dict[str, float | int | str]:
     "mean_peak_rotation_turns": (peak_progress / TARGET_ANGLE).mean().item(),
     "mean_peak_height_delta_m": peak_height_delta.mean().item(),
     "mean_peak_axis_rate_rad_s": peak_axis_rate.mean().item(),
+    "mean_takeoff_vertical_speed_m_s": takeoff_vertical_speed.mean().item(),
     "mean_peak_leg_deviation_rad": peak_leg_deviation.mean().item(),
     "p95_peak_leg_deviation_rad": torch.quantile(peak_leg_deviation, 0.95).item(),
     "max_peak_leg_deviation_rad": peak_leg_deviation.max().item(),

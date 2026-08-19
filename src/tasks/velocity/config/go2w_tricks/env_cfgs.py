@@ -1107,14 +1107,25 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.AerialClearanceProgress,
-      # Bounded progress reward: a one-shot jump is encouraged, but hovering
-      # cannot out-earn the required four-wheel landing by staying airborne.
-      # The compact high-torque policy reached about 0.25 m and then struck
-      # the ground at roughly half a turn.  A 0.32-m one-shot target creates
-      # enough ballistic flight time for the measured 13--15-rad/s rotation,
-      # without rewarding hover duration or expanding joint travel.
-      weight=12.0,
-      params={"command_name": "trick", "min_clearance": 0.32},
+      # Bounded apex progress, made deliberately dominant until a genuine
+      # compact ballistic launch has been discovered.  v24 plateaued around
+      # 0.20--0.25 m and 0.3 turn: it could collect rotation reward before it
+      # had enough flight time.  A 0.34-m one-shot target is compatible with
+      # a full turn at 12--13 rad/s, yet cannot be farmed by hovering.
+      weight=30.0,
+      params={"command_name": "trick", "min_clearance": 0.34},
+    ),
+    "takeoff_vertical_speed": RewardTermCfg(
+      func=trick_rewards.AerialTakeoffVerticalSpeed,
+      # Pay the measured vertical impulse only once, on wheel liftoff.  This
+      # is an outcome reward rather than a prescribed leg trajectory; 2.6
+      # m/s corresponds to a roughly 0.34-m ideal ballistic apex.
+      weight=16.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_speed": 2.6,
+      },
     ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
@@ -1268,10 +1279,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
           {
             "step": 12_000,
             "idle_probability": 0.05,
-            "rotation_progress_clearance_start": 0.05,
-            "rotation_progress_clearance_full": 0.22,
-            "rotation_rate_clearance_start": 0.06,
-            "rotation_rate_clearance_full": 0.20,
+            "rotation_progress_clearance_start": 0.08,
+            "rotation_progress_clearance_full": 0.26,
+            "rotation_rate_clearance_start": 0.10,
+            "rotation_rate_clearance_full": 0.25,
           },
           # Focus the central exploration segment on the lagging modes, now
           # at the strict final ballistic gates.
@@ -1279,20 +1290,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
             "step": 27_500,
             "idle_probability": 0.05,
             "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28),
-            "rotation_progress_clearance_start": 0.06,
-            "rotation_progress_clearance_full": 0.28,
-            "rotation_rate_clearance_start": 0.08,
-            "rotation_rate_clearance_full": 0.24,
+            "rotation_progress_clearance_start": 0.12,
+            "rotation_progress_clearance_full": 0.34,
+            "rotation_rate_clearance_start": 0.14,
+            "rotation_rate_clearance_full": 0.32,
           },
           # Restore the deployment distribution for shared-policy retention.
           {
             "step": 58_500,
             "idle_probability": 0.05,
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
-            "rotation_progress_clearance_start": 0.06,
-            "rotation_progress_clearance_full": 0.28,
-            "rotation_rate_clearance_start": 0.08,
-            "rotation_rate_clearance_full": 0.24,
+            "rotation_progress_clearance_start": 0.12,
+            "rotation_progress_clearance_full": 0.34,
+            "rotation_rate_clearance_start": 0.14,
+            "rotation_rate_clearance_full": 0.32,
           },
         ),
       },
