@@ -1367,7 +1367,7 @@ def aerial_late_phase_recovery_exp(
   activation_angle: float,
   gravity_std: float,
   target_axis_rate: float,
-  axis_rate_std: float,
+  axis_rate_clip: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Reward a physically recoverable final part of an airborne turn.
@@ -1376,6 +1376,10 @@ def aerial_late_phase_recovery_exp(
   at launch.  It is not a reference trajectory: until roughly the last fifth
   of a completed turn this term is exactly zero.  Once there, it encourages
   the robot to return upright and bleed angular speed before wheel contact.
+  The braking component is deliberately linear rather than a narrow Gaussian:
+  at the 20--30 rad/s rates produced by early exploration, a Gaussian provides
+  numerically zero learning signal, whereas this still ranks a smaller actual
+  angular rate above a larger one.
   """
   asset: Entity = env.scene[asset_cfg.name]
   command_term = env.command_manager.get_term(command_name)
@@ -1400,10 +1404,14 @@ def aerial_late_phase_recovery_exp(
     torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
   )
   axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
-  recovery = torch.exp(
-    -gravity_error / gravity_std**2
-    -torch.square(axis_rate - target_axis_rate) / axis_rate_std**2
+  if axis_rate_clip <= 0.0:
+    raise ValueError("axis_rate_clip must be positive.")
+  rate_score = torch.clamp(
+    1.0 - torch.abs(axis_rate - target_axis_rate) / axis_rate_clip,
+    min=0.0,
+    max=1.0,
   )
+  recovery = torch.exp(-gravity_error / gravity_std**2) * rate_score
   return active.float() * airborne.float() * phase * recovery
 
 

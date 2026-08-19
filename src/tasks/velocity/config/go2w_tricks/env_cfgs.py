@@ -1078,7 +1078,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         # This is the braking half of the maneuver.  The old 6-rad/s target
         # actively trained a policy to keep spinning through touchdown.
         "target_axis_rate": 1.5,
-        "axis_rate_std": 2.5,
+        # Keep a useful ranking signal even for the 20--30-rad/s early
+        # attempts; success still requires the much lower landing rate below.
+        "axis_rate_clip": 30.0,
       },
     ),
     "soft_landing": RewardTermCfg(
