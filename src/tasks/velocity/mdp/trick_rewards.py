@@ -1321,18 +1321,42 @@ def aerial_positive_axis_rate(
   sensor_name: str,
   axes: tuple[tuple[float, float, float], ...],
   rate_clip: float,
+  stop_angle: float | None = None,
+  stop_angle_fade: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Reward directed aerial rotation without prescribing one exact rate."""
+  """Reward directed aerial rotation without prescribing one exact rate.
+
+  ``stop_angle`` lets the takeoff-drive term release authority before the
+  landing phase.  It is measured accumulated body rotation, not a desired
+  pose or a command supplied to the actor.
+  """
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   axes_tensor = torch.tensor(axes, dtype=asset.data.root_link_ang_vel_b.dtype, device=env.device)
   axis_rate = torch.sum(asset.data.root_link_ang_vel_b * axes_tensor[mode], dim=1)
   airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
-  return aerial_active(env, command_name) * airborne.float() * torch.clamp(
+  result = aerial_active(env, command_name) * airborne.float() * torch.clamp(
     axis_rate / rate_clip, min=0.0, max=1.0
   )
+  if stop_angle is not None:
+    if stop_angle <= 0.0:
+      raise ValueError("stop_angle must be positive when provided.")
+    command_term = env.command_manager.get_term(command_name)
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+    )
+    if stop_angle_fade < 0.0:
+      raise ValueError("stop_angle_fade must be non-negative.")
+    if stop_angle_fade == 0.0:
+      drive_gate = (progress < stop_angle).float()
+    else:
+      drive_gate = torch.clamp(
+        (stop_angle - progress) / stop_angle_fade, min=0.0, max=1.0
+      )
+    result = result * drive_gate
+  return result
 
 
 def aerial_landing_gravity_exp(

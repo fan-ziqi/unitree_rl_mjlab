@@ -1127,6 +1127,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "sensor_name": wheel_contact_cfg.name,
         "axes": _AERIAL_AXES,
         "rate_clip": 20.0,
+        # Drive only the takeoff/tumbling portion.  From about 0.7 turn the
+        # late-phase recovery and landing terms must be free to bleed angular
+        # momentum instead of competing with an always-on spin reward.
+        "stop_angle": 0.70 * math.tau,
+        "stop_angle_fade": 0.15 * math.tau,
       },
     ),
     "late_phase_recovery": RewardTermCfg(
