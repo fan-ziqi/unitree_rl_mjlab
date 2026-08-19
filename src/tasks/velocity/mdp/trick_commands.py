@@ -583,8 +583,12 @@ class AerialRotationCommandCfg(CommandTermCfg):
   # landing at ``target_angle`` throughout training.
   rotation_progress_clearance_start: float = 0.12
   rotation_progress_clearance_full: float = 0.34
-  rotation_rate_clearance_start: float = 0.14
-  rotation_rate_clearance_full: float = 0.32
+  # Angular rate is a momentum-shaping signal.  The stricter progress gate
+  # above decides when angle itself is worth rewarding, so rate must begin
+  # earlier in the ballistic arc to avoid asking PPO to accelerate only at
+  # the apex.
+  rotation_rate_clearance_start: float = 0.08
+  rotation_rate_clearance_full: float = 0.24
 
   def build(self, env) -> AerialRotationCommand:
     return AerialRotationCommand(self, env)

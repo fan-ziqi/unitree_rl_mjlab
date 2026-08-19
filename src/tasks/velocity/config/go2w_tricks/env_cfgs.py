@@ -1158,7 +1158,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # RewardManager integrates every term over the 20-ms control step.  A
       # lower weight was numerically present but too small to alter the
       # half-turn-and-crash local optimum relative to termination.
-      weight=45.0,
+      # This is momentum shaping, not the qualified-turn objective.  It
+      # starts at a reachable intermediate clearance so the policy can build
+      # angular momentum during flight; ``axis_progress`` below remains gated
+      # by the stricter 0.34-m final clearance.  v25 put both gates near the
+      # apex and improved height while starving the actual flip of drive.
+      weight=65.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -1281,8 +1286,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
             "idle_probability": 0.05,
             "rotation_progress_clearance_start": 0.08,
             "rotation_progress_clearance_full": 0.26,
-            "rotation_rate_clearance_start": 0.10,
-            "rotation_rate_clearance_full": 0.25,
+            "rotation_rate_clearance_start": 0.06,
+            "rotation_rate_clearance_full": 0.20,
           },
           # Focus the central exploration segment on the lagging modes, now
           # at the strict final ballistic gates.
@@ -1292,8 +1297,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
             "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28),
             "rotation_progress_clearance_start": 0.12,
             "rotation_progress_clearance_full": 0.34,
-            "rotation_rate_clearance_start": 0.14,
-            "rotation_rate_clearance_full": 0.32,
+            "rotation_rate_clearance_start": 0.08,
+            "rotation_rate_clearance_full": 0.24,
           },
           # Restore the deployment distribution for shared-policy retention.
           {
@@ -1302,8 +1307,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "rotation_progress_clearance_start": 0.12,
             "rotation_progress_clearance_full": 0.34,
-            "rotation_rate_clearance_start": 0.14,
-            "rotation_rate_clearance_full": 0.32,
+            "rotation_rate_clearance_start": 0.08,
+            "rotation_rate_clearance_full": 0.24,
           },
         ),
       },
