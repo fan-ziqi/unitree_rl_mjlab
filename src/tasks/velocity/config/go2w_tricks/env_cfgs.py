@@ -1112,7 +1112,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # the turn barrier.  Pay only the measured, commanded-direction angular
       # rate while airborne.  The actor still gets only its one-hot command;
       # no axis or rate target is exposed as an observation or command.
-      weight=15.0,
+      # RewardManager integrates every term over the 20-ms control step.  A
+      # lower weight was numerically present but too small to alter the
+      # half-turn-and-crash local optimum relative to termination.
+      weight=35.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
