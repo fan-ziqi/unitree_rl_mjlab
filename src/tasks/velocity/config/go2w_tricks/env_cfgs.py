@@ -1355,22 +1355,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
             "rotation_rate_clearance_start": 0.06,
             "rotation_rate_clearance_full": 0.20,
           },
-          # Focus the central exploration segment on the lagging modes, now
-          # at the strict final ballistic gates.
+          # Keep every one-hot equally likely throughout training.  This is a
+          # single fused policy, and reducing either side-flip command to 8%
+          # during the central exploration window made the policy optimize
+          # front/back/yaw at the expense of the required left/right skills.
+          # Only the hidden outcome gates become stricter here; command
+          # coverage remains the final 20% per maneuver distribution.
           {
             "step": 27_500,
             "idle_probability": 0.05,
-            "mode_probabilities": (0.28, 0.28, 0.08, 0.08, 0.28),
-            "rotation_progress_clearance_start": 0.12,
-            "rotation_progress_clearance_full": 0.34,
-            "rotation_rate_clearance_start": 0.08,
-            "rotation_rate_clearance_full": 0.24,
-          },
-          # Restore the deployment distribution for shared-policy retention.
-          {
-            "step": 58_500,
-            "idle_probability": 0.05,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "rotation_progress_clearance_start": 0.12,
             "rotation_progress_clearance_full": 0.34,
             "rotation_rate_clearance_start": 0.08,
