@@ -1217,6 +1217,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "axis_rate_std": 2.5,
       },
     ),
+    "post_turn_descent": RewardTermCfg(
+      func=trick_rewards.aerial_post_turn_descent,
+      # Dense bridge from the airborne braking signal to the strictly
+      # four-wheel-only touchdown reward.  It rewards only a measured
+      # full-turn, upright, low-spin descent—not a pose or a reference path.
+      weight=45.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "max_overrotation": 0.75,
+        "gravity_std": 0.75,
+        "axis_rate_std": 3.0,
+        "descent_speed": 1.5,
+      },
+    ),
     "over_rotation": RewardTermCfg(
       func=trick_rewards.AerialOverRotation,
       weight=-12.0,

@@ -1597,6 +1597,42 @@ def aerial_soft_landing_exp(
   )
 
 
+def aerial_post_turn_descent(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  target_angle: float,
+  max_overrotation: float,
+  gravity_std: float,
+  axis_rate_std: float,
+  descent_speed: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward a braked, upright descent only after a measured full turn.
+
+  This bridges airborne recovery and the existing four-wheel-only landing
+  terms.  It is a result condition (full measured rotation, upright attitude,
+  low spin, and downward base velocity), never a joint target or trajectory.
+  """
+  if target_angle <= 0.0 or max_overrotation <= 0.0 or descent_speed <= 0.0:
+    raise ValueError("turn and descent limits must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command_term = env.command_manager.get_term(command_name)
+  active = aerial_active(env, command_name) > 0.5
+  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+  progress = getattr(command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device))
+  launch_axis_w = getattr(command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device))
+  normal_gravity = torch.tensor((0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device)
+  gravity_error = torch.sum(torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1)
+  axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+  turn_gate = ((progress >= target_angle) & (progress <= target_angle + max_overrotation)).float()
+  upright_and_braked = torch.exp(
+    -gravity_error / gravity_std**2 - torch.square(axis_rate) / axis_rate_std**2
+  )
+  downward = torch.clamp(-asset.data.root_link_lin_vel_w[:, 2] / descent_speed, min=0.0, max=1.0)
+  return active.float() * airborne.float() * turn_gate * upright_and_braked * downward
+
+
 class AerialRotationProgress:
   """Reward high-clearance new directed progress, capped at one complete turn."""
 
