@@ -1086,8 +1086,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       func=trick_rewards.AerialClearanceProgress,
       # Bounded progress reward: a one-shot jump is encouraged, but hovering
       # cannot out-earn the required four-wheel landing by staying airborne.
-      weight=8.0,
-      params={"command_name": "trick", "min_clearance": 0.24},
+      # The compact high-torque policy reached about 0.25 m and then struck
+      # the ground at roughly half a turn.  A 0.32-m one-shot target creates
+      # enough ballistic flight time for the measured 13--15-rad/s rotation,
+      # without rewarding hover duration or expanding joint travel.
+      weight=12.0,
+      params={"command_name": "trick", "min_clearance": 0.32},
     ),
     "axis_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
@@ -1101,8 +1105,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "sensor_name": wheel_contact_cfg.name,
         "axes": _AERIAL_AXES,
         "target_angle": math.tau,
-        "clearance_start": 0.04,
-        "clearance_full": 0.20,
+        # Do not let a low compact hop earn the same angular-progress signal
+        # as a viable full-turn ballistic takeoff.
+        "clearance_start": 0.06,
+        "clearance_full": 0.28,
       },
     ),
     "directed_axis_rate": RewardTermCfg(
