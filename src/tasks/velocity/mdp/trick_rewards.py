@@ -1297,6 +1297,34 @@ def aerial_airborne_joint_excursion_l2(
   )
 
 
+def aerial_leg_excursion_exceeded(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  max_deviation: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Fail an active attempt whose physical leg excursion is no longer compact.
+
+  Position-action clipping limits requested targets but cannot constrain an
+  unpowered leg once a bad rollout hits the ground.  This validity condition
+  operates on measured joint state instead, so a policy cannot trade a large
+  collision-driven swing for rotation reward.  It does not select a pose,
+  a phase, or a direction-specific trajectory.
+  """
+  if max_deviation <= 0.0:
+    raise ValueError("max_deviation must be positive.")
+  if isinstance(asset_cfg.joint_ids, slice):
+    raise ValueError("aerial_leg_excursion_exceeded requires explicit joints.")
+  asset: Entity = env.scene[asset_cfg.name]
+  deviation = torch.abs(
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  return aerial_active(env, command_name).bool() & torch.any(
+    deviation > max_deviation, dim=1
+  )
+
+
 def aerial_axis_rate_exp(
   env: "ManagerBasedRlEnv",
   command_name: str,

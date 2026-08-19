@@ -97,9 +97,12 @@ def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
   articulation = robot_cfg.articulation
   assert articulation is not None
   gains = {
-    (".*hip_.*",): (80.0, 1.0),
-    (".*thigh_.*",): (70.0, 1.0),
-    (".*calf_.*",): (65.0, 1.0),
+    # The higher damping is intentional.  It leaves the effort-limited
+    # push-off unchanged, but absorbs rebound velocity after touchdown rather
+    # than letting a small position target turn into a large passive swing.
+    (".*hip_.*",): (80.0, 2.0),
+    (".*thigh_.*",): (70.0, 2.0),
+    (".*calf_.*",): (65.0, 2.0),
   }
   articulation.actuators = tuple(
     replace(
@@ -1046,10 +1049,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   # The airborne trick should not be won by opening and closing the legs over
   # their full joint range.  Keep enough calf travel for a compact push-off and
   # landing compliance, but shift useful contact authority to the wheels.  At
-  # the velocity actuator's 0.5 damping, the previous 5-rad/s wheel target
-  # supplied only about 2.5 Nm for a unit action.  A 20-rad/s target supplies
-  # useful wheel impulse without the immediate crashes caused by saturation at
-  # the full wheel effort limit during initial Gaussian exploration.
+  # the velocity actuator's 0.5 damping, a 20-rad/s target can supply only
+  # 10 Nm, less than half of the modelled 23.5-Nm wheel capability.  A
+  # 38-rad/s target lets compact, clipped actions use that contact authority
+  # rather than compensating with a large leg swing; effort limits still cap
+  # the torque safely below 23.5 Nm.
   # This is an action-space prior, not a prescribed joint pose or trajectory.
   cfg.actions["joint_pos"] = JointPositionActionCfg(
     entity_name="robot",
@@ -1064,8 +1068,24 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   cfg.actions["joint_vel"] = JointVelocityActionCfg(
     entity_name="robot",
     actuator_names=GO2W_WHEEL_JOINTS,
-    scale=20.0,
+    scale=38.0,
     use_default_offset=True,
+  )
+  # A bounded action target alone cannot prevent a falling articulated body
+  # from overshooting that target after a collision.  AS2W-like flips require
+  # a compact *physical* leg envelope, so leaving it is an immediate failed
+  # attempt—not merely a small cost traded against angular-rate reward.  The
+  # 0.70-rad threshold retains the full 0.55-rad calf push-off envelope plus
+  # normal contact compliance, while excluding the 1+ rad flailing observed
+  # in v17.  It is neutral across all one-hot directions and has no phase or
+  # reference pose.
+  cfg.terminations["leg_excursion"] = TerminationTermCfg(
+    func=trick_rewards.aerial_leg_excursion_exceeded,
+    params={
+      "command_name": "trick",
+      "max_deviation": 0.70,
+      "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
+    },
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
@@ -1196,11 +1216,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     # trajectory.
     "airborne_leg_excursion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
-      weight=-6.0,
+      weight=-8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "free_deviation": 0.18,
+        "free_deviation": 0.16,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
         "airborne_only": False,
       },
