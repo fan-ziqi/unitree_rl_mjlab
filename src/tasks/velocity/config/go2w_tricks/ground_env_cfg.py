@@ -99,7 +99,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=45.0,
+      # The m399 audit showed a stable 50--55 degree lean with the desired
+      # wheel pair down.  It is a useful discovery waypoint, but not the
+      # requested handstand, so make the final attitude decisively preferable.
+      weight=75.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -175,9 +178,34 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "activation_lengths": (0.0, 0.16, 0.16),
         "length_power": 2.0,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "minimum_gravity_alignment": 0.90,
+        # The old 0.90 gate lay beyond the observed low lean (about 0.89),
+        # making the extension result completely invisible at its local
+        # optimum.  This is a state threshold rather than a trajectory cue:
+        # it starts scoring the real support legs only once the body has
+        # already made most of the requested rotation.
+        "minimum_gravity_alignment": 0.75,
         "num_modes": 3,
         "asset_cfg": _SUPPORT_LEG_GEOMETRY,
+      },
+    ),
+    "two_wheel_root_clearance": RewardTermCfg(
+      func=trick_rewards.mode_support_wheel_root_clearance_min_exp,
+      weight=70.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        # These are measured wheel-to-root clearances for the physical Go2W
+        # support geometry, not a joint target.  They reject the low diagonal
+        # prop seen in evaluation while leaving every sufficiently extended
+        # leg configuration equally valid.
+        "minimum_clearances": (0.0, 0.30, 0.25),
+        "std": 0.10,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 2.0,
+        "minimum_gravity_alignment": 0.75,
+        "asset_cfg": _WHEEL_SITES,
       },
     ),
     "track_x": RewardTermCfg(
@@ -259,7 +287,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "stationary_angular_speed": RewardTermCfg(
       func=trick_rewards.mode_stationary_root_ang_speed,
-      weight=-3.0,
+      # The fixed normal-mode audit still had a persistent ~0.2 rad/s yaw
+      # drift.  This remains inactive for every nonzero x/yaw request.
+      weight=-12.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
