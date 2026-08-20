@@ -41,9 +41,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   cfg.commands = {
     "trick": AerialRotationCommandCfg(
       entity_name="robot",
-      # Every training episode is a requested maneuver.  The all-zero command
-      # remains the public idle encoding, but does not dilute aerial discovery.
-      idle_probability=0.0,
+      # All-zero is a real public idle command: it means the ordinary
+      # four-wheel default pose, not a residual flip/landing state.  Retain a
+      # small but explicit share of it during training so this transition is
+      # learned rather than being left undefined after a completed maneuver.
+      idle_probability=0.12,
       # This remains one fused five-one-hot policy.  Front/back are materially
       # harder than side/yaw turns in the measured rollouts, so give them more
       # samples without splitting policies or adding a mode-specific pose.
@@ -118,6 +120,26 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # potential is gated by *measured accumulated rotation*, never time or an
   # actor-side phase, so it does not prescribe a flip trajectory.
   cfg.rewards = {
+    "idle_four_wheel_default_stand": RewardTermCfg(
+      func=trick_rewards.aerial_idle_four_wheel_stand_exp,
+      weight=120.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "gravity_std": 0.20,
+        "linear_velocity_std": 0.12,
+        "angular_velocity_std": 0.35,
+      },
+    ),
+    "idle_default_joint_pos": RewardTermCfg(
+      func=trick_rewards.aerial_idle_default_joint_pos_exp,
+      weight=100.0,
+      params={
+        "command_name": "trick",
+        "std": 0.10,
+        "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
+      },
+    ),
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.AerialClearanceProgress,
       weight=45.0,

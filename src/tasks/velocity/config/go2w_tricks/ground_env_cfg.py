@@ -463,6 +463,29 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "sensor_name": wheel_contact_cfg.name,
       },
     ),
+    "four_wheel_idle_default_joint_pos": RewardTermCfg(
+      func=trick_rewards.stand_idle_default_joint_pos_exp,
+      # A normal one-hot with zero rate is the untriggered public state.  It
+      # must hold the model's actual four-wheel default pose, rather than a
+      # lingering two-wheel trick configuration from a prior command.
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "std": 0.10,
+        "asset_cfg": _NORMAL_LEG_JOINTS,
+      },
+    ),
+    "four_wheel_idle_stillness": RewardTermCfg(
+      func=trick_rewards.stand_idle_stillness_exp,
+      weight=50.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "linear_velocity_std": 0.12,
+        "angular_velocity_std": 0.35,
+      },
+    ),
     "static_two_wheel_gravity": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
       weight=35.0,

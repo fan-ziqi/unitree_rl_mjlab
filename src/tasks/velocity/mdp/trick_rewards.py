@@ -614,6 +614,49 @@ def stand_idle_contact_match(
   return stand_idle_mask(env, command_name, speed_deadband) * contacts.mean(dim=1)
 
 
+def stand_idle_default_joint_pos_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  std: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Hold the zero-rate normal command at the model's four-wheel reset pose."""
+  if std <= 0.0:
+    raise ValueError("std must be positive.")
+  if isinstance(asset_cfg.joint_ids, slice):
+    raise ValueError("stand_idle_default_joint_pos_exp needs explicit joints.")
+  asset: Entity = env.scene[asset_cfg.name]
+  delta = (
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  error = torch.mean(torch.square(delta), dim=1)
+  return stand_idle_mask(env, command_name, speed_deadband) * torch.exp(
+    -error / std**2
+  )
+
+
+def stand_idle_stillness_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  linear_velocity_std: float,
+  angular_velocity_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Make an untriggered normal command a standstill, not a coasting pose."""
+  if linear_velocity_std <= 0.0 or angular_velocity_std <= 0.0:
+    raise ValueError("idle velocity scales must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  linear_speed_sq = torch.sum(torch.square(asset.data.root_link_lin_vel_w), dim=1)
+  angular_speed_sq = torch.sum(torch.square(asset.data.root_link_ang_vel_w), dim=1)
+  return stand_idle_mask(env, command_name, speed_deadband) * torch.exp(
+    -linear_speed_sq / linear_velocity_std**2
+    -angular_speed_sq / angular_velocity_std**2
+  )
+
+
 def spin_stand_mask(
   env: "ManagerBasedRlEnv",
   command_name: str,
@@ -1393,6 +1436,63 @@ def mode_root_height_exp(
 
 def aerial_active(env: "ManagerBasedRlEnv", command_name: str) -> torch.Tensor:
   return (torch.sum(_command(env, command_name)[:, :5], dim=1) > 0.5).float()
+
+
+def aerial_idle_four_wheel_stand_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  gravity_std: float,
+  linear_velocity_std: float,
+  angular_velocity_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Score the all-zero aerial command only at a quiet normal four-wheel stand.
+
+  The aerial one-hot is an event.  Its all-zero encoding is therefore a real
+  public command, not an unspecified gap after an attempt.  This term makes
+  that gap recover to the exact ordinary support state without contributing to
+  any active flip or prescribing a trajectory for one.
+  """
+  if min(gravity_std, linear_velocity_std, angular_velocity_std) <= 0.0:
+    raise ValueError("idle stand scales must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  idle = aerial_active(env, command_name) <= 0.5
+  target = torch.tensor(
+    (0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - target), dim=1
+  )
+  linear_speed_sq = torch.sum(torch.square(asset.data.root_link_lin_vel_w), dim=1)
+  angular_speed_sq = torch.sum(torch.square(asset.data.root_link_ang_vel_w), dim=1)
+  wheel_contact = _wheel_contacts(env, sensor_name).float().mean(dim=1)
+  return idle.to(wheel_contact.dtype) * wheel_contact * torch.exp(
+    -gravity_error / gravity_std**2
+    -linear_speed_sq / linear_velocity_std**2
+    -angular_speed_sq / angular_velocity_std**2
+  )
+
+
+def aerial_idle_default_joint_pos_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  std: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Return an untriggered aerial policy to the physical default leg pose."""
+  if std <= 0.0:
+    raise ValueError("std must be positive.")
+  if isinstance(asset_cfg.joint_ids, slice):
+    raise ValueError("aerial_idle_default_joint_pos_exp needs explicit joints.")
+  asset: Entity = env.scene[asset_cfg.name]
+  delta = (
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  error = torch.mean(torch.square(delta), dim=1)
+  idle = aerial_active(env, command_name) <= 0.5
+  return idle.to(error.dtype) * torch.exp(-error / std**2)
 
 
 def _advance_qualified_aerial_rotation(
