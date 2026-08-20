@@ -158,6 +158,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "axis_rate_std": 6.0,
       },
     ),
+    "late_axis_rate": RewardTermCfg(
+      func=trick_rewards.aerial_late_axis_rate_abs,
+      weight=-15.0,
+      params={
+        "command_name": "trick",
+        # Begin only after the robot has earned almost all of its turn.  This
+        # preserves unconstrained launch discovery while making continued spin
+        # less valuable than a wheel-first recovery near touchdown.
+        "start_angle": 0.95 * math.tau,
+        "max_angle": 1.75 * math.tau,
+      },
+    ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
       weight=300.0,

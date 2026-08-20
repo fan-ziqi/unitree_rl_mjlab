@@ -1814,6 +1814,41 @@ def aerial_post_turn_descent(
   return active.float() * airborne.float() * turn_gate * upright_and_braked * downward
 
 
+def aerial_late_axis_rate_abs(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  start_angle: float,
+  max_angle: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Measure residual spin only after an aerial attempt has nearly turned.
+
+  The directed-progress term should be free to discover whatever launch rate
+  completes the first 95 percent of a turn.  At that point, however, continued
+  angular momentum is precisely what prevents a wheel-first recovery.  This
+  term is intentionally expressed in the command term's measured accumulated
+  angle and measured root angular velocity; it exposes neither quantity to the
+  actor and contains no timed reference or joint target.
+  """
+  if start_angle <= 0.0 or max_angle <= start_angle:
+    raise ValueError("late-axis-rate angles must be ordered positive values.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command_term = env.command_manager.get_term(command_name)
+  active = aerial_active(env, command_name) > 0.5
+  qualified_flight = getattr(
+    command_term, "was_airborne", torch.zeros_like(active)
+  )
+  progress = getattr(
+    command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+  )
+  launch_axis_w = getattr(
+    command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device)
+  )
+  axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+  late_turn = (progress >= start_angle) & (progress <= max_angle)
+  return active.float() * qualified_flight.float() * late_turn.float() * torch.abs(axis_rate)
+
+
 class AerialPostTurnLandingProgress:
   """Reward new physical descent after an upright, measured full turn.
 
