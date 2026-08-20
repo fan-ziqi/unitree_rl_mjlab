@@ -81,7 +81,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # front support and let the normal idle branch drift.  Preserve rear
       # exposure while putting the next zero-start discovery batch on normal
       # and front; this remains one mode-conditioned policy.
-      mode_probabilities=(0.40, 0.35, 0.25),
+      mode_probabilities=(0.35, 0.40, 0.25),
       idle_probability=0.45,
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
@@ -154,7 +154,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "normal_four_wheel_precision": RewardTermCfg(
       func=trick_rewards.mode_contact_match,
-      weight=80.0,
+      # V10 remained upright but often carried only a diagonal subset of its
+      # wheels.  A normal command is not complete until all four physical
+      # wheels share support; raise the existing exact-contact outcome rather
+      # than adding a posture target.
+      weight=200.0,
       params={
         "command_name": "trick",
         "modes": (0,),
@@ -182,7 +186,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,
-      weight=70.0,
+      # The front branch reaches the requested vertical gravity direction but
+      # still hides a 0.13 m folded support leg.  Rear and normal already meet
+      # this measured outcome, so make it decisive for all support modes.
+      weight=200.0,
       params={
         "command_name": "trick",
         # Normal zero command must be a properly supported four-wheel stand,
