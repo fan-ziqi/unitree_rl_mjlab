@@ -1063,9 +1063,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # The effort action is still clamped by the aerial-only actuator caps
       # above.  One raw action unit is already a useful compact-jump pulse;
       # PPO may choose its timing and sign freely.
-      r".*_hip_joint": 75.0,
-      r".*_thigh_joint": 75.0,
-      r".*_calf_joint": 80.0,
+      r".*_hip_joint": 90.0,
+      r".*_thigh_joint": 90.0,
+      r".*_calf_joint": 95.0,
     },
     hold_default_position=True,
   )
