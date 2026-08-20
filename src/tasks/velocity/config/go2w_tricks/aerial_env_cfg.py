@@ -148,26 +148,31 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "post_turn_wheel_touchdown": RewardTermCfg(
       func=trick_rewards.aerial_post_turn_wheel_touchdown_exp,
-      weight=80.0,
+      weight=120.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "target_angle": 0.85 * math.tau,
-        "max_overrotation": 0.90 * math.tau,
+        "target_angle": 0.95 * math.tau,
+        "max_overrotation": 0.75 * math.tau,
         "gravity_std": 0.60,
         "axis_rate_std": 6.0,
       },
     ),
-    "late_axis_rate": RewardTermCfg(
-      func=trick_rewards.aerial_late_axis_rate_abs,
-      weight=-15.0,
+    "post_turn_landing_progress": RewardTermCfg(
+      func=trick_rewards.AerialPostTurnLandingProgress,
+      weight=100.0,
       params={
         "command_name": "trick",
-        # Begin only after the robot has earned almost all of its turn.  This
-        # preserves unconstrained launch discovery while making continued spin
-        # less valuable than a wheel-first recovery near touchdown.
-        "start_angle": 0.95 * math.tau,
-        "max_angle": 1.75 * math.tau,
+        "sensor_name": wheel_contact_cfg.name,
+        # This potential-like signal begins only after the measured turn is
+        # essentially complete.  It rewards *new* wheelward descent while
+        # upright and slowing down, rather than penalising the angular
+        # momentum that is still needed to cross the final few degrees.
+        "target_angle": 0.98 * math.tau,
+        "max_overrotation": 0.75 * math.tau,
+        "gravity_std": 0.85,
+        "axis_rate_clip": 20.0,
+        "descent_distance": 0.30,
       },
     ),
     "completed_rotation": RewardTermCfg(
