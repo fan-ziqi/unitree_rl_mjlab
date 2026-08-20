@@ -1223,6 +1223,7 @@ class AerialClearanceProgress:
     self,
     env: "ManagerBasedRlEnv",
     command_name: str,
+    sensor_name: str,
     min_clearance: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
@@ -1239,13 +1240,19 @@ class AerialClearanceProgress:
 
     default_root_state = asset.data.default_root_state
     assert default_root_state is not None
+    # Height alone can be manufactured by pivoting around one or two wheels.
+    # Credit clearance only while *all* wheels are clear of terrain.  This is
+    # the earliest dense signal for a jump, without choosing how it launches.
+    airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
     normalized_clearance = torch.clamp(
       (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]) / min_clearance,
       min=0.0,
       max=1.0,
     )
     old_best = self.best_clearance.clone()
-    self.best_clearance = torch.maximum(self.best_clearance, normalized_clearance * active)
+    self.best_clearance = torch.maximum(
+      self.best_clearance, normalized_clearance * active * airborne
+    )
     progress = self.best_clearance - old_best
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)

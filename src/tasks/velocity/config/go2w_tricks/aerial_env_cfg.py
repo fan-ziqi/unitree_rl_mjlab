@@ -99,7 +99,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.AerialClearanceProgress,
       weight=45.0,
-      params={"command_name": "trick", "min_clearance": 0.28},
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "min_clearance": 0.28,
+      },
     ),
     "rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
