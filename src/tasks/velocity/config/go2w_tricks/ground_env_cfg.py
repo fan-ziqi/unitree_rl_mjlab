@@ -135,7 +135,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # request.
     "normal_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=120.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "modes": (0,),
