@@ -91,10 +91,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     },
   )
 
-  # Three result-space objectives: get airborne, turn in the requested signed
-  # direction, and touch down normally.  The strict completion bonus is the
-  # only success signal; the broad landing score only supplies a useful basin
-  # for the first legal four-wheel recovery.
+  # Result-space objectives: get airborne, turn in the requested signed
+  # direction, then recover to a braked normal-wheel touchdown.  The recovery
+  # signals are gated by *measured accumulated rotation*, never time or an
+  # actor-side phase, so they do not prescribe a flip trajectory.
   cfg.rewards = {
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.AerialClearanceProgress,
@@ -129,6 +129,35 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "axis_rate_std": 6.0,
       },
     ),
+    # A strict four-wheel success is too sparse to teach the final braking
+    # phase.  Once an attempt has physically earned most of a turn, reward a
+    # normal-attitude, low-spin descent and then partial wheel touchdown.  A
+    # premature body/leg impact is still an immediate illegal-contact failure.
+    "post_turn_braked_descent": RewardTermCfg(
+      func=trick_rewards.aerial_post_turn_descent,
+      weight=60.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": 0.75 * math.tau,
+        "max_overrotation": math.tau,
+        "gravity_std": 0.60,
+        "axis_rate_std": 6.0,
+        "descent_speed": 1.5,
+      },
+    ),
+    "post_turn_wheel_touchdown": RewardTermCfg(
+      func=trick_rewards.aerial_post_turn_wheel_touchdown_exp,
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": 0.85 * math.tau,
+        "max_overrotation": 0.90 * math.tau,
+        "gravity_std": 0.60,
+        "axis_rate_std": 6.0,
+      },
+    ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
       weight=300.0,
@@ -145,13 +174,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "compact_leg_motion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
-      weight=-32.0,
+      weight=-20.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "free_deviation": 0.12,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
-        "airborne_only": False,
+        # Takeoff and landing need a physically discovered leg stroke.  Only
+        # penalise flailing while wheel-free, where compactness is visible and
+        # does not suppress recovery motion.
+        "airborne_only": True,
       },
     ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
