@@ -204,6 +204,14 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     post_turn_best_angular_speed = torch.full(
         (cfg.num_envs,), float("inf"), device=base_env.device
     )
+    # Averages of separately minimized speed, attitude, and contact can make
+    # different instants of one failed rollout look like a stable landing.
+    # Record their simultaneous occurrence and the command term's actual
+    # consecutive-settle accumulator instead.
+    strict_landing_seen = torch.zeros_like(trial_open)
+    peak_command_landing_settle_time = torch.zeros(
+        cfg.num_envs, device=base_env.device
+    )
     # Keep the physical failure modes separate.  A single ``illegal_reset``
     # number tells us that an attempt failed but cannot distinguish a trunk
     # collision from a compactness violation or a deliberate over-rotation
@@ -321,6 +329,35 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     torch.minimum(post_turn_best_angular_speed, angular_speed),
                     post_turn_best_angular_speed,
                 )
+            strict_landing_now = (
+                trial_open
+                & (command_term._rotation_progress >= TARGET_ANGLE)
+                & (
+                    command_term._rotation_progress
+                    <= TARGET_ANGLE + command_cfg.max_overrotation
+                )
+                & torch.all(contacts, dim=1)
+                & (
+                    torch.sum(
+                        torch.square(robot.data.projected_gravity_b - normal_gravity),
+                        dim=1,
+                    )
+                    < command_cfg.landing_gravity_error_limit
+                )
+                & (
+                    torch.linalg.vector_norm(robot.data.root_link_lin_vel_w, dim=1)
+                    < command_cfg.landing_linear_velocity_limit
+                )
+                & (
+                    torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
+                    < command_cfg.landing_angular_velocity_limit
+                )
+            )
+            strict_landing_seen |= strict_landing_now
+            peak_command_landing_settle_time = torch.maximum(
+                peak_command_landing_settle_time,
+                command_term._landing_settle_time,
+            )
             # AerialRotationCommand clears a nonzero one-hot only after it has
             # observed the requested full turn, four-wheel contact, normal gravity,
             # velocity limits, and the configured settle interval.
@@ -409,6 +446,19 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             else float("inf"),
             "post_turn_four_wheel_touchdown_rate": post_turn_touchdown_mask.float()
             .mean()
+            .item(),
+            "strict_landing_state_rate": strict_landing_seen[mask].float()
+            .mean()
+            .item(),
+            "mean_peak_command_landing_settle_time_s": peak_command_landing_settle_time[
+                mask
+            ]
+            .mean()
+            .item(),
+            "max_peak_command_landing_settle_time_s": peak_command_landing_settle_time[
+                mask
+            ]
+            .max()
             .item(),
             "post_turn_best_gravity_error": post_turn_best_gravity_error[
                 post_turn_touchdown_mask
