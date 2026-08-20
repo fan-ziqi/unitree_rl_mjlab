@@ -108,6 +108,22 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "num_modes": 3,
       },
     ),
+    # The normal one-hot is a first-class commanded stance, not a fall-back
+    # idle behaviour.  Give its all-wheel attitude the same sharp terminal
+    # signal as front/rear, otherwise the two handstand-only terms dominate
+    # the shared actor and it learns to roll through a zero-speed normal
+    # request.
+    "normal_gravity_precision": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment,
+      weight=45.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "power": 8.0,
+        "num_modes": 3,
+      },
+    ),
     "support_wheels": RewardTermCfg(
       func=trick_rewards.mode_contact_match,
       weight=35.0,
@@ -117,6 +133,19 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "num_modes": 3,
+      },
+    ),
+    "normal_four_wheel_precision": RewardTermCfg(
+      func=trick_rewards.mode_contact_match,
+      weight=35.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "sensor_name": wheel_contact_cfg.name,
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
       },
     ),
     # These only describe visible wheel/leg geometry.  They are gated on an
@@ -193,6 +222,52 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "command_name": "trick",
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 4.0,
+      },
+    ),
+    # Zero x/yaw is a meaningful command in every one-hot.  The ordinary
+    # trackers cover it but are too weak once a two-wheel reward has been
+    # found; these terms are active only for an actual zero command and only
+    # after the requested gravity direction has been reached.  They constrain
+    # measured root motion, never a joint position, action, or trajectory.
+    "stationary_speed": RewardTermCfg(
+      func=trick_rewards.stance_stationary_ground_speed_exp,
+      weight=40.0,
+      params={
+        "command_name": "trick",
+        "modes": (0, 1, 2),
+        "velocity_deadband": 0.04,
+        "std": 0.15,
+        "lateral_weight": 2.0,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+      },
+    ),
+    "stationary_speed_error": RewardTermCfg(
+      func=trick_rewards.stance_stationary_ground_speed_abs_error,
+      weight=-45.0,
+      params={
+        "command_name": "trick",
+        "modes": (0, 1, 2),
+        "velocity_deadband": 0.04,
+        "lateral_weight": 2.0,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+        "minimum_gravity_alignment": 0.90,
+      },
+    ),
+    "stationary_angular_speed": RewardTermCfg(
+      func=trick_rewards.mode_stationary_root_ang_speed,
+      weight=-3.0,
+      params={
+        "command_name": "trick",
+        "modes": (0, 1, 2),
+        "velocity_deadband": 0.04,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 2.0,
+        "minimum_gravity_alignment": 0.90,
       },
     ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
