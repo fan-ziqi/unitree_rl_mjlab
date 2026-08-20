@@ -827,25 +827,29 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            # Every branch starts from the same four-wheel default state.
+            # Give the two difficult side supports equal discovery budget,
+            # then bias later stages toward the rate-controlled modes after
+            # their static support has had a chance to emerge.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 1.0,
             "spin_rate_range": (2.0, 4.0),
           },
           {
             "step": 32_000,
-            "mode_probabilities": (0.35, 0.23, 0.23, 0.095, 0.095),
+            "mode_probabilities": (0.25, 0.20, 0.20, 0.175, 0.175),
             "spin_idle_probability": 0.65,
             "spin_rate_range": (2.0, 4.0),
           },
           {
             "step": 48_000,
-            "mode_probabilities": (0.38, 0.19, 0.19, 0.12, 0.12),
+            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
             "spin_idle_probability": 0.40,
             "spin_rate_range": (4.0, 6.0),
           },
           {
             "step": 56_000,
-            "mode_probabilities": (0.38, 0.19, 0.19, 0.12, 0.12),
+            "mode_probabilities": (0.35, 0.20, 0.20, 0.125, 0.125),
             "spin_idle_probability": 0.25,
             "spin_rate_range": (5.0, 9.0),
           },
