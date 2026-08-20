@@ -191,6 +191,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_angle": math.tau + 0.75,
       },
     ),
+    # V52 restored all five one-hot directions, but most rollouts cross a
+    # full turn with more momentum than the contact-only term can remove.
+    # Begin an intentionally tiny state cost only in the final five percent
+    # of flight.  Unlike V51's 0.80-turn cost, it does not compete with the
+    # directional launch or the bulk of the turn.
+    "late_freeflight_axis_rate": RewardTermCfg(
+      func=trick_rewards.aerial_late_axis_rate_abs,
+      weight=-1.0,
+      params={
+        "command_name": "trick",
+        "start_angle": 0.95 * math.tau,
+        "max_angle": math.tau + 0.75,
+      },
+    ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
       weight=300.0,
