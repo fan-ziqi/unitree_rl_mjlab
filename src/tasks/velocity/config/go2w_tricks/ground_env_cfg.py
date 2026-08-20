@@ -419,10 +419,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   """Five support one-hots plus one signed spin-rate command.
 
   The normal one-hot with zero rate is ordinary four-wheel idle.  Its nonzero
-  rate requests the dynamic two-wheel Thomas-like orbit.  The AS2-W reference
-  shows its high-speed contact turn on front/rear wheel pairs, whose support
-  midpoint stays fixed while the body yaws about world-down.  Left/right
-  remain static two-wheel supports in this environment.
+  rate requests a dynamic tall front-*or*-rear two-wheel local pivot.  The
+  AS2-W reference shows its high-speed contact turn on a laterally separated
+  front/rear wheel pair whose midpoint stays fixed while the body turns about
+  world-down.  Left/right remain static two-wheel supports in this environment.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   _configure_fast_discovery(cfg)
@@ -530,56 +530,49 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "gravity_power": 4.0,
       },
     ),
-    # The normal-mode spin is deliberately posture-free: it asks only for a
-    # horizontal body and two current wheel supports, allowing the pair to
-    # change over the orbit rather than hard-coding an axis or pose.
-    "dynamic_spin_support": RewardTermCfg(
-      func=trick_rewards.spin_dynamic_support_exp,
+    # A normal nonzero rate is the AS2-W-style local contact pivot.  It can
+    # settle on either transverse high pair; neither command nor observation
+    # tells the actor which one to choose.  These are measured final outcomes,
+    # not a joint target, a contact sequence, or a reference trajectory.
+    "dynamic_tall_pair_support": RewardTermCfg(
+      func=trick_rewards.dynamic_tall_pair_support_exp,
       weight=100.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
-        # This is deliberately broader than the rate gate below.  From the
-        # ordinary normal reset it gives PPO a usable outcome gradient toward
-        # a horizontal two-wheel orbit; spin-rate credit remains strict, so a
-        # merely tilted four-wheel robot cannot satisfy the command.
-        "horizontal_gravity_std": 0.75,
       },
     ),
-    "dynamic_spin_horizontal_precision": RewardTermCfg(
-      func=trick_rewards.spin_dynamic_horizontal_precision_exp,
-      # A modest terminal horizontal preference removes the low crouch while
-      # leaving the broad discovery signal dominant during the normal-mode
-      # transition.
-      weight=40.0,
-      params={
-        "command_name": "trick",
-        "speed_deadband": 0.20,
-        "std": 0.28,
-      },
-    ),
-    "dynamic_spin_rate": RewardTermCfg(
-      func=trick_rewards.spin_dynamic_rate_exp,
+    "dynamic_tall_pair_rate": RewardTermCfg(
+      func=trick_rewards.dynamic_tall_pair_spin_rate_exp,
       weight=45.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
         "std": 1.0,
-        "horizontal_gravity_std": 0.45,
       },
     ),
-    "dynamic_support_cycle": RewardTermCfg(
-      func=trick_rewards.SpinSupportCycle,
-      # A true Thomas-like orbit must change a settled support pair.  V8's
-      # nearly zero event reward allowed a static low two-wheel compromise.
-      weight=8.0,
+    "dynamic_tall_pair_rate_error": RewardTermCfg(
+      func=trick_rewards.dynamic_tall_pair_spin_rate_abs_error,
+      weight=-30.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
-        "horizontal_gravity_limit": 0.70,
-        "min_transition_interval": 0.12,
+      },
+    ),
+    "dynamic_tall_pair_turn_center_stillness": RewardTermCfg(
+      func=trick_rewards.DynamicTallPairSupportCenterStillness,
+      # Root motion is legitimate while the trunk turns around the wheel axle.
+      # The support midpoint, rather than the root, is the local-pivot test.
+      weight=110.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
+        "speed_std": 0.25,
+        "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
       },
     ),
     "front_rear_spin_rate": RewardTermCfg(
@@ -617,7 +610,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "command_name": "trick",
         "speed_deadband": 0.20,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "dynamic_horizontal_gravity_std": 0.45,
         "fixed_gravity_power": 4.0,
       },
     ),

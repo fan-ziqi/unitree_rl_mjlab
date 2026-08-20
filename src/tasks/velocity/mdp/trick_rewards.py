@@ -666,6 +666,159 @@ def spin_stand_mask(
   return ((command[:, 0] > 0.5) & (torch.abs(command[:, 5]) > speed_deadband)).float()
 
 
+def _dynamic_tall_pair_scores(
+  env: "ManagerBasedRlEnv",
+  sensor_name: str,
+  asset_cfg: SceneEntityCfg,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  """Score either laterally separated high two-wheel support.
+
+  The normal moving command intentionally does not name a front or rear pair.
+  AS2-W's rapid contact pivot can use either transverse pair, so the actor is
+  free to choose the viable one.  The two choices remain task-private reward
+  semantics, not additional command or observation coordinates.
+
+  Returns a dense discovery score, an exact final-state score, and the chosen
+  pair index (zero front, one rear).
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  contacts = _wheel_contacts(env, sensor_name)
+  pair_contacts = torch.tensor(
+    ((True, True, False, False), (False, False, True, True)),
+    dtype=torch.bool,
+    device=env.device,
+  )
+  # Matching each of the four physical contact states gives a shaped score
+  # from the ordinary four-wheel reset; the exact copy gates rate/centre
+  # rewards so a three/four-wheel yaw cannot count as the contact pivot.
+  contact_match = torch.mean(
+    (contacts.unsqueeze(1) == pair_contacts.unsqueeze(0)).float(), dim=2
+  )
+  exact_contact = torch.all(
+    contacts.unsqueeze(1) == pair_contacts.unsqueeze(0), dim=2
+  ).float()
+  down = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  targets = torch.tensor(
+    ((1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)), dtype=down.dtype, device=env.device
+  )
+  alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(down.unsqueeze(1) * targets.unsqueeze(0), dim=2)),
+    0.0,
+    1.0,
+  )
+  dense = contact_match * alignment
+  dense_score, pair_index = torch.max(dense, dim=1)
+  exact_score = exact_contact.gather(1, pair_index.unsqueeze(1)).squeeze(1) * alignment.gather(
+    1, pair_index.unsqueeze(1)
+  ).squeeze(1).pow(4.0)
+  return dense_score, exact_score, pair_index
+
+
+def dynamic_tall_pair_support_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  sensor_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Discover either valid tall front/rear support for normal-rate spin."""
+  dense_score, _, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  return spin_stand_mask(env, command_name, speed_deadband) * dense_score
+
+
+def dynamic_tall_pair_spin_rate_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  sensor_name: str,
+  std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Track world-down turn rate only after a valid tall support is reached."""
+  if std <= 0.0:
+    raise ValueError("std must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  _, exact_score, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  down = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
+  rate_score = torch.exp(-torch.square(command[:, 5] - actual_rate) / std**2)
+  return spin_stand_mask(env, command_name, speed_deadband) * exact_score * rate_score
+
+
+def dynamic_tall_pair_spin_rate_abs_error(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  sensor_name: str,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Non-saturating local-pivot rate error, gated by valid tall support."""
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  _, exact_score, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  down = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
+  return (
+    spin_stand_mask(env, command_name, speed_deadband)
+    * exact_score
+    * torch.abs(command[:, 5] - actual_rate)
+  )
+
+
+class DynamicTallPairSupportCenterStillness:
+  """Keep the selected front/rear high-support midpoint local while turning."""
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.previous_center = torch.zeros(env.num_envs, 2, device=env.device)
+    self.previous_pair = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+    self.initialized = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.previous_center[env_ids] = 0.0
+    self.previous_pair[env_ids] = -1
+    self.initialized[env_ids] = False
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    speed_deadband: float,
+    sensor_name: str,
+    speed_std: float,
+    asset_cfg: SceneEntityCfg,
+  ) -> torch.Tensor:
+    if speed_std <= 0.0:
+      raise ValueError("speed_std must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("DynamicTallPairSupportCenterStillness needs FL/FR/RL/RR sites.")
+    _, exact_score, pair_index = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+    pair_indices = torch.tensor(((0, 1), (2, 3)), device=env.device)
+    wheel_pos = asset.data.site_pos_w[:, asset_cfg.site_ids, :2]
+    batch = torch.arange(env.num_envs, device=env.device)
+    center = 0.5 * (
+      wheel_pos[batch, pair_indices[pair_index, 0]]
+      + wheel_pos[batch, pair_indices[pair_index, 1]]
+    )
+    initialized = self.initialized.clone()
+    center_speed = torch.linalg.vector_norm(
+      (center - self.previous_center) / env.step_dt, dim=1
+    )
+    unchanged_pair = pair_index == self.previous_pair
+    self.previous_center.copy_(center)
+    self.previous_pair.copy_(pair_index)
+    self.initialized[:] = True
+    stillness = torch.exp(-torch.square(center_speed) / speed_std**2)
+    return (
+      spin_stand_mask(env, command_name, speed_deadband)
+      * initialized.to(stillness.dtype)
+      * unchanged_pair.to(stillness.dtype)
+      * exact_score
+      * stillness
+    )
+
+
 def fixed_pair_spin_mask(
   env: "ManagerBasedRlEnv",
   command_name: str,
@@ -850,37 +1003,34 @@ def commanded_spin_rate_abs_error(
   command_name: str,
   speed_deadband: float,
   gravity_targets: tuple[tuple[float, float, float], ...],
-  dynamic_horizontal_gravity_std: float,
   fixed_gravity_power: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Non-saturating rate error for normal and front/rear spin commands.
+  """Non-saturating rate error for explicit front/rear spin commands.
 
   The Gaussian spin score is useful for precise control but almost flat when
   an untrained policy misses a fast requested rate.  This companion ranks
-  smaller measured error above larger error without exposing an axis: the
-  world-down direction is read from the robot's own gravity vector.
+  smaller measured error above larger error.  Normal-rate spin has a separate
+  two-choice tall-support gate, because it is free to choose front *or* rear.
   """
-  if speed_deadband < 0.0 or dynamic_horizontal_gravity_std <= 0.0 or fixed_gravity_power < 0.0:
+  if speed_deadband < 0.0 or fixed_gravity_power < 0.0:
     raise ValueError("invalid spin-rate posture-gate parameters.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
-  moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
+  moving = ((mode == 1) | (mode == 2)) & (torch.abs(command[:, 5]) > speed_deadband)
   down = asset.data.projected_gravity_b
   down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1.0e-6)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
-  horizontal = torch.exp(
-    -torch.square(down[:, 2]) / dynamic_horizontal_gravity_std**2
-  )
   targets = torch.tensor(gravity_targets, dtype=down.dtype, device=env.device)
   fixed_alignment = torch.clamp(
     0.5 * (1.0 + torch.sum(down * targets[mode], dim=1)), 0.0, 1.0
   )
-  posture_gate = torch.where(
-    mode == 0, horizontal, fixed_alignment.pow(fixed_gravity_power)
+  return (
+    moving.to(actual_rate.dtype)
+    * fixed_alignment.pow(fixed_gravity_power)
+    * torch.abs(command[:, 5] - actual_rate)
   )
-  return moving.to(actual_rate.dtype) * posture_gate * torch.abs(command[:, 5] - actual_rate)
 
 
 class FixedPairSupportCenterStillness:
