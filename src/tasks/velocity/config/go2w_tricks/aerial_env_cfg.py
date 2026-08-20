@@ -175,6 +175,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "descent_distance": 0.30,
       },
     ),
+    # Once most of the measured turn is complete, continuing to accumulate
+    # angular momentum is no longer useful.  This is intentionally a gentle
+    # state-cost rather than a desired-rate trajectory: PPO remains free to
+    # choose its entire launch, flip, and recovery coordination, but a
+    # wheel-first landing ranks above an equally complete high-spin landing.
+    "late_axis_rate": RewardTermCfg(
+      func=trick_rewards.aerial_late_axis_rate_abs,
+      weight=-3.0,
+      params={
+        "command_name": "trick",
+        "start_angle": 0.80 * math.tau,
+        "max_angle": math.tau + 0.75,
+      },
+    ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
       weight=300.0,
