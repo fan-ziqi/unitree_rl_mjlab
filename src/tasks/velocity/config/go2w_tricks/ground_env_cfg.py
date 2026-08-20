@@ -401,26 +401,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "minimum_gravity_alignment": 0.90,
       },
     ),
-    # The correct normal zero-command reset is already a physical four-wheel
-    # support state.  Penalise only residual controller effort in that exact
-    # command case, so the actor cannot improve a shared representation by
-    # continually issuing a non-zero action that lifts one wheel.  This is
-    # neither a joint target nor a prescribed normal pose, and it is inactive
-    # during every two-wheel rise and every requested x/yaw motion.
-    "normal_stationary_action_effort": RewardTermCfg(
-      func=trick_rewards.stance_stationary_action_l2,
-      # The spin warmup learned the literal zero residual only after this
-      # term reached -80.  At -40, the locomotion velocity trackers still
-      # preferred a self-propelled normal solution despite a physical
-      # zero-action four-wheel stand being available.
-      weight=-80.0,
-      params={
-        "command_name": "trick",
-        "modes": (0,),
-        "velocity_deadband": 0.04,
-        "num_modes": 3,
-      },
-    ),
     "normal_default_leg_geometry": RewardTermCfg(
       func=trick_rewards.mode_default_joint_pos_excess_exp,
       # Wheel driving needs only small suspension-like leg motion.  Keep the
@@ -779,23 +759,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         # freeze the final part of the four-wheel-to-two-wheel rise.  The
         # strict evaluator accepts 0.97, so keep a small buffer below that.
         "minimum_gravity_alignment": 0.96,
-      },
-    ),
-    # The normal one-hot at zero spin starts in a valid four-wheel support.
-    # Prefer its zero residual controller over needless leg actuation, but
-    # leave every actual spin request (including dynamic normal) unrestricted.
-    "normal_idle_action_effort": RewardTermCfg(
-      func=trick_rewards.stance_stationary_action_l2,
-      # A m200 fixed-command audit showed that a small residual action was
-      # enough to lose the four-wheel default support.  Normal+rate=0 has an
-      # unambiguous controller target (all residuals zero), so enforce it
-      # strongly while leaving every non-zero spin command unrestricted.
-      weight=-80.0,
-      params={
-        "command_name": "trick",
-        "modes": (0,),
-        "velocity_deadband": 0.20,
-        "num_modes": 5,
       },
     ),
     "spin_planar_drift": RewardTermCfg(
