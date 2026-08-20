@@ -728,10 +728,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
   # This is a command-distribution curriculum, not a trajectory curriculum.
+  # ``env.common_step_counter`` counts *50-Hz controller steps*, not the
+  # vectorized number of environment transitions.  The thresholds below are
+  # consequently 32k/48k/56k controller steps (about PPO iterations
+  # 500/750/875 with 64 rollout steps).  Keeping this explicit is important:
+  # the former 100M-style values inadvertently left a 1,000-iteration run in
+  # the all-static stage forever.
+  #
   # First the *same actor* learns all four static wheel stands from default
-  # four-wheel resets.  It then sees a gentle signed rate and finally the
-  # AS2-W-speed range.  The command itself is unchanged throughout:
-  # five-way one-hot plus one scalar rate.
+  # four-wheel resets.  Normal four-wheel zero-rate is deliberately the most
+  # common initial branch: it is the public idle behaviour and must remain
+  # the model's exact default pose rather than a transient between tricks.
+  # The actor then sees a gentle signed rate and finally the AS2-W-speed
+  # range.  The command itself is unchanged throughout: five-way one-hot
+  # plus one scalar rate.
   cfg.curriculum = {
     "spin_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_spin_command_stages,
@@ -740,25 +750,25 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.12, 0.24, 0.24, 0.20, 0.20),
+            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
             "spin_idle_probability": 1.0,
             "spin_rate_range": (2.0, 4.0),
           },
           {
-            "step": 100_000_000,
-            "mode_probabilities": (0.18, 0.25, 0.25, 0.16, 0.16),
+            "step": 32_000,
+            "mode_probabilities": (0.32, 0.20, 0.20, 0.14, 0.14),
             "spin_idle_probability": 0.65,
             "spin_rate_range": (2.0, 4.0),
           },
           {
-            "step": 220_000_000,
-            "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
+            "step": 48_000,
+            "mode_probabilities": (0.35, 0.20, 0.20, 0.125, 0.125),
             "spin_idle_probability": 0.40,
             "spin_rate_range": (4.0, 6.0),
           },
           {
-            "step": 320_000_000,
-            "mode_probabilities": (0.24, 0.23, 0.23, 0.15, 0.15),
+            "step": 56_000,
+            "mode_probabilities": (0.38, 0.19, 0.19, 0.12, 0.12),
             "spin_idle_probability": 0.25,
             "spin_rate_range": (5.0, 9.0),
           },
