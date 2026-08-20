@@ -26,7 +26,7 @@ MODE_NAMES = ("front", "back", "left", "right", "yaw")
 TARGET_ANGLE = math.tau
 # Keep validation aligned with the aerial environment's physical compactness
 # termination.  This is a measured quality constraint, not an actor input.
-COMPACT_LEG_DEVIATION_LIMIT = 0.32
+COMPACT_LEG_DEVIATION_LIMIT = 0.55
 MetricDict = dict[str, float | int | str]
 
 

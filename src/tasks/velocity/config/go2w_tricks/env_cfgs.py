@@ -81,29 +81,27 @@ _AERIAL_AXES = (
 
 
 def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Configure compliant, torque-driven legs for compact aerial maneuvers.
+  """Configure compact, medium-impedance aerial leg actuators.
 
-  Aerial actions use direct torque residuals (defined below), while these
-  gains supply only a soft return to the ordinary four-wheel reset posture.
-  This preserves the small physical leg envelope without the visual and
-  physical artefact of a high-stiffness PD target locking every leg in place.
+  The policy controls bounded position residuals around the normal four-wheel
+  posture.  These gains are strong enough for a short launch pulse but far
+  below the former cap-reaching gains, so the legs can flex and return instead
+  of appearing welded to a target.
   """
   robot_cfg = cfg.scene.entities["robot"]
   articulation = robot_cfg.articulation
   assert articulation is not None
   gains = {
-    # A small neutral spring keeps a zero-action robot standing normally but
-    # does not dominate the policy torque pulse.  In v40 the gains were
-    # chosen to hit the cap from a tiny position residual; that made the legs
-    # look pinned instead of giving the short, lively AS2-W-type response.
-    (".*hip_.*",): (55.0, 2.0),
-    (".*thigh_.*",): (45.0, 2.0),
-    (".*calf_.*",): (38.0, 2.5),
+    # The v40 gains [750, 565, 435] pinned every residual to its target.  A
+    # physical pulse probe finds that this medium range permits a 20--30 cm
+    # compact launch while retaining visible compliance.
+    (".*hip_.*",): (200.0, 3.0),
+    (".*thigh_.*",): (170.0, 3.0),
+    (".*calf_.*",): (150.0, 3.0),
   }
   effort_limits = {
     # The torque cap remains aerial-only; ordinary Go2W locomotion retains
-    # the native model limits.  The policy reaches these caps through the
-    # direct effort action rather than a stiff target error.
+    # the native model limits.
     (".*hip_.*",): 90.0,
     (".*thigh_.*",): 90.0,
     (".*calf_.*",): 95.0,
@@ -1051,31 +1049,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       debug_vis=False,
     )
   }
-  # The aerial maneuver uses direct joint-torque pulses around a soft neutral
-  # standing impedance.  This gives PPO the compliant, quick leg motion seen
-  # in the demonstrations without prescribing a launch/recovery trajectory.
-  # The measured-state terminal below, rather than a high-gain position
-  # target, keeps the physical joint excursion compact.
-  cfg.actions["joint_pos"] = mdp.JointImpedanceEffortActionCfg(
+  # Medium-impedance bounded residuals give PPO a compact "flex--extend"
+  # mechanism without supplying a phase, target trajectory, or a mode-specific
+  # pose.  The physical excursion terminal below limits the actual motion,
+  # including collision-driven overshoot.
+  cfg.actions["joint_pos"] = JointPositionActionCfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      # The effort action is still clamped by the aerial-only actuator caps
-      # above.  One raw action unit is already a useful compact-jump pulse;
-      # PPO may choose its timing and sign freely.
-      r".*_hip_joint": 90.0,
-      r".*_thigh_joint": 90.0,
-      r".*_calf_joint": 95.0,
+      r".*_hip_joint": 0.45,
+      r".*_thigh_joint": 0.55,
+      r".*_calf_joint": 0.55,
     },
-    hold_default_position=True,
-    # Retain unconstrained, compliant torque motion through 0.20 rad.  A
-    # passive stop then grows quadratically before the 0.32-rad task failure
-    # bound, so saturated initial PPO samples do not simply terminate every
-    # rollout by throwing a flexible leg too far.
-    soft_limit=0.20,
-    hard_limit=0.32,
-    limit_stiffness=120.0,
-    limit_damping=14.0,
+    use_default_offset=True,
   )
   cfg.actions["joint_vel"] = JointVelocityActionCfg(
     entity_name="robot",
@@ -1087,14 +1073,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
   # from overshooting that target after a collision.  AS2W-like flips require
   # a compact *physical* leg envelope, so leaving it is an immediate failed
   # attempt—not merely a small cost traded against angular-rate reward.  The
-  # A 0.32-rad threshold admits short-target contact compliance but rejects
-  # the 0.38--0.40-rad cap-hugging solution measured in v35.  It is neutral
-  # across all one-hot directions and has no phase or reference pose.
+  # A 0.32-rad (18-degree) hard limit left no physical launch sample in a
+  # 2048-way pulse probe.  0.55 rad admits the brief, visibly flexible motion
+  # used by an AS2-W-style compact jump while still rejecting a quadruped-scale
+  # joint sweep.  It is neutral across all one-hot directions and has no
+  # phase or reference pose.
   cfg.terminations["leg_excursion"] = TerminationTermCfg(
     func=trick_rewards.aerial_leg_excursion_exceeded,
     params={
       "command_name": "trick",
-      "max_deviation": 0.32,
+      "max_deviation": 0.55,
       "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
     },
   )
@@ -1322,17 +1310,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     # to its joint limits.  This acts throughout an active attempt, including
     # the short push-off on the ground: otherwise PPO can generate angular
     # momentum with a large pre-flight swing and pay no compactness cost until
-    # the wheels leave the floor.  The 0.07-rad deadband is free travel around
+    # the wheels leave the floor.  The 0.12-rad deadband is free travel around
     # normal four-wheel geometry; it is neither a target pose nor a reference
-    # trajectory.  The small 0.07-rad free zone makes a large leg opening an
-    # expensive way to generate rotation even below the hard bound.
+    # trajectory.  It permits the needed quick flexion but makes a sustained
+    # large leg opening expensive even below the hard bound.
     "airborne_leg_excursion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
       weight=-48.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "free_deviation": 0.07,
+        "free_deviation": 0.12,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
         "airborne_only": False,
       },

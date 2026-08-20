@@ -7,8 +7,6 @@ from dataclasses import dataclass
 import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import (
-  JointEffortAction,
-  JointEffortActionCfg,
   JointVelocityAction,
   JointVelocityActionCfg,
 )
@@ -74,87 +72,3 @@ class UprightGatedJointVelocityAction(JointVelocityAction):
       self._processed_actions[~rear_support] = self._offset[~rear_support]
     else:
       self._processed_actions[~rear_support] = self._offset
-
-
-@dataclass(kw_only=True)
-class JointImpedanceEffortActionCfg(JointEffortActionCfg):
-  """Torque residual action around the robot's reset joint posture.
-
-  The physical actuator continues to provide a deliberately low-gain
-  impedance to the normal wheel-standing configuration.  Policy actions are
-  then direct feed-forward joint torques, which lets a maneuver use brief,
-  compliant pulses instead of moving a high-stiffness position target and
-  holding each leg rigidly at that target.  It is not a posture controller or
-  trajectory source: the only position target is the static reset posture.
-  """
-
-  hold_default_position: bool = True
-  soft_limit: float | None = None
-  """Symmetric joint deviation where the passive safety stop begins."""
-
-  hard_limit: float | None = None
-  """Symmetric joint deviation where the passive safety stop reaches full force."""
-
-  limit_stiffness: float = 0.0
-  """Maximum passive restoring torque at ``hard_limit``."""
-
-  limit_damping: float = 0.0
-  """Velocity damping enabled progressively inside the soft stop."""
-
-  def build(self, env: ManagerBasedRlEnv) -> JointImpedanceEffortAction:
-    return JointImpedanceEffortAction(self, env)
-
-
-class JointImpedanceEffortAction(JointEffortAction):
-  """Apply direct torque while retaining a soft neutral impedance."""
-
-  cfg: JointImpedanceEffortActionCfg
-
-  def __init__(
-    self, cfg: JointImpedanceEffortActionCfg, env: ManagerBasedRlEnv
-  ) -> None:
-    if (cfg.soft_limit is None) != (cfg.hard_limit is None):
-      raise ValueError("soft_limit and hard_limit must be configured together.")
-    if cfg.soft_limit is not None and cfg.hard_limit <= cfg.soft_limit:
-      raise ValueError("hard_limit must be greater than soft_limit.")
-    super().__init__(cfg, env)
-    self._default_position_target = self._entity.data.default_joint_pos[
-      :, self._target_ids
-    ].clone()
-
-  def apply_actions(self) -> None:
-    if self.cfg.hold_default_position:
-      # Match ``JointPositionAction``'s encoder-bias convention.  Keeping
-      # this neutral target current on every physics substep avoids a reset
-      # transient while leaving all maneuver-specific motion to the policy's
-      # torque residual.
-      encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
-      self._entity.set_joint_position_target(
-        self._default_position_target - encoder_bias, joint_ids=self._target_ids
-      )
-    effort = self._processed_actions
-    if self.cfg.soft_limit is not None:
-      assert self.cfg.hard_limit is not None
-      # This is a passive joint-space safety stop, not a motion reference:
-      # the policy has unconstrained torque authority in the central compact
-      # range and encounters a progressively stronger restoring force only
-      # near the same measured excursion terminal used by the task.  It keeps
-      # random initial torque samples from repeatedly crashing through that
-      # bound while retaining compliant, visibly mobile legs in normal use.
-      deviation = self._entity.data.joint_pos[:, self._target_ids] - self._default_position_target
-      normalized_excess = torch.clamp(
-        (torch.abs(deviation) - self.cfg.soft_limit)
-        / (self.cfg.hard_limit - self.cfg.soft_limit),
-        min=0.0,
-        max=1.0,
-      )
-      safety_effort = -torch.sign(deviation) * self.cfg.limit_stiffness * torch.square(
-        normalized_excess
-      )
-      safety_effort -= (
-        self.cfg.limit_damping
-        * normalized_excess
-        * self._entity.data.joint_vel[:, self._target_ids]
-      )
-      effort = effort + safety_effort
-    self._entity.set_joint_effort_target(effort, joint_ids=self._target_ids)
