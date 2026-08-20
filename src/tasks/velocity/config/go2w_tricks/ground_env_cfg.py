@@ -756,6 +756,24 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "asset_cfg": _SUPPORT_LEG_GEOMETRY,
       },
     ),
+    "static_two_wheel_angular_speed": RewardTermCfg(
+      func=trick_rewards.mode_stationary_root_ang_speed,
+      # A zero spin-rate is a stop command for every two-wheel mode.  The
+      # turn-rate trackers are intentionally inactive there, so without this
+      # result-space brake a policy can retain an accidental spin after it
+      # reaches a legal stance.  Gate it by the final attitude so it never
+      # suppresses the exploration impulse that raises the robot.
+      weight=-40.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "velocity_deadband": 0.20,
+        "num_modes": 5,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+        "minimum_gravity_alignment": 0.85,
+      },
+    ),
     # The normal one-hot at zero spin starts in a valid four-wheel support.
     # Prefer its zero residual controller over needless leg actuation, but
     # leave every actual spin request (including dynamic normal) unrestricted.
