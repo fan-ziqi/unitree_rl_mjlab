@@ -16,8 +16,7 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
-from src.tasks.velocity.mdp import trick_rewards
-from src.tasks.velocity.mdp import trick_curriculums
+from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
   StanceSpinCommandCfg,
@@ -31,7 +30,6 @@ from .common_env_cfg import (
   configure_ground_support_actuators,
   make_base_go2w_trick_cfg,
 )
-
 
 _WHEEL_SITES = SceneEntityCfg(
   "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
@@ -437,7 +435,54 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
-  cfg.curriculum = {}
+  # A normal stationary command is not a trivial fallback: it is the public
+  # zero-command contract for this policy.  Both two-wheel rises begin from
+  # that same physical state, so establish the actor's zero-residual output
+  # first, then retain substantial normal-idle exposure as the other one-hots
+  # are added.  This is only a command-sampling curriculum: every mode still
+  # starts from the ordinary four-wheel reset and no target posture is given
+  # to the actor.
+  #
+  # ``common_step_counter`` advances once per 50-Hz control step.  With a
+  # 64-step rollout, 6,400 steps is about 100 PPO iterations.
+  cfg.curriculum = {
+    "locomotion_commands": CurriculumTermCfg(
+      func=trick_curriculums.stance_locomotion_command_stages,
+      params={
+        "command_name": "trick",
+        "stages": (
+          {
+            "step": 0,
+            "mode_probabilities": (1.0, 0.0, 0.0),
+            "idle_probability": 1.0,
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+          },
+          {
+            "step": 6_400,
+            "mode_probabilities": (0.60, 0.25, 0.15),
+            "idle_probability": 0.75,
+            "lin_vel_x_range": (-0.10, 0.10),
+            "yaw_rate_range": (-0.15, 0.15),
+          },
+          {
+            "step": 19_200,
+            "mode_probabilities": (0.45, 0.32, 0.23),
+            "idle_probability": 0.60,
+            "lin_vel_x_range": (-0.15, 0.15),
+            "yaw_rate_range": (-0.22, 0.22),
+          },
+          {
+            "step": 32_000,
+            "mode_probabilities": (0.35, 0.40, 0.25),
+            "idle_probability": 0.45,
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+          },
+        ),
+      },
+    )
+  }
   return cfg
 
 
@@ -745,13 +790,14 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   # the former 100M-style values inadvertently left a 1,000-iteration run in
   # the all-static stage forever.
   #
-  # First the *same actor* learns all four static wheel stands from default
-  # four-wheel resets.  Normal four-wheel zero-rate is deliberately the most
-  # common initial branch: it is the public idle behaviour and must remain
-  # the model's exact default pose rather than a transient between tricks.
-  # The actor then sees a gentle signed rate and finally the AS2-W-speed
-  # range.  The command itself is unchanged throughout: five-way one-hot
-  # plus one scalar rate.
+  # First establish the *same actor's* literal normal zero command.  The
+  # reset physics already validates it, but an initially random Gaussian
+  # actor can otherwise destroy that state before it has learned to separate
+  # the five one-hots.  Then add the front/rear supports, followed by side
+  # supports, all at zero rate.  Only once those outcomes have a chance to be
+  # represented do we introduce the gentle and then AS2-W-speed rate ranges.
+  # The command itself is unchanged throughout: five-way one-hot plus one
+  # scalar rate; no reset posture, phase, or motion trajectory is introduced.
   cfg.curriculum = {
     "spin_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_spin_command_stages,
@@ -760,19 +806,31 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
+            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            "spin_idle_probability": 1.0,
+            "spin_rate_range": (2.0, 4.0),
+          },
+          {
+            "step": 6_400,
+            "mode_probabilities": (0.55, 0.25, 0.20, 0.0, 0.0),
+            "spin_idle_probability": 1.0,
+            "spin_rate_range": (2.0, 4.0),
+          },
+          {
+            "step": 19_200,
+            "mode_probabilities": (0.42, 0.23, 0.20, 0.075, 0.075),
             "spin_idle_probability": 1.0,
             "spin_rate_range": (2.0, 4.0),
           },
           {
             "step": 32_000,
-            "mode_probabilities": (0.32, 0.20, 0.20, 0.14, 0.14),
+            "mode_probabilities": (0.38, 0.22, 0.20, 0.10, 0.10),
             "spin_idle_probability": 0.65,
             "spin_rate_range": (2.0, 4.0),
           },
           {
             "step": 48_000,
-            "mode_probabilities": (0.35, 0.20, 0.20, 0.125, 0.125),
+            "mode_probabilities": (0.38, 0.19, 0.19, 0.12, 0.12),
             "spin_idle_probability": 0.40,
             "spin_rate_range": (4.0, 6.0),
           },
