@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import (
+  JointEffortAction,
+  JointEffortActionCfg,
   JointVelocityAction,
   JointVelocityActionCfg,
 )
@@ -72,3 +74,49 @@ class UprightGatedJointVelocityAction(JointVelocityAction):
       self._processed_actions[~rear_support] = self._offset[~rear_support]
     else:
       self._processed_actions[~rear_support] = self._offset
+
+
+@dataclass(kw_only=True)
+class JointImpedanceEffortActionCfg(JointEffortActionCfg):
+  """Torque residual action around the robot's reset joint posture.
+
+  The physical actuator continues to provide a deliberately low-gain
+  impedance to the normal wheel-standing configuration.  Policy actions are
+  then direct feed-forward joint torques, which lets a maneuver use brief,
+  compliant pulses instead of moving a high-stiffness position target and
+  holding each leg rigidly at that target.  It is not a posture controller or
+  trajectory source: the only position target is the static reset posture.
+  """
+
+  hold_default_position: bool = True
+
+  def build(self, env: ManagerBasedRlEnv) -> JointImpedanceEffortAction:
+    return JointImpedanceEffortAction(self, env)
+
+
+class JointImpedanceEffortAction(JointEffortAction):
+  """Apply direct torque while retaining a soft neutral impedance."""
+
+  cfg: JointImpedanceEffortActionCfg
+
+  def __init__(
+    self, cfg: JointImpedanceEffortActionCfg, env: ManagerBasedRlEnv
+  ) -> None:
+    super().__init__(cfg, env)
+    self._default_position_target = self._entity.data.default_joint_pos[
+      :, self._target_ids
+    ].clone()
+
+  def apply_actions(self) -> None:
+    if self.cfg.hold_default_position:
+      # Match ``JointPositionAction``'s encoder-bias convention.  Keeping
+      # this neutral target current on every physics substep avoids a reset
+      # transient while leaving all maneuver-specific motion to the policy's
+      # torque residual.
+      encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
+      self._entity.set_joint_position_target(
+        self._default_position_target - encoder_bias, joint_ids=self._target_ids
+      )
+    self._entity.set_joint_effort_target(
+      self._processed_actions, joint_ids=self._target_ids
+    )

@@ -81,40 +81,29 @@ _AERIAL_AXES = (
 
 
 def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Use full motor torque inside the compact aerial target envelope.
+  """Configure compliant, torque-driven legs for compact aerial maneuvers.
 
-  Position residuals are deliberately bounded by the aerial runner at +/- one
-  action.  With the ordinary 20-Nm/rad position gain, the largest permitted
-  calf residual (0.55 rad) can create only 11 Nm, despite the model allowing
-  35.5 Nm.  That makes a compact jump physically under-powered and encourages
-  the unbounded target excursions we explicitly do not want.
-
-  These gains make the same small residuals reach the existing, model-level
-  effort caps.  They therefore change available *force*, not the joint-space
-  envelope and not a desired joint pose or trajectory.
+  Aerial actions use direct torque residuals (defined below), while these
+  gains supply only a soft return to the ordinary four-wheel reset posture.
+  This preserves the small physical leg envelope without the visual and
+  physical artefact of a high-stiffness PD target locking every leg in place.
   """
   robot_cfg = cfg.scene.entities["robot"]
   articulation = robot_cfg.articulation
   assert articulation is not None
   gains = {
-    # The aerial action window below is intentionally short.  Raise the
-    # stiffness only enough to hit the same effort caps within that window:
-    # a compact launch comes from a brief torque pulse, rather than sweeping
-    # the joints through a large range.  Extra damping suppresses the
-    # cap-hugging rebound that appeared in v35 after touchdown.  The cap is
-    # still set separately below, so this changes stiffness, not maximum
-    # actuator torque.
-    (".*hip_.*",): (750.0, 10.0),
-    (".*thigh_.*",): (565.0, 10.0),
-    (".*calf_.*",): (435.0, 11.0),
+    # A small neutral spring keeps a zero-action robot standing normally but
+    # does not dominate the policy torque pulse.  In v40 the gains were
+    # chosen to hit the cap from a tiny position residual; that made the legs
+    # look pinned instead of giving the short, lively AS2-W-type response.
+    (".*hip_.*",): (55.0, 2.0),
+    (".*thigh_.*",): (45.0, 2.0),
+    (".*calf_.*",): (38.0, 2.5),
   }
   effort_limits = {
-    # The AS2-W comparison supplies the appropriate compact-jump power
-    # density: each industrial joint is rated around 95 Nm.  With the old
-    # [50, 50, 75]-Nm caps, shortening the action window also removed about
-    # 35--40% of the useful push-off work, and v36 could not reach a turn.
-    # Keep this aerial-only: ordinary Go2W locomotion configurations retain
-    # their model-level 23.5/35.5-Nm limits.
+    # The torque cap remains aerial-only; ordinary Go2W locomotion retains
+    # the native model limits.  The policy reaches these caps through the
+    # direct effort action rather than a stiff target error.
     (".*hip_.*",): 90.0,
     (".*thigh_.*",): 90.0,
     (".*calf_.*",): 95.0,
@@ -1062,25 +1051,23 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       debug_vis=False,
     )
   }
-  # The aerial maneuver must use a short, wheel-legged impulse—not a full
-  # quadruped crouch/extension.  These are maximum residuals around the normal
-  # four-wheel geometry, not a desired pose or reference trajectory.  The
-  # specialized high-gain aerial actuator reaches its task-local effort cap
-  # from these small residuals, giving PPO a compact, high-force mechanism.
-  cfg.actions["joint_pos"] = JointPositionActionCfg(
+  # The aerial maneuver uses direct joint-torque pulses around a soft neutral
+  # standing impedance.  This gives PPO the compliant, quick leg motion seen
+  # in the demonstrations without prescribing a launch/recovery trajectory.
+  # The measured-state terminal below, rather than a high-gain position
+  # target, keeps the physical joint excursion compact.
+  cfg.actions["joint_pos"] = mdp.JointImpedanceEffortActionCfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      # AS2-W/B2-W-style aerial motion is a short, torque-limited launch and
-      # recovery, not a quadruped-scale squat.  v35 revealed that PPO was
-      # sitting at the former 0.42-rad measured-state limit.  These
-      # +/-[0.12, 0.16, 0.22]-rad targets retain full [90, 90, 95]-Nm effort
-      # via the gains above, while removing that large-sweep solution.
-      r".*_hip_joint": 0.12,
-      r".*_thigh_joint": 0.16,
-      r".*_calf_joint": 0.22,
+      # The effort action is still clamped by the aerial-only actuator caps
+      # above.  One raw action unit is already a useful compact-jump pulse;
+      # PPO may choose its timing and sign freely.
+      r".*_hip_joint": 75.0,
+      r".*_thigh_joint": 75.0,
+      r".*_calf_joint": 80.0,
     },
-    use_default_offset=True,
+    hold_default_position=True,
   )
   cfg.actions["joint_vel"] = JointVelocityActionCfg(
     entity_name="robot",
