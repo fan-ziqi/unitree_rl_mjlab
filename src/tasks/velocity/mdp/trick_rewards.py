@@ -2018,6 +2018,119 @@ class AerialPostTurnLandingProgress:
     )
 
 
+class AerialLandingRecoveryProgress:
+  """Pay only new progress toward a physical, normal-wheel recovery.
+
+  A completed aerial turn has a deliberately broad recovery basin: measured
+  angular progress approaches one full turn, the body returns toward normal
+  gravity, its launch-axis momentum and whole-body speed reduce, and its root
+  descends toward wheel contact.  All quantities are measured state, and the
+  return is a bounded potential improvement, so remaining in a favourable
+  state cannot be rewarded repeatedly.  This supplies a usable ranking while
+  early exploration still has large residual spin; narrow touchdown Gaussians
+  are numerically zero in that regime.
+
+  The term contains no pose target, phase clock, contact order, or prescribed
+  trajectory.  It simply ranks physically better final states after the
+  requested signed rotation has nearly been earned.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.best_score = torch.zeros(env.num_envs, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.best_score[env_ids] = 0.0
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    sensor_name: str,
+    recovery_start_angle: float,
+    target_angle: float,
+    max_overrotation: float,
+    descent_distance: float,
+    max_axis_rate: float,
+    max_linear_speed: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if (
+      recovery_start_angle < 0.0
+      or target_angle <= recovery_start_angle
+      or max_overrotation <= 0.0
+      or descent_distance <= 0.0
+      or max_axis_rate <= 0.0
+      or max_linear_speed <= 0.0
+    ):
+      raise ValueError("Aerial recovery progress parameters must be ordered positive values.")
+
+    asset: Entity = env.scene[asset_cfg.name]
+    command_term = env.command_manager.get_term(command_name)
+    active = aerial_active(env, command_name) > 0.5
+    reset = (env.episode_length_buf == 0) | (~active)
+    self.best_score[reset] = 0.0
+
+    was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+    )
+    launch_axis_w = getattr(
+      command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device)
+    )
+    in_window = (
+      active
+      & was_airborne
+      & (progress >= recovery_start_angle)
+      & (progress <= target_angle + max_overrotation)
+    )
+    turn_alignment = torch.clamp(
+      (progress - recovery_start_angle) / (target_angle - recovery_start_angle),
+      min=0.0,
+      max=1.0,
+    )
+
+    normal_gravity = torch.tensor(
+      (0.0, 0.0, -1.0),
+      dtype=asset.data.projected_gravity_b.dtype,
+      device=env.device,
+    )
+    gravity_error = torch.sum(
+      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+    )
+    # Projected gravity is unit length, hence this maps normal/sideways/
+    # inverted attitudes to 1.0/~0.29/0.0 without a narrow exponential basin.
+    upright = torch.clamp(1.0 - torch.sqrt(gravity_error) / 2.0, min=0.0, max=1.0)
+    axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+    braking = torch.clamp(
+      1.0 - torch.abs(axis_rate) / max_axis_rate, min=0.0, max=1.0
+    )
+    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
+    settling = torch.clamp(
+      1.0 - linear_speed / max_linear_speed, min=0.0, max=1.0
+    )
+
+    default_root_state = asset.data.default_root_state
+    assert default_root_state is not None
+    clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
+    descent = torch.clamp(1.0 - clearance / descent_distance, min=0.0, max=1.0)
+    wheel_fraction = _wheel_contacts(env, sensor_name).float().mean(dim=1)
+    approach_ground = 0.5 * (descent + wheel_fraction)
+
+    score = (
+      in_window.float()
+      * turn_alignment
+      * upright
+      * braking
+      * settling
+      * approach_ground
+    )
+    previous_best = self.best_score.clone()
+    self.best_score = torch.maximum(self.best_score, score)
+    # RewardManager integrates over step_dt; this makes the total return the
+    # bounded physical potential increase, independent of control frequency.
+    return (self.best_score - previous_best) / env.step_dt
+
+
 class AerialRotationProgress:
   """Reward high-clearance new directed progress, capped at one complete turn."""
 

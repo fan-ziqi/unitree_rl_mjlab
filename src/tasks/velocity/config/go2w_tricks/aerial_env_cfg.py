@@ -77,7 +77,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     func=trick_rewards.aerial_leg_excursion_exceeded,
     params={
       "command_name": "trick",
-      "max_deviation": 0.55,
+      # Leave enough measured range for airborne angular-momentum exchange;
+      # this is still a compact envelope, not unrestricted leg flailing.
+      "max_deviation": 0.65,
       "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
     },
   )
@@ -93,8 +95,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
 
   # Result-space objectives: get airborne, turn in the requested signed
   # direction, then recover to a braked normal-wheel touchdown.  The recovery
-  # signals are gated by *measured accumulated rotation*, never time or an
-  # actor-side phase, so they do not prescribe a flip trajectory.
+  # potential is gated by *measured accumulated rotation*, never time or an
+  # actor-side phase, so it does not prescribe a flip trajectory.
   cfg.rewards = {
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.AerialClearanceProgress,
@@ -117,92 +119,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "clearance_full": 0.18,
       },
     ),
-    "soft_four_wheel_landing": RewardTermCfg(
-      func=trick_rewards.aerial_soft_landing_exp,
-      weight=100.0,
+    # A strict four-wheel success is too sparse to teach braking.  Use one
+    # bounded state-potential instead of overlapping touchdown Gaussians: it
+    # pays only new progress toward the real outcome (near-target rotation,
+    # upright attitude, reduced momentum, descent, and wheel contact).
+    "landing_recovery_progress": RewardTermCfg(
+      func=trick_rewards.AerialLandingRecoveryProgress,
+      weight=250.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
+        "recovery_start_angle": 0.75 * math.tau,
         "target_angle": math.tau,
-        "angle_std": 1.0,
-        "gravity_std": 1.0,
-        "axis_rate_std": 6.0,
-      },
-    ),
-    # A strict four-wheel success is too sparse to teach the final braking
-    # phase.  Once an attempt has physically earned most of a turn, reward a
-    # normal-attitude, low-spin descent and then partial wheel touchdown.  A
-    # premature body/leg impact is still an immediate illegal-contact failure.
-    "post_turn_braked_descent": RewardTermCfg(
-      func=trick_rewards.aerial_post_turn_descent,
-      weight=60.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "target_angle": 0.75 * math.tau,
-        "max_overrotation": math.tau,
-        "gravity_std": 0.60,
-        "axis_rate_std": 6.0,
-        "descent_speed": 1.5,
-      },
-    ),
-    "post_turn_wheel_touchdown": RewardTermCfg(
-      func=trick_rewards.aerial_post_turn_wheel_touchdown_exp,
-      weight=120.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "target_angle": 0.95 * math.tau,
-        "max_overrotation": 0.75 * math.tau,
-        "gravity_std": 0.60,
-        "axis_rate_std": 6.0,
-      },
-    ),
-    "post_turn_landing_progress": RewardTermCfg(
-      func=trick_rewards.AerialPostTurnLandingProgress,
-      weight=100.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        # This potential-like signal begins only after the measured turn is
-        # essentially complete.  It rewards *new* wheelward descent while
-        # upright and slowing down, rather than penalising the angular
-        # momentum that is still needed to cross the final few degrees.
-        "target_angle": 0.98 * math.tau,
-        "max_overrotation": 0.75 * math.tau,
-        "gravity_std": 0.85,
-        "axis_rate_clip": 20.0,
-        "descent_distance": 0.30,
-      },
-    ),
-    # V51 charged residual spin while the robot was still in free flight,
-    # which disrupted the direction-specific launch itself.  Charge it only
-    # after a wheel has actually returned to the floor: this ranks a quiet
-    # recovery above a high-spin wheel strike without prescribing when or how
-    # the aerial turn should brake.
-    "post_turn_contact_axis_rate": RewardTermCfg(
-      func=trick_rewards.aerial_late_axis_rate_abs,
-      weight=-5.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "require_wheel_contact": True,
-        "start_angle": 0.98 * math.tau,
-        "max_angle": math.tau + 0.75,
-      },
-    ),
-    # V52 restored all five one-hot directions, but most rollouts cross a
-    # full turn with more momentum than the contact-only term can remove.
-    # Begin an intentionally tiny state cost only in the final five percent
-    # of flight.  Unlike V51's 0.80-turn cost, it does not compete with the
-    # directional launch or the bulk of the turn.
-    "late_freeflight_axis_rate": RewardTermCfg(
-      func=trick_rewards.aerial_late_axis_rate_abs,
-      weight=-1.0,
-      params={
-        "command_name": "trick",
-        "start_angle": 0.95 * math.tau,
-        "max_angle": math.tau + 0.75,
+        "max_overrotation": 0.75,
+        "descent_distance": 0.35,
+        "max_axis_rate": 30.0,
+        "max_linear_speed": 3.0,
       },
     ),
     "completed_rotation": RewardTermCfg(
@@ -221,11 +153,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "compact_leg_motion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
-      weight=-20.0,
+      weight=-8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "free_deviation": 0.12,
+        "free_deviation": 0.18,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
         # Takeoff and landing need a physically discovered leg stroke.  Only
         # penalise flailing while wheel-free, where compactness is visible and
