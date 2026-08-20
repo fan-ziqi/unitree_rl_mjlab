@@ -189,6 +189,21 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     completion_linear_speed = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_angular_speed = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_all_wheels = torch.zeros_like(trial_open)
+    # Completion is deliberately strict.  Keep a separate audit of the best
+    # *actual* four-wheel touchdown after a full turn so a zero completion
+    # rate tells us whether the remaining defect is attitude, residual speed,
+    # or no wheelward recovery at all.
+    full_turn_seen = torch.zeros_like(trial_open)
+    post_turn_touchdown = torch.zeros_like(trial_open)
+    post_turn_best_gravity_error = torch.full(
+        (cfg.num_envs,), float("inf"), device=base_env.device
+    )
+    post_turn_best_linear_speed = torch.full(
+        (cfg.num_envs,), float("inf"), device=base_env.device
+    )
+    post_turn_best_angular_speed = torch.full(
+        (cfg.num_envs,), float("inf"), device=base_env.device
+    )
 
     num_steps = round(cfg.duration_s / base_env.step_dt)
     with torch.inference_mode():
@@ -266,6 +281,37 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             )
 
             post_active = torch.sum(command_term.command, dim=1) > 0.5
+            full_turn_seen |= trial_open & (
+                command_term._rotation_progress >= TARGET_ANGLE
+            )
+            post_turn_touchdown_now = (
+                trial_open
+                & full_turn_seen
+                & torch.all(contacts, dim=1)
+            )
+            if torch.any(post_turn_touchdown_now):
+                gravity_error = torch.sum(
+                    torch.square(robot.data.projected_gravity_b - normal_gravity),
+                    dim=1,
+                )
+                linear_speed = torch.linalg.vector_norm(robot.data.root_link_lin_vel_w, dim=1)
+                angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
+                post_turn_touchdown |= post_turn_touchdown_now
+                post_turn_best_gravity_error = torch.where(
+                    post_turn_touchdown_now,
+                    torch.minimum(post_turn_best_gravity_error, gravity_error),
+                    post_turn_best_gravity_error,
+                )
+                post_turn_best_linear_speed = torch.where(
+                    post_turn_touchdown_now,
+                    torch.minimum(post_turn_best_linear_speed, linear_speed),
+                    post_turn_best_linear_speed,
+                )
+                post_turn_best_angular_speed = torch.where(
+                    post_turn_touchdown_now,
+                    torch.minimum(post_turn_best_angular_speed, angular_speed),
+                    post_turn_best_angular_speed,
+                )
             # AerialRotationCommand clears a nonzero one-hot only after it has
             # observed the requested full turn, four-wheel contact, normal gravity,
             # velocity limits, and the configured settle interval.
@@ -293,6 +339,8 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     def summarize(mode_index: int, mask: torch.Tensor) -> MetricDict:
         completed_mask = completed & mask
         completed_count = completed_mask.sum().item()
+        post_turn_touchdown_mask = post_turn_touchdown & mask
+        post_turn_touchdown_count = post_turn_touchdown_mask.sum().item()
         return {
             "mode": MODE_NAMES[mode_index],
             "mode_index": mode_index,
@@ -345,6 +393,30 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             .mean()
             .item()
             if completed_count
+            else float("inf"),
+            "post_turn_four_wheel_touchdown_rate": post_turn_touchdown_mask.float()
+            .mean()
+            .item(),
+            "post_turn_best_gravity_error": post_turn_best_gravity_error[
+                post_turn_touchdown_mask
+            ]
+            .mean()
+            .item()
+            if post_turn_touchdown_count
+            else float("inf"),
+            "post_turn_best_linear_speed": post_turn_best_linear_speed[
+                post_turn_touchdown_mask
+            ]
+            .mean()
+            .item()
+            if post_turn_touchdown_count
+            else float("inf"),
+            "post_turn_best_angular_speed": post_turn_best_angular_speed[
+                post_turn_touchdown_mask
+            ]
+            .mean()
+            .item()
+            if post_turn_touchdown_count
             else float("inf"),
         }
 
