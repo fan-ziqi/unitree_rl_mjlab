@@ -1902,9 +1902,17 @@ class AerialRotationProgress:
       asset.data.root_link_ang_vel_w * self.launch_axis_w, dim=1
     )
     airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+    command_term = env.command_manager.get_term(command_name)
+    # ``was_airborne`` is set by AerialRotationCommand only after its short
+    # continuous wheel-free interval.  Do not pay a one-step contact gap or a
+    # ground pivot simply because it happened to pass the clearance gate.
+    qualified_flight = getattr(
+      command_term, "was_airborne", torch.zeros_like(active)
+    )
     signed_delta = (
       active.to(axis_rate.dtype)
       * airborne.to(axis_rate.dtype)
+      * qualified_flight.to(axis_rate.dtype)
       * axis_rate
       * env.step_dt
     )
@@ -2052,10 +2060,18 @@ class AerialRotationCompletion:
     contacts = _wheel_contacts(env, sensor_name)
     airborne = ~torch.any(contacts, dim=1)
     self.has_grounded |= active & torch.all(contacts, dim=1)
-    self.was_airborne |= active & self.has_grounded & airborne
+    # Share the command term's qualified-flight state.  The command requires
+    # sustained wheel-free motion, so a brief contact glitch cannot receive a
+    # strict full-turn/landing reward.
+    command_term = env.command_manager.get_term(command_name)
+    qualified_flight = getattr(
+      command_term, "was_airborne", torch.zeros_like(active)
+    )
+    self.was_airborne |= active & qualified_flight
     signed_delta = (
       active.to(axis_rate.dtype)
       * airborne.to(axis_rate.dtype)
+      * qualified_flight.to(axis_rate.dtype)
       * axis_rate
       * env.step_dt
     )

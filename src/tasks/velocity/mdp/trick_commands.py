@@ -393,8 +393,9 @@ class AerialRotationCommand(CommandTerm):
     if (
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
+      or cfg.min_ballistic_time <= 0.0
     ):
-      raise ValueError("landing velocity limits must be positive.")
+      raise ValueError("landing limits and min_ballistic_time must be positive.")
 
     self.command_buf = torch.zeros(self.num_envs, 5, device=self.device)
     self._mode_probabilities = torch.tensor(
@@ -406,6 +407,7 @@ class AerialRotationCommand(CommandTerm):
     # its ordinary four-wheel support, otherwise an unchanging idle robot can
     # be incorrectly labelled as a landed aerial attempt.
     self.has_grounded = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+    self._airborne_time = torch.zeros(self.num_envs, device=self.device)
     self._landing_settle_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
@@ -425,6 +427,7 @@ class AerialRotationCommand(CommandTerm):
     self.command_buf[env_ids] = 0.0
     self.was_airborne[env_ids] = False
     self.has_grounded[env_ids] = False
+    self._airborne_time[env_ids] = 0.0
     self._landing_settle_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
@@ -448,6 +451,7 @@ class AerialRotationCommand(CommandTerm):
     if not torch.any(active):
       self.was_airborne[~active] = False
       self.has_grounded[~active] = False
+      self._airborne_time[~active] = 0.0
       self._landing_settle_time[~active] = 0.0
       self._rotation_progress[~active] = 0.0
       self._new_skill[~active] = False
@@ -469,12 +473,23 @@ class AerialRotationCommand(CommandTerm):
     contacts = (found.reshape(self.num_envs, found.shape[1], -1) > 0).any(dim=-1)
     airborne = ~torch.any(contacts, dim=1)
     self.has_grounded |= active & torch.all(contacts, dim=1)
-    self.was_airborne |= active & self.has_grounded & airborne
+    # A single contact-sensor gap can occur while a wheel rolls over a contact
+    # edge or while the body is already colliding with the floor.  It is not a
+    # jump.  A maneuver becomes airborne only after a short *continuous*
+    # wheel-free interval; this is a physical validity condition, not a pose
+    # or reference-trajectory target.
+    flight_step = active & self.has_grounded & airborne
+    self._airborne_time = torch.where(
+      flight_step,
+      self._airborne_time + self._env.step_dt,
+      torch.zeros_like(self._airborne_time),
+    )
+    self.was_airborne |= self._airborne_time >= self.cfg.min_ballistic_time
 
     axis_rate = torch.sum(
       asset.data.root_link_ang_vel_w * self._launch_axis_w, dim=1
     )
-    signed_delta = active * airborne * axis_rate * self._env.step_dt
+    signed_delta = active * airborne * self.was_airborne * axis_rate * self._env.step_dt
     self._rotation_progress = torch.clamp_min(
       self._rotation_progress + signed_delta, 0.0
     )
@@ -584,6 +599,10 @@ class AerialRotationCommandCfg(CommandTermCfg):
   landing_gravity_error_limit: float = 0.30
   landing_linear_velocity_limit: float = 0.75
   landing_angular_velocity_limit: float = 1.5
+  # Four controller steps at the 50-Hz policy rate.  This removes the
+  # observed ground-pivot exploit while allowing an ordinary compact jump to
+  # accrue its full turn from the first genuine ballistic interval.
+  min_ballistic_time: float = 0.08
   target_angle: float = math.tau
   max_overrotation: float = 0.75
   # Reward gates only; neither is exposed to the policy as a phase, pose, or

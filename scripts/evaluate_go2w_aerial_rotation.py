@@ -62,6 +62,8 @@ def _pin_modes(command_term, modes: torch.Tensor) -> None:
         torch.arange(command_term.num_envs, device=modes.device), modes
     ] = 1.0
     command_term.was_airborne.zero_()
+    command_term.has_grounded.zero_()
+    command_term._airborne_time.zero_()
     command_term._landing_settle_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()
@@ -161,6 +163,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     command_term = base_env.command_manager.get_term("trick")
     robot = base_env.scene["robot"]
     wheel_sensor = base_env.scene[command_cfg.sensor_name]
+    min_ballistic_time = command_cfg.min_ballistic_time
     normal_gravity = torch.tensor((0.0, 0.0, -1.0), device=base_env.device)
     default_height = robot.data.default_root_state[:, 2]
     leg_joint_ids, _ = robot.find_joints(GO2W_LEG_JOINTS, preserve_order=True)
@@ -168,6 +171,8 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
     has_grounded = torch.zeros_like(trial_open)
     ever_airborne = torch.zeros_like(trial_open)
+    airborne_time = torch.zeros(cfg.num_envs, device=base_env.device)
+    peak_airborne_time = torch.zeros(cfg.num_envs, device=base_env.device)
     completed = torch.zeros_like(trial_open)
     failed = torch.zeros_like(trial_open)
     peak_progress = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -203,11 +208,21 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             contacts = _wheel_contacts(wheel_sensor)
             airborne = ~torch.any(contacts, dim=1)
             has_grounded |= trial_open & torch.all(contacts, dim=1)
-            first_liftoff = trial_open & has_grounded & airborne & ~ever_airborne
+            airborne_time = torch.where(
+                trial_open & has_grounded & airborne,
+                airborne_time + base_env.step_dt,
+                torch.zeros_like(airborne_time),
+            )
+            peak_airborne_time = torch.maximum(peak_airborne_time, airborne_time)
+            first_liftoff = (
+                trial_open
+                & (airborne_time >= min_ballistic_time)
+                & ~ever_airborne
+            )
             takeoff_vertical_speed[first_liftoff] = torch.clamp(
                 robot.data.root_link_lin_vel_w[first_liftoff, 2], min=0.0
             )
-            ever_airborne |= trial_open & has_grounded & airborne
+            ever_airborne |= trial_open & (airborne_time >= min_ballistic_time)
             height_delta = robot.data.root_link_pos_w[:, 2] - default_height
             peak_height_delta = torch.maximum(
                 peak_height_delta,
@@ -300,6 +315,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             "mean_takeoff_vertical_speed_m_s": takeoff_vertical_speed[mask]
             .mean()
             .item(),
+            "mean_peak_airborne_time_s": peak_airborne_time[mask].mean().item(),
             "mean_peak_leg_deviation_rad": peak_leg_deviation[mask].mean().item(),
             "p95_peak_leg_deviation_rad": torch.quantile(
                 peak_leg_deviation[mask], 0.95
