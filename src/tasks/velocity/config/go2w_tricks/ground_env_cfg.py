@@ -45,6 +45,9 @@ _SUPPORT_LEG_GEOMETRY = SceneEntityCfg(
   site_names=("FL", "FR", "RL", "RR"),
   preserve_order=True,
 )
+_NORMAL_LEG_JOINTS = SceneEntityCfg(
+  "robot", joint_names=GO2W_LEG_JOINTS, preserve_order=True
+)
 
 
 def _configure_fast_discovery(cfg: ManagerBasedRlEnvCfg) -> None:
@@ -384,6 +387,22 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "num_modes": 3,
       },
     ),
+    "normal_default_leg_geometry": RewardTermCfg(
+      func=trick_rewards.mode_default_joint_pos_excess_exp,
+      # Wheel driving needs only small suspension-like leg motion.  Keep the
+      # ordinary four-wheel one-hot in the model's init/default posture rather
+      # than letting it borrow a distant trick posture from front/rear modes.
+      # This applies to moving commands too, but has a 0.12-rad free band.
+      weight=35.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "num_modes": 3,
+        "free_deviation": 0.12,
+        "std": 0.10,
+        "asset_cfg": _NORMAL_LEG_JOINTS,
+      },
+    ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
     "joint_limits": RewardTermCfg(
       func=envs_mdp.joint_pos_limits,
@@ -400,9 +419,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   """Five support one-hots plus one signed spin-rate command.
 
   The normal one-hot with zero rate is ordinary four-wheel idle.  Its nonzero
-  rate requests the dynamic two-wheel Thomas-like orbit.  Front and rear
-  handstands may spin about their support direction; left/right are explicitly
-  static two-wheel balances, so their rate channel is ignored by sampling.
+  rate requests the dynamic two-wheel Thomas-like orbit.  Every fixed
+  two-wheel mode follows the signed rate about its own down direction.  For
+  left/right, success additionally requires the legs to reshape the wheel pair
+  into a finite-width balanced support that turns in place.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   _configure_fast_discovery(cfg)
@@ -415,7 +435,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
       # two easy side balances.  Keep a single fused actor while giving the
       # still-undiscovered front branch additional fresh rollouts; rear and
       # both sides remain present in every batch.
-      # V10 made front/rear and the two static side supports viable, while
+      # V10 made front/rear and the two side supports viable, while
       # both normal subcommands remained under-trained.  Keep all five modes
       # in one actor, but let the normal zero-rate stand and normal dynamic
       # orbit receive enough fresh zero-start rollouts to stop being eclipsed
@@ -549,6 +569,37 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "std": 1.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "gravity_power": 4.0,
+      },
+    ),
+    "side_balancer_geometry": RewardTermCfg(
+      func=trick_rewards.side_spin_balancer_geometry_exp,
+      # Do not accept the tempting bicycle solution in which a side pair
+      # simply rolls along its fore/aft baseline.  Reward the actual support
+      # geometry needed for a two-wheel in-place turn, without a joint target.
+      weight=100.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "min_transverse_span": 0.08,
+        "full_transverse_span": 0.20,
+        "longitudinal_std": 0.10,
+        "gravity_power": 3.0,
+        "asset_cfg": _WHEEL_SITES,
+      },
+    ),
+    "side_turn_center_stillness": RewardTermCfg(
+      func=trick_rewards.SideSpinSupportCenterStillness,
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "speed_std": 0.20,
+        "gravity_power": 3.0,
+        "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
       },
     ),
     "spin_rate_error": RewardTermCfg(

@@ -628,10 +628,26 @@ def fixed_pair_spin_mask(
   command_name: str,
   speed_deadband: float,
 ) -> torch.Tensor:
-  """Return front/rear two-wheel modes with an active spin request."""
+  """Return any fixed two-wheel mode with an active spin request."""
   command = _command(env, command_name)
   return (
-    ((command[:, 1] > 0.5) | (command[:, 2] > 0.5))
+    ((command[:, 1] > 0.5)
+    | (command[:, 2] > 0.5)
+    | (command[:, 3] > 0.5)
+    | (command[:, 4] > 0.5))
+    & (torch.abs(command[:, 5]) > speed_deadband)
+  ).float()
+
+
+def side_spin_mask(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+) -> torch.Tensor:
+  """Return left/right two-wheel commands with a non-zero turn request."""
+  command = _command(env, command_name)
+  return (
+    ((command[:, 3] > 0.5) | (command[:, 4] > 0.5))
     & (torch.abs(command[:, 5]) > speed_deadband)
   ).float()
 
@@ -775,7 +791,7 @@ def fixed_pair_spin_rate_exp(
   gravity_power: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Track front/rear spin after their requested two-wheel attitude is found."""
+  """Track a fixed-pair spin after its requested two-wheel attitude is found."""
   if gravity_power < 0.0:
     raise ValueError("gravity_power must be non-negative.")
   asset: Entity = env.scene[asset_cfg.name]
@@ -805,7 +821,7 @@ def commanded_spin_rate_abs_error(
   fixed_gravity_power: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Non-saturating rate error for normal/front/rear spin commands.
+  """Non-saturating rate error for all five spin commands.
 
   The Gaussian spin score is useful for precise control but almost flat when
   an untrained policy misses a fast requested rate.  This companion ranks
@@ -817,10 +833,7 @@ def commanded_spin_rate_abs_error(
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
-  moving = (
-    (mode <= 2)
-    & (torch.abs(command[:, 5]) > speed_deadband)
-  )
+  moving = (mode <= 4) & (torch.abs(command[:, 5]) > speed_deadband)
   down = asset.data.projected_gravity_b
   down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1.0e-6)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
@@ -835,6 +848,211 @@ def commanded_spin_rate_abs_error(
     mode == 0, horizontal, fixed_alignment.pow(fixed_gravity_power)
   )
   return moving.to(actual_rate.dtype) * posture_gate * torch.abs(command[:, 5] - actual_rate)
+
+
+def side_spin_balancer_geometry_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  sensor_name: str,
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  min_transverse_span: float,
+  full_transverse_span: float,
+  longitudinal_std: float,
+  gravity_power: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Reward a side-wheel pair only when it becomes a turnable balancer.
+
+  A left/right support starts as a bicycle-like front/rear pair: its two
+  contact centres are aligned with the base forward axis.  The AS2-W-style
+  in-place turn instead needs the legs to place that pair across the body,
+  making a finite-width balanced support.  This term measures only the wheel
+  contact geometry: transverse span, lack of a fore/aft bicycle baseline, and
+  the requested side gravity.  It intentionally contains no joint angle,
+  wheel-speed, or reference-trajectory target.
+  """
+  if (
+    min_transverse_span <= 0.0
+    or full_transverse_span < min_transverse_span
+    or longitudinal_std <= 0.0
+    or gravity_power < 0.0
+  ):
+    raise ValueError("Invalid side-spin balancer geometry parameters.")
+  asset: Entity = env.scene[asset_cfg.name]
+  if isinstance(asset_cfg.site_ids, slice):
+    raise ValueError("side_spin_balancer_geometry_exp needs explicit wheel sites.")
+  if len(asset_cfg.site_ids) != 4:
+    raise ValueError("side-spin geometry expects FL/FR/RL/RR wheel sites.")
+
+  command = _command(env, command_name)
+  mode = torch.argmax(command[:, :5], dim=1)
+  active = side_spin_mask(env, command_name, speed_deadband)
+  side_index = torch.clamp(mode - 3, 0, 1)
+  pair_indices = torch.tensor(((0, 2), (1, 3)), device=env.device)
+  first = pair_indices[side_index, 0]
+  second = pair_indices[side_index, 1]
+  wheel_pos = asset.data.site_pos_w[:, asset_cfg.site_ids]
+  batch = torch.arange(env.num_envs, device=env.device)
+  delta_xy = wheel_pos[batch, second, :2] - wheel_pos[batch, first, :2]
+
+  quat = asset.data.root_link_quat_w
+  body_x = quat_apply(
+    quat,
+    torch.tensor((1.0, 0.0, 0.0), dtype=quat.dtype, device=env.device).expand(
+      env.num_envs, -1
+    ),
+  )[:, :2]
+  # In a side stand body-y is world-down, so body-z is the horizontal axis
+  # across the desired two-wheel balancing support.
+  body_z = quat_apply(
+    quat,
+    torch.tensor((0.0, 0.0, 1.0), dtype=quat.dtype, device=env.device).expand(
+      env.num_envs, -1
+    ),
+  )[:, :2]
+  body_x = body_x / torch.linalg.vector_norm(body_x, dim=1, keepdim=True).clamp_min(1.0e-6)
+  body_z = body_z / torch.linalg.vector_norm(body_z, dim=1, keepdim=True).clamp_min(1.0e-6)
+  transverse = torch.abs(torch.sum(delta_xy * body_z, dim=1))
+  longitudinal = torch.abs(torch.sum(delta_xy * body_x, dim=1))
+  transverse_score = torch.clamp(
+    (transverse - min_transverse_span)
+    / (full_transverse_span - min_transverse_span + 1.0e-6),
+    0.0,
+    1.0,
+  )
+  non_bicycle_score = torch.exp(-torch.square(longitudinal) / longitudinal_std**2)
+
+  contacts = _wheel_contacts(env, sensor_name).float()
+  masks = torch.tensor(
+    ((1.0, 0.0, 1.0, 0.0), (0.0, 1.0, 0.0, 1.0)),
+    dtype=contacts.dtype,
+    device=env.device,
+  )
+  desired_contacts = masks[side_index]
+  contact_score = torch.mean(
+    contacts * desired_contacts + (1.0 - contacts) * (1.0 - desired_contacts), dim=1
+  )
+  targets = torch.tensor(gravity_targets, dtype=contacts.dtype, device=env.device)
+  gravity = asset.data.projected_gravity_b
+  gravity = gravity / torch.linalg.vector_norm(gravity, dim=1, keepdim=True).clamp_min(1.0e-6)
+  alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+  )
+  return (
+    active
+    * contact_score
+    * alignment.pow(gravity_power)
+    * transverse_score
+    * non_bicycle_score
+  )
+
+
+class SideSpinSupportCenterStillness:
+  """Reward a side-spin whose two-wheel support midpoint stays in place.
+
+  Root velocity is not suitable here: the trunk may orbit a fixed contact
+  midpoint while yawing.  The mean world position of the two support wheels is
+  the physically relevant turning-centre signal, and distinguishes an in-place
+  turn from a bicycle-like drive across the floor.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.previous_center = torch.zeros(env.num_envs, 2, device=env.device)
+    self.initialized = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.previous_center[env_ids] = 0.0
+    self.initialized[env_ids] = False
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    speed_deadband: float,
+    sensor_name: str,
+    gravity_targets: tuple[tuple[float, float, float], ...],
+    speed_std: float,
+    gravity_power: float,
+    asset_cfg: SceneEntityCfg,
+  ) -> torch.Tensor:
+    if speed_std <= 0.0 or gravity_power < 0.0:
+      raise ValueError("Invalid side-spin support-centre parameters.")
+    asset: Entity = env.scene[asset_cfg.name]
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("SideSpinSupportCenterStillness needs FL/FR/RL/RR sites.")
+    command = _command(env, command_name)
+    mode = torch.argmax(command[:, :5], dim=1)
+    side_index = torch.clamp(mode - 3, 0, 1)
+    pair_indices = torch.tensor(((0, 2), (1, 3)), device=env.device)
+    wheel_pos = asset.data.site_pos_w[:, asset_cfg.site_ids, :2]
+    batch = torch.arange(env.num_envs, device=env.device)
+    center = 0.5 * (
+      wheel_pos[batch, pair_indices[side_index, 0]]
+      + wheel_pos[batch, pair_indices[side_index, 1]]
+    )
+    initialized = self.initialized
+    speed = torch.linalg.vector_norm(
+      (center - self.previous_center) / env.step_dt, dim=1
+    )
+    self.previous_center.copy_(center)
+    self.initialized[:] = True
+
+    active = side_spin_mask(env, command_name, speed_deadband)
+    contacts = _wheel_contacts(env, sensor_name).float()
+    masks = torch.tensor(
+      ((1.0, 0.0, 1.0, 0.0), (0.0, 1.0, 0.0, 1.0)),
+      dtype=contacts.dtype,
+      device=env.device,
+    )
+    desired_contacts = masks[side_index]
+    contact_score = torch.mean(
+      contacts * desired_contacts + (1.0 - contacts) * (1.0 - desired_contacts), dim=1
+    )
+    targets = torch.tensor(gravity_targets, dtype=contacts.dtype, device=env.device)
+    gravity = asset.data.projected_gravity_b
+    gravity = gravity / torch.linalg.vector_norm(gravity, dim=1, keepdim=True).clamp_min(1.0e-6)
+    alignment = torch.clamp(
+      0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+    )
+    stillness = torch.exp(-torch.square(speed) / speed_std**2)
+    return (
+      active
+      * initialized.to(stillness.dtype)
+      * contact_score
+      * alignment.pow(gravity_power)
+      * stillness
+    )
+
+
+def mode_default_joint_pos_excess_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  modes: tuple[int, ...],
+  num_modes: int,
+  free_deviation: float,
+  std: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Keep a selected mode close to the robot's nominal leg configuration.
+
+  This is a final-state envelope around the model's real initial/default leg
+  angles, not a motion reference.  The free band preserves wheel locomotion;
+  only unusually large normal-mode posture drift loses reward.
+  """
+  if free_deviation < 0.0 or std <= 0.0:
+    raise ValueError("free_deviation must be non-negative and std positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  if isinstance(asset_cfg.joint_ids, slice):
+    raise ValueError("mode_default_joint_pos_excess_exp needs explicit joints.")
+  active, _ = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  delta = torch.abs(
+    asset.data.joint_pos[:, asset_cfg.joint_ids]
+    - asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  )
+  excess = torch.clamp_min(delta - free_deviation, 0.0)
+  error = torch.mean(torch.square(excess), dim=1)
+  return active.to(error.dtype) * torch.exp(-error / std**2)
 
 
 def spin_planar_speed_l2(

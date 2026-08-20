@@ -176,6 +176,7 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   support_leg_clearance_sum = torch.zeros((), device=env.device)
   support_leg_length_sum = torch.zeros((), device=env.device)
   shortest_support_leg_length_sum = torch.zeros((), device=env.device)
+  normal_leg_default_deviation_sum = torch.zeros((), device=env.device)
   done_count = torch.zeros((), device=env.device)
   # First legal target stance is a direct measure of the requested transition,
   # not merely a steady-state snapshot obtained after an undisclosed reset.
@@ -188,6 +189,15 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   wheel_site_ids, _ = robot.find_sites(("FL", "FR", "RL", "RR"), preserve_order=True)
   hip_body_ids, _ = robot.find_bodies(
     ("FL_hip", "FR_hip", "RL_hip", "RR_hip"), preserve_order=True
+  )
+  leg_joint_ids, _ = robot.find_joints(
+    (
+      "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+      "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+      "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+      "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+    ),
+    preserve_order=True,
   )
   _, nonwheel_geom_names = robot.find_geoms(r".*_collision\d*$")
   nonwheel_geom_names = tuple(
@@ -244,6 +254,13 @@ def run(cfg: EvalConfig) -> dict[str, float]:
       shortest_support_leg_length = torch.where(
         target_contacts.bool(), leg_length, torch.inf
       ).amin(dim=1)
+      normal_leg_default_deviation = torch.mean(
+        torch.abs(
+          robot.data.joint_pos[:, leg_joint_ids]
+          - robot.data.default_joint_pos[:, leg_joint_ids]
+        ),
+        dim=1,
+      )
       forward, right = _forward_right_axes(robot, cfg.mode)
       velocity_xy = robot.data.root_link_lin_vel_w[:, :2]
       actual_x = torch.sum(velocity_xy * forward, dim=1)
@@ -267,6 +284,7 @@ def run(cfg: EvalConfig) -> dict[str, float]:
       support_leg_clearance_sum += support_leg_clearance.mean()
       support_leg_length_sum += support_leg_length.mean()
       shortest_support_leg_length_sum += shortest_support_leg_length.mean()
+      normal_leg_default_deviation_sum += normal_leg_default_deviation.mean()
       nonwheel_contact_by_geom_sum += nonwheel_by_geom.float().mean(dim=0)
       done_count += dones.float().sum()
 
@@ -301,6 +319,9 @@ def run(cfg: EvalConfig) -> dict[str, float]:
     "mean_support_leg_length": (support_leg_length_sum / scale).item(),
     "mean_shortest_support_leg_length": (
       shortest_support_leg_length_sum / scale
+    ).item(),
+    "mean_leg_default_joint_deviation": (
+      normal_leg_default_deviation_sum / scale
     ).item(),
     "resets_per_env": (done_count / cfg.num_envs).item(),
     "duration_s": cfg.duration_s,

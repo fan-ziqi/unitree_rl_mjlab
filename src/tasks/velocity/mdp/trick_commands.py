@@ -68,10 +68,12 @@ class StanceSpinCommand(CommandTerm):
     self.command_buf[env_ids, modes] = 1.0
 
     # Stand uses a non-zero rate for the support-changing Thomas-like orbit.
-    # Front and rear support use it for a fixed-pair handstand spin.  Left and
-    # right support remain static because their wheel geometry does not provide
-    # the demonstrated spin skill.
-    spin_ids = env_ids[modes <= 2]
+    # Every two-wheel support mode receives the same signed rate channel.  In
+    # particular, a side support is *not* a bicycle command: it must reshape
+    # its two contact wheels into a balanced, in-place turning support.  That
+    # distinction is enforced by outcome rewards, not by adding a pose target
+    # to this compact command.
+    spin_ids = env_ids
     if len(spin_ids) == 0:
       return
     moving = torch.rand(len(spin_ids), device=self.device) > self.cfg.spin_idle_probability

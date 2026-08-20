@@ -56,10 +56,8 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Only normal/front/rear commands have a meaningful rate channel."""
-  rates = torch.zeros_like(modes, dtype=torch.float32)
-  rates[modes <= 2] = spin_rate
-  return rates
+  """Every one-hot can request its signed spin about the current down axis."""
+  return torch.full_like(modes, spin_rate, dtype=torch.float32)
 
 
 def _pin_modes(command_term, modes: torch.Tensor, spin_rate: float) -> None:
@@ -126,7 +124,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   target_contacts = torch.tensor(CONTACT_MASKS, device=base_env.device, dtype=torch.bool)
   rates = _mode_rates(modes, cfg.spin_rate).to(base_env.device)
   dynamic = (modes == 0) & (rates.abs() > 0.20)
-  fixed_spin = ((modes == 1) | (modes == 2)) & (rates.abs() > 0.20)
+  fixed_spin = (modes >= 1) & (rates.abs() > 0.20)
   static = ~(dynamic | fixed_spin)
   trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
   failed = torch.zeros_like(trial_open)
@@ -136,10 +134,15 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   horizontal_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   nonwheel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  side_geometry_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  side_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_count = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_success = torch.zeros(cfg.num_envs, device=base_env.device)
 
   num_steps = round(cfg.duration_s / base_env.step_dt)
+  wheel_site_ids, _ = robot.find_sites(("FL", "FR", "RL", "RR"), preserve_order=True)
+  previous_side_center = torch.zeros(cfg.num_envs, 2, device=base_env.device)
+  side_center_initialized = torch.zeros(cfg.num_envs, dtype=torch.bool, device=base_env.device)
   with torch.inference_mode():
     for step in range(num_steps):
       obs, _, dones, _ = env.step(policy(obs))
@@ -159,10 +162,39 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       nonwheel = (
         nonwheel_found.reshape(cfg.num_envs, nonwheel_found.shape[1], -1) > 0
       ).any(dim=(1, 2))
+      side = modes >= 3
+      side_index = torch.clamp(modes - 3, 0, 1)
+      wheel_pos = robot.data.site_pos_w[:, wheel_site_ids, :2]
+      pair_indices = torch.tensor(((0, 2), (1, 3)), device=base_env.device)
+      batch = torch.arange(cfg.num_envs, device=base_env.device)
+      first = pair_indices[side_index, 0]
+      second = pair_indices[side_index, 1]
+      delta_xy = wheel_pos[batch, second] - wheel_pos[batch, first]
+      quat = robot.data.root_link_quat_w
+      body_x = quat_apply(
+        quat,
+        torch.tensor((1.0, 0.0, 0.0), device=base_env.device, dtype=quat.dtype).expand(cfg.num_envs, -1),
+      )[:, :2]
+      body_z = quat_apply(
+        quat,
+        torch.tensor((0.0, 0.0, 1.0), device=base_env.device, dtype=quat.dtype).expand(cfg.num_envs, -1),
+      )[:, :2]
+      body_x = body_x / torch.linalg.vector_norm(body_x, dim=1, keepdim=True).clamp_min(1.0e-6)
+      body_z = body_z / torch.linalg.vector_norm(body_z, dim=1, keepdim=True).clamp_min(1.0e-6)
+      transverse = torch.abs(torch.sum(delta_xy * body_z, dim=1))
+      longitudinal = torch.abs(torch.sum(delta_xy * body_x, dim=1))
+      side_geometry = (transverse >= 0.08) & (longitudinal <= 0.10)
+      side_center = 0.5 * (wheel_pos[batch, first] + wheel_pos[batch, second])
+      side_center_speed = torch.linalg.vector_norm(
+        (side_center - previous_side_center) / base_env.step_dt, dim=1
+      )
+      previous_side_center.copy_(side_center)
+      side_center_initialized[:] = True
+      side_in_place = side_center_speed <= 0.20
       support_ok = torch.where(dynamic, dynamic_contact, static_contact)
       rate_ok = torch.where(dynamic | fixed_spin, rate_error < 0.75, torch.ones_like(dynamic))
       pose_ok = torch.where(dynamic, horizontal, alignment >= 0.97)
-      success = support_ok & rate_ok & pose_ok & ~nonwheel
+      success = support_ok & rate_ok & pose_ok & ~nonwheel & (~side | (side_geometry & side_in_place))
 
       sample_count += valid.float()
       alignment_sum += valid.float() * alignment
@@ -170,6 +202,8 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       horizontal_sum += valid.float() * horizontal.float()
       rate_error_sum += valid.float() * rate_error
       nonwheel_sum += valid.float() * nonwheel.float()
+      side_geometry_sum += valid.float() * side.float() * side_geometry.float()
+      side_center_speed_sum += valid.float() * side.float() * side_center_speed
       if (step + 1) * base_env.step_dt >= cfg.settle_s:
         steady_count += valid.float()
         steady_success += valid.float() * success.float()
@@ -184,12 +218,14 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       "mode": MODE_NAMES[mode],
       "mode_index": float(mode),
       "num_envs": float(mask.sum().item()),
-      "spin_rate": cfg.spin_rate if mode <= 2 else 0.0,
+      "spin_rate": cfg.spin_rate,
       "mean_gravity_alignment": (alignment_sum[mask] / denom).mean().item(),
       "mean_support_match_rate": (support_sum[mask] / denom).mean().item(),
       "mean_horizontal_rate": (horizontal_sum[mask] / denom).mean().item(),
       "mean_spin_rate_abs_error": (rate_error_sum[mask] / denom).mean().item(),
       "mean_nonwheel_contact_rate": (nonwheel_sum[mask] / denom).mean().item(),
+      "mean_side_balancer_geometry_rate": (side_geometry_sum[mask] / denom).mean().item(),
+      "mean_side_support_center_speed": (side_center_speed_sum[mask] / denom).mean().item(),
       "steady_success_rate": (steady_success[mask] / steady_denom).mean().item(),
       "failed_rate": failed[mask].float().mean().item(),
       "unfinished_rate": trial_open[mask].float().mean().item(),
