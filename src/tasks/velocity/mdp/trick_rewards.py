@@ -1637,6 +1637,66 @@ def aerial_soft_landing_exp(
   )
 
 
+def aerial_post_turn_wheel_touchdown_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  target_angle: float,
+  max_overrotation: float,
+  gravity_std: float,
+  axis_rate_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward legal *partial* wheel touchdown after a braked full turn.
+
+  A four-wheel-only landing score is necessarily discontinuous: a rollout
+  whose first one or two wheels arrive correctly receives the same zero as a
+  body crash.  This term ranks that physically meaningful transition without
+  prescribing a leg pose, contact order, or time-indexed reference.  The
+  existing strict command completion remains the sole success condition.
+  """
+  if (
+    target_angle <= 0.0
+    or max_overrotation <= 0.0
+    or gravity_std <= 0.0
+    or axis_rate_std <= 0.0
+  ):
+    raise ValueError("turn, tolerance, and standard-deviation parameters must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command_term = env.command_manager.get_term(command_name)
+  active = aerial_active(env, command_name) > 0.5
+  was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
+  progress = getattr(command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device))
+  launch_axis_w = getattr(
+    command_term,
+    "_launch_axis_w",
+    torch.zeros(env.num_envs, 3, device=env.device),
+  )
+  normal_gravity = torch.tensor(
+    (0.0, 0.0, -1.0),
+    dtype=asset.data.projected_gravity_b.dtype,
+    device=env.device,
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+  )
+  axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+  turn_window = (
+    (progress >= target_angle) & (progress <= target_angle + max_overrotation)
+  ).float()
+  wheel_fraction = _wheel_contacts(env, sensor_name).float().mean(dim=1)
+  return (
+    active.float()
+    * was_airborne.float()
+    * turn_window
+    * wheel_fraction
+    * torch.exp(
+      -gravity_error / gravity_std**2
+      -torch.square(axis_rate) / axis_rate_std**2
+    )
+  )
+
+
 def aerial_post_turn_descent(
   env: "ManagerBasedRlEnv",
   command_name: str,

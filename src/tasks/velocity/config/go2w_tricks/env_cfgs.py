@@ -1200,10 +1200,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "rate_clip": 20.0,
         "clearance_start": None,
         "clearance_full": None,
-        # Drive only the takeoff/tumbling portion.  From about 0.7 turn the
-        # late-phase recovery and landing terms must be free to bleed angular
-        # momentum instead of competing with an always-on spin reward.
-        "stop_angle": 0.70 * math.tau,
+        # Drive only the takeoff/tumbling portion.  The former 0.70--0.85-turn
+        # hand-off left only a few control steps to remove angular momentum
+        # before touchdown.  Begin fading at 0.60 turn so compact wheel-leg
+        # policies have a real braking interval, while still rewarding enough
+        # measured rotation to pass the one-turn barrier.
+        "stop_angle": 0.60 * math.tau,
         "stop_angle_fade": 0.15 * math.tau,
       },
     ),
@@ -1214,14 +1216,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "activation_angle": 0.85 * math.tau,
-        "gravity_std": 0.75,
+        "activation_angle": 0.65 * math.tau,
+        "gravity_std": 1.0,
         # This is the braking half of the maneuver.  The old 6-rad/s target
         # actively trained a policy to keep spinning through touchdown.
-        "target_axis_rate": 1.5,
-        # Keep a useful ranking signal even for the 20--30-rad/s early
-        # attempts; success still requires the much lower landing rate below.
-        "axis_rate_clip": 30.0,
+        "target_axis_rate": 2.0,
+        # Use a meaningful preference for slowing before touchdown.  The
+        # former 30-rad/s clip barely distinguished a 6-rad/s recovery from
+        # a 10-rad/s crash; strict success remains at 1.5 rad/s.
+        "axis_rate_clip": 14.0,
       },
     ),
     "soft_landing": RewardTermCfg(
@@ -1243,6 +1246,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "axis_rate_std": 8.0,
       },
     ),
+    "partial_wheel_touchdown": RewardTermCfg(
+      # The first legal one/two-wheel contact after a full, upright turn is
+      # valuable evidence of a recoverable landing.  This result-space bridge
+      # supplies gradient before the existing four-wheel-only soft landing;
+      # it specifies neither a contact order nor any joint trajectory.
+      func=trick_rewards.aerial_post_turn_wheel_touchdown_exp,
+      weight=60.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "max_overrotation": 0.75,
+        "gravity_std": 1.15,
+        "axis_rate_std": 6.0,
+      },
+    ),
     "post_turn_descent": RewardTermCfg(
       func=trick_rewards.aerial_post_turn_descent,
       # Dense bridge from the airborne braking signal to the strictly
@@ -1254,8 +1273,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
         "max_overrotation": 0.75,
-        "gravity_std": 0.75,
-        "axis_rate_std": 3.0,
+        # These are dense recovery widths, intentionally wider than the
+        # strict completion limits, so a first braked touchdown is ranked
+        # above a body collision rather than receiving zero in both cases.
+        "gravity_std": 1.15,
+        "axis_rate_std": 6.0,
         "descent_speed": 1.5,
       },
     ),
@@ -1276,8 +1298,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
         "max_overrotation": 0.75,
-        "gravity_std": 0.90,
-        "axis_rate_clip": 16.0,
+        "gravity_std": 1.15,
+        "axis_rate_clip": 14.0,
         "descent_distance": 0.35,
       },
     ),
