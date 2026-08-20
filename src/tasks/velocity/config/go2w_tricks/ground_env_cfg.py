@@ -410,8 +410,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
       # two easy side balances.  Keep a single fused actor while giving the
       # still-undiscovered front branch additional fresh rollouts; rear and
       # both sides remain present in every batch.
-      mode_probabilities=(0.32, 0.23, 0.15, 0.15, 0.15),
-      spin_idle_probability=0.30,
+      # V10 made front/rear and the two static side supports viable, while
+      # both normal subcommands remained under-trained.  Keep all five modes
+      # in one actor, but let the normal zero-rate stand and normal dynamic
+      # orbit receive enough fresh zero-start rollouts to stop being eclipsed
+      # by the already easy two-wheel branches.
+      mode_probabilities=(0.45, 0.20, 0.15, 0.10, 0.10),
+      spin_idle_probability=0.35,
       spin_rate_range=(1.0, 4.0),
       spin_rate_ramp_rate=4.0,
       debug_vis=False,
@@ -422,12 +427,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   cfg.rewards = {
     "four_wheel_idle_gravity": RewardTermCfg(
       func=trick_rewards.stand_idle_gravity_exp,
-      weight=18.0,
+      weight=60.0,
       params={"command_name": "trick", "speed_deadband": 0.20, "std": 0.35},
     ),
     "four_wheel_idle_contacts": RewardTermCfg(
       func=trick_rewards.stand_idle_contact_match,
-      weight=18.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -509,7 +514,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "dynamic_spin_rate": RewardTermCfg(
       func=trick_rewards.spin_dynamic_rate_exp,
-      weight=25.0,
+      weight=45.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -521,7 +526,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
       func=trick_rewards.SpinSupportCycle,
       # A true Thomas-like orbit must change a settled support pair.  V8's
       # nearly zero event reward allowed a static low two-wheel compromise.
-      weight=4.0,
+      weight=8.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -543,7 +548,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "spin_rate_error": RewardTermCfg(
       func=trick_rewards.commanded_spin_rate_abs_error,
-      weight=-15.0,
+      weight=-30.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -573,7 +578,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     # leave every actual spin request (including dynamic normal) unrestricted.
     "normal_idle_action_effort": RewardTermCfg(
       func=trick_rewards.stance_stationary_action_l2,
-      weight=-5.0,
+      weight=-15.0,
       params={
         "command_name": "trick",
         "modes": (0,),
