@@ -44,6 +44,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Every training episode is a requested maneuver.  The all-zero command
       # remains the public idle encoding, but does not dilute aerial discovery.
       idle_probability=0.0,
+      # This remains one fused five-one-hot policy.  Front/back are materially
+      # harder than side/yaw turns in the measured rollouts, so give them more
+      # samples without splitting policies or adding a mode-specific pose.
+      mode_probabilities=(0.28, 0.28, 0.15, 0.15, 0.14),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -53,6 +57,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # while the command silently rejects it as an over-rotation.
       target_angle=math.tau,
       max_overrotation=1.25,
+      # Require five consecutive 50-Hz control steps: a transient wheel graze
+      # must never count as a completed normal-wheel landing.
+      landing_settle_time=0.10,
       debug_vis=False,
     )
   }

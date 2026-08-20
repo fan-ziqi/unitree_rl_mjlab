@@ -2037,9 +2037,14 @@ class AerialLandingRecoveryProgress:
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     self.best_score = torch.zeros(env.num_envs, device=env.device)
+    # The command itself requires consecutive strict normal-wheel contact to
+    # complete.  Track the same measured dwell here so the one recovery
+    # potential can rank "kept the landing" above a single lucky touchdown.
+    self.landing_dwell_time = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.best_score[env_ids] = 0.0
+    self.landing_dwell_time[env_ids] = 0.0
 
   def __call__(
     self,
@@ -2071,6 +2076,7 @@ class AerialLandingRecoveryProgress:
     active = aerial_active(env, command_name) > 0.5
     reset = (env.episode_length_buf == 0) | (~active)
     self.best_score[reset] = 0.0
+    self.landing_dwell_time[reset] = 0.0
 
     was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
     progress = getattr(
@@ -2125,7 +2131,7 @@ class AerialLandingRecoveryProgress:
       + wheel_contact_weight * wheel_fraction
     )
 
-    score = (
+    base_score = (
       in_window.float()
       * turn_alignment
       * upright
@@ -2133,6 +2139,34 @@ class AerialLandingRecoveryProgress:
       * settling
       * approach_ground
     )
+    # ``base_score`` correctly ranks a first wheel touchdown, but its
+    # best-so-far potential would otherwise saturate there.  The terminal
+    # command asks for a *continuous* normal four-wheel landing.  Measure
+    # exactly that same result-space condition and make every additional
+    # stable control step improve the existing potential up to one.  This is
+    # not a reference phase or posture: it only distinguishes a real held
+    # landing from an isolated contact-sensor hit.
+    strict_landing = (
+      in_window
+      & torch.all(_wheel_contacts(env, sensor_name), dim=1)
+      & (gravity_error < command_term.cfg.landing_gravity_error_limit)
+      & (linear_speed < command_term.cfg.landing_linear_velocity_limit)
+      & (
+        torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+        < command_term.cfg.landing_angular_velocity_limit
+      )
+    )
+    self.landing_dwell_time = torch.where(
+      strict_landing,
+      self.landing_dwell_time + env.step_dt,
+      torch.zeros_like(self.landing_dwell_time),
+    )
+    dwell_fraction = torch.clamp(
+      self.landing_dwell_time / command_term.cfg.landing_settle_time,
+      min=0.0,
+      max=1.0,
+    )
+    score = base_score + (1.0 - base_score) * strict_landing.float() * dwell_fraction
     previous_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
     # RewardManager integrates over step_dt; this makes the total return the
