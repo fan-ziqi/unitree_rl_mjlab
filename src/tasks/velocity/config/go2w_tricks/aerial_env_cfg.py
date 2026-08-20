@@ -183,6 +183,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_linear_speed": 3.0,
       },
     ),
+    "late_axis_spin": RewardTermCfg(
+      func=trick_rewards.aerial_late_axis_rate_abs,
+      # V60 reaches an upright wheel landing most often in yaw, but then
+      # continues through the one-turn window.  Penalize only measured
+      # residual angular momentum after 90% of the requested angle, leaving
+      # takeoff and the first 90% of ballistic discovery completely free.
+      # This is an outcome-space braking objective, not a phase, a pose, or a
+      # mode-specific target rate exposed to the policy.
+      weight=-12.0,
+      params={
+        "command_name": "trick",
+        "start_angle": 0.90 * math.tau,
+        "max_angle": math.tau + 1.25,
+      },
+    ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
       weight=300.0,

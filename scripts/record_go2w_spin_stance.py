@@ -32,6 +32,7 @@ class RecordConfig:
   mode: int = 0
   spin_rate: float = 8.0
   duration_s: float = 6.0
+  ramp_spin_rate: bool = True
   width: int = 960
   height: int = 720
   device: str = "cuda:0"
@@ -74,7 +75,7 @@ def run(cfg: RecordConfig) -> Path:
   env.reset()
   command_term = base_env.command_manager.get_term("trick")
   modes = torch.full((1,), cfg.mode, dtype=torch.long, device=base_env.device)
-  _pin_modes(command_term, modes, cfg.spin_rate)
+  _pin_modes(command_term, modes, cfg.spin_rate, cfg.ramp_spin_rate)
   obs = _fixed_reset_observation(base_env)
   with torch.inference_mode():
     for _ in range(num_steps):

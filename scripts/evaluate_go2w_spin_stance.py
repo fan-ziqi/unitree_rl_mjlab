@@ -44,6 +44,7 @@ class EvalConfig:
   num_envs: int = 250
   duration_s: float = 6.0
   settle_s: float = 2.0
+  ramp_spin_rate: bool = True
   device: str = "cuda:0"
   seed: int = 42
   emit_metrics: bool = False
@@ -62,13 +63,20 @@ def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
   return rates
 
 
-def _pin_modes(command_term, modes: torch.Tensor, spin_rate: float) -> None:
+def _pin_modes(
+  command_term,
+  modes: torch.Tensor,
+  spin_rate: float,
+  ramp_spin_rate: bool = True,
+) -> None:
+  """Pin one-hot targets, optionally reproducing the training-rate ramp."""
   command_term.command_buf.zero_()
   command_term.command_buf[
     torch.arange(command_term.num_envs, device=modes.device), modes
   ] = 1.0
   rates = _mode_rates(modes, spin_rate).to(command_term.command_buf.dtype)
-  command_term.command_buf[:, 5] = rates
+  if not ramp_spin_rate:
+    command_term.command_buf[:, 5] = rates
   command_term._target_spin_rate.copy_(rates)
 
 
@@ -116,7 +124,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       (cfg.num_envs,), cfg.mode, dtype=torch.long, device=base_env.device
     )
   command_term = base_env.command_manager.get_term("trick")
-  _pin_modes(command_term, modes, cfg.spin_rate)
+  _pin_modes(command_term, modes, cfg.spin_rate, cfg.ramp_spin_rate)
   obs = _fixed_reset_observation(base_env)
 
   robot = base_env.scene["robot"]
@@ -193,7 +201,11 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         1, dynamic_pair_index.unsqueeze(1)
       ).squeeze(1)
       down_rate = torch.sum(robot.data.root_link_ang_vel_b * gravity, dim=1)
-      rate_error = torch.abs(down_rate - rates)
+      # The rate channel is intentionally ramped in the training command
+      # term.  Measure against the actual public command seen by the actor at
+      # this frame, not its eventual target, so default validation is not an
+      # out-of-distribution 0 -> 8 rad/s step.
+      rate_error = torch.abs(down_rate - command_term.command[:, 5])
       nonwheel_found = nonwheel_sensor.data.found
       assert nonwheel_found is not None
       nonwheel = (
