@@ -122,6 +122,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     idle_mode_index=0,
     stationary_command_start_index=3,
     command_deadband=0.04,
+    idle_contact_sensor_name=wheel_contact_cfg.name,
   )
   _use_history(cfg, "trick")
 
@@ -523,6 +524,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     idle_mode_index=0,
     stationary_command_start_index=5,
     command_deadband=0.20,
+    idle_contact_sensor_name=wheel_contact_cfg.name,
   )
   _use_history(cfg, "trick")
 

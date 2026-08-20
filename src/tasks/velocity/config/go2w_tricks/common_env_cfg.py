@@ -128,12 +128,16 @@ def configure_default_idle_actions(
   idle_mode_index: int | None,
   stationary_command_start_index: int,
   command_deadband: float,
+  idle_contact_sensor_name: str,
 ) -> None:
   """Make a public idle command the model's literal default controller.
 
   The gate is a command-interface invariant: default pose plus zero wheel
-  speed when no skill is requested.  It is entirely inactive for a triggered
-  one-hot and therefore supplies no two-wheel or aerial posture to PPO.
+  speed when no skill is requested *and the robot is already upright on all
+  four wheels*.  A normal command following a two-wheel or aerial skill first
+  leaves PPO action authority to perform a controlled return; after touchdown
+  the literal default controller engages.  It supplies no two-wheel or aerial
+  posture to PPO.
   """
   joint_pos = cfg.actions["joint_pos"]
   joint_vel = cfg.actions["joint_vel"]
@@ -144,6 +148,7 @@ def configure_default_idle_actions(
     "idle_mode_index": idle_mode_index,
     "stationary_command_start_index": stationary_command_start_index,
     "command_deadband": command_deadband,
+    "idle_contact_sensor_name": idle_contact_sensor_name,
   }
   cfg.actions["joint_pos"] = DefaultIdleGatedJointPositionActionCfg(
     entity_name=joint_pos.entity_name,

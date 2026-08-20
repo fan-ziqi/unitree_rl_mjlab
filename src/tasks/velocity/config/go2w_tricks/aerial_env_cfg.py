@@ -89,6 +89,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     idle_mode_index=None,
     stationary_command_start_index=0,
     command_deadband=0.5,
+    idle_contact_sensor_name=wheel_contact_cfg.name,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
