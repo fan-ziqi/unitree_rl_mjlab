@@ -1228,14 +1228,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     ),
     "soft_landing": RewardTermCfg(
       func=trick_rewards.aerial_soft_landing_exp,
-      weight=150.0,
+      # This is a four-wheel-only *basin* reward, not the success criterion.
+      # With the former [0.70, 0.55, 2.5] Gaussian widths, a first legal wheel
+      # contact following a 6--10 rad/s flip had essentially zero value.  PPO
+      # consequently had no gradient between a body crash and the strict
+      # settled landing.  Keep the one-turn/four-wheel requirements but rank
+      # imperfect, physically valid touchdowns so recovery can be discovered;
+      # the command's hard completion remains much tighter.
+      weight=180.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "angle_std": 0.70,
-        "gravity_std": 0.55,
-        "axis_rate_std": 2.5,
+        "angle_std": 1.25,
+        "gravity_std": 1.25,
+        "axis_rate_std": 8.0,
       },
     ),
     "post_turn_descent": RewardTermCfg(
