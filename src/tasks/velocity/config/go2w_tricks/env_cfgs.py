@@ -1068,6 +1068,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       r".*_calf_joint": 95.0,
     },
     hold_default_position=True,
+    # Retain unconstrained, compliant torque motion through 0.20 rad.  A
+    # passive stop then grows quadratically before the 0.32-rad task failure
+    # bound, so saturated initial PPO samples do not simply terminate every
+    # rollout by throwing a flexible leg too far.
+    soft_limit=0.20,
+    hard_limit=0.32,
+    limit_stiffness=120.0,
+    limit_damping=14.0,
   )
   cfg.actions["joint_vel"] = JointVelocityActionCfg(
     entity_name="robot",

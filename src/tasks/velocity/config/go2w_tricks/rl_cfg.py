@@ -97,13 +97,15 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     "go2w_aerial_rotation",
     num_steps_per_env=96,
     gamma=0.997,
+    # The aerial action is a torque residual rather than a bounded position
+    # target.  Start with useful but non-saturating torque exploration; PPO
+    # can still discover a full-cap pulse through the learned mean.
+    init_std=0.35,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
     clip_actions=1.0,
-    # The one-frame baseline's learned scalar action std kept rising beyond
-    # 1.6, which turns completed rotations into crashes.  Exploration remains
-    # broad at reset (init_std=1), while this smaller bonus lets PPO consolidate
-    # a discovered landing instead of continually diffusing it away.
-    entropy_coef=0.002,
+    # Keep enough stochasticity for all five one-hots, but not enough to turn
+    # a compliant torque actuator into a permanently saturated random kick.
+    entropy_coef=0.001,
   )
