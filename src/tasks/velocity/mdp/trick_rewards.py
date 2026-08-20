@@ -915,12 +915,17 @@ def side_spin_balancer_geometry_exp(
   body_z = body_z / torch.linalg.vector_norm(body_z, dim=1, keepdim=True).clamp_min(1.0e-6)
   transverse = torch.abs(torch.sum(delta_xy * body_z, dim=1))
   longitudinal = torch.abs(torch.sum(delta_xy * body_x, dim=1))
-  transverse_score = torch.clamp(
-    (transverse - min_transverse_span)
-    / (full_transverse_span - min_transverse_span + 1.0e-6),
-    0.0,
-    1.0,
+  # Do not make the desired span a hard reward cliff.  A side stand begins as
+  # a nearly fore/aft bicycle pair, so it needs a useful outcome gradient from
+  # the first few millimetres of transverse leg motion.  The linear component
+  # ranks increasingly wider supports; the shortfall potential keeps that
+  # gradient alive below the minimum visible width.
+  span_shortfall = torch.clamp_min(min_transverse_span - transverse, 0.0)
+  shortfall_score = torch.exp(
+    -torch.square(span_shortfall) / (0.75 * min_transverse_span) ** 2
   )
+  width_score = torch.clamp(transverse / full_transverse_span, 0.0, 1.0)
+  transverse_score = 0.25 * shortfall_score + 0.75 * width_score
   non_bicycle_score = torch.exp(-torch.square(longitudinal) / longitudinal_std**2)
 
   contacts = _wheel_contacts(env, sensor_name).float()
@@ -972,11 +977,20 @@ class SideSpinSupportCenterStillness:
     speed_deadband: float,
     sensor_name: str,
     gravity_targets: tuple[tuple[float, float, float], ...],
+    min_transverse_span: float,
+    full_transverse_span: float,
+    longitudinal_std: float,
     speed_std: float,
     gravity_power: float,
     asset_cfg: SceneEntityCfg,
   ) -> torch.Tensor:
-    if speed_std <= 0.0 or gravity_power < 0.0:
+    if (
+      min_transverse_span <= 0.0
+      or full_transverse_span < min_transverse_span
+      or longitudinal_std <= 0.0
+      or speed_std <= 0.0
+      or gravity_power < 0.0
+    ):
       raise ValueError("Invalid side-spin support-centre parameters.")
     asset: Entity = env.scene[asset_cfg.name]
     if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
@@ -990,6 +1004,10 @@ class SideSpinSupportCenterStillness:
     center = 0.5 * (
       wheel_pos[batch, pair_indices[side_index, 0]]
       + wheel_pos[batch, pair_indices[side_index, 1]]
+    )
+    delta_xy = (
+      wheel_pos[batch, pair_indices[side_index, 1]]
+      - wheel_pos[batch, pair_indices[side_index, 0]]
     )
     initialized = self.initialized
     speed = torch.linalg.vector_norm(
@@ -1015,12 +1033,39 @@ class SideSpinSupportCenterStillness:
     alignment = torch.clamp(
       0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
     )
+    quat = asset.data.root_link_quat_w
+    body_x = quat_apply(
+      quat,
+      torch.tensor((1.0, 0.0, 0.0), dtype=quat.dtype, device=env.device).expand(
+        env.num_envs, -1
+      ),
+    )[:, :2]
+    body_z = quat_apply(
+      quat,
+      torch.tensor((0.0, 0.0, 1.0), dtype=quat.dtype, device=env.device).expand(
+        env.num_envs, -1
+      ),
+    )[:, :2]
+    body_x = body_x / torch.linalg.vector_norm(body_x, dim=1, keepdim=True).clamp_min(1.0e-6)
+    body_z = body_z / torch.linalg.vector_norm(body_z, dim=1, keepdim=True).clamp_min(1.0e-6)
+    transverse = torch.abs(torch.sum(delta_xy * body_z, dim=1))
+    longitudinal = torch.abs(torch.sum(delta_xy * body_x, dim=1))
+    span_shortfall = torch.clamp_min(min_transverse_span - transverse, 0.0)
+    shortfall_score = torch.exp(
+      -torch.square(span_shortfall) / (0.75 * min_transverse_span) ** 2
+    )
+    width_score = torch.clamp(transverse / full_transverse_span, 0.0, 1.0)
+    geometry_gate = (
+      (0.25 * shortfall_score + 0.75 * width_score)
+      * torch.exp(-torch.square(longitudinal) / longitudinal_std**2)
+    )
     stillness = torch.exp(-torch.square(speed) / speed_std**2)
     return (
       active
       * initialized.to(stillness.dtype)
       * contact_score
       * alignment.pow(gravity_power)
+      * geometry_gate
       * stillness
     )
 

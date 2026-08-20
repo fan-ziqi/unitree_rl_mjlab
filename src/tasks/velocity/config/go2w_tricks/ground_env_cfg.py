@@ -135,7 +135,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # request.
     "normal_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=100.0,
+      weight=120.0,
       params={
         "command_name": "trick",
         "modes": (0,),
@@ -584,19 +584,22 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "min_transverse_span": 0.08,
         "full_transverse_span": 0.20,
-        "longitudinal_std": 0.10,
+        "longitudinal_std": 0.18,
         "gravity_power": 3.0,
         "asset_cfg": _WHEEL_SITES,
       },
     ),
     "side_turn_center_stillness": RewardTermCfg(
       func=trick_rewards.SideSpinSupportCenterStillness,
-      weight=80.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "min_transverse_span": 0.08,
+        "full_transverse_span": 0.20,
+        "longitudinal_std": 0.18,
         "speed_std": 0.20,
         "gravity_power": 3.0,
         "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
