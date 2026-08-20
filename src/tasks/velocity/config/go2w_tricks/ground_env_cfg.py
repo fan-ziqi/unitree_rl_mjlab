@@ -39,6 +39,12 @@ _WHEEL_SITES = SceneEntityCfg(
 _ROOT_CLEARANCE_WHEEL_SITES = SceneEntityCfg(
   "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
 )
+_FIXED_PIVOT_WHEEL_SITES = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+)
+_DYNAMIC_PIVOT_WHEEL_SITES = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+)
 _SUPPORT_LEG_GEOMETRY = SceneEntityCfg(
   "robot",
   body_names=("FL_hip", "FR_hip", "RL_hip", "RR_hip"),
@@ -572,7 +578,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
         "speed_std": 0.25,
-        "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
+        "asset_cfg": _DYNAMIC_PIVOT_WHEEL_SITES,
       },
     ),
     "front_rear_spin_rate": RewardTermCfg(
@@ -600,7 +606,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "speed_std": 0.25,
         "gravity_power": 4.0,
-        "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
+        "asset_cfg": _FIXED_PIVOT_WHEEL_SITES,
       },
     ),
     "spin_rate_error": RewardTermCfg(
