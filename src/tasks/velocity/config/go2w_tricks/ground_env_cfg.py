@@ -89,7 +89,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # the powered copy only sharpens the final balanced stance.
     "mode_gravity": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=35.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -99,7 +99,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=45.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -110,7 +110,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "support_wheels": RewardTermCfg(
       func=trick_rewards.mode_contact_match,
-      weight=35.0,
+      weight=25.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -123,7 +123,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # already-near-target body state, so they cannot prescribe the rise.
     "free_wheel_clearance": RewardTermCfg(
       func=trick_rewards.mode_non_support_wheel_clearance,
-      weight=15.0,
+      weight=10.0,
       params={
         "command_name": "trick",
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
@@ -136,7 +136,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,
-      weight=25.0,
+      weight=70.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -153,7 +153,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_x": RewardTermCfg(
       func=trick_rewards.stance_locomotion_linear_velocity_exp,
-      weight=20.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "std": 0.25,
@@ -164,10 +164,33 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      weight=12.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "std": 0.35,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+      },
+    ),
+    # The exponential trackers provide sharp precision near a correct command
+    # but vanish for the uncontrolled rolling seen in the first audit.  These
+    # two absolute errors keep the actor ranking less drift above more drift;
+    # they still use only measured root motion and the public x/yaw command.
+    "track_x_error": RewardTermCfg(
+      func=trick_rewards.stance_locomotion_linear_velocity_abs_error,
+      weight=-30.0,
+      params={
+        "command_name": "trick",
+        "lateral_weight": 2.0,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+      },
+    ),
+    "track_yaw_error": RewardTermCfg(
+      func=trick_rewards.stance_locomotion_yaw_rate_abs_error,
+      weight=-20.0,
+      params={
+        "command_name": "trick",
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 4.0,
       },
