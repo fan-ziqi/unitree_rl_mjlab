@@ -100,7 +100,7 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # The aerial action is a torque residual rather than a bounded position
     # target.  Start with useful but non-saturating torque exploration; PPO
     # can still discover a full-cap pulse through the learned mean.
-    init_std=0.35,
+    init_std=0.65,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.

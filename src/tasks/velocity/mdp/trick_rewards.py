@@ -1267,11 +1267,13 @@ class AerialTakeoffVerticalSpeed:
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.has_grounded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.was_airborne[env_ids] = False
+    self.has_grounded[env_ids] = False
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
 
@@ -1293,13 +1295,20 @@ class AerialTakeoffVerticalSpeed:
     new_skill = active & ((~self.previous_active) | (mode != self.previous_mode) | reset)
     clear = new_skill | reset | (~active)
     self.was_airborne[clear] = False
+    self.has_grounded[clear] = False
 
-    airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
-    liftoff = active & airborne & (~self.was_airborne)
+    contacts = _wheel_contacts(env, sensor_name)
+    airborne = ~torch.any(contacts, dim=1)
+    self.has_grounded |= active & torch.all(contacts, dim=1)
+    liftoff = active & self.has_grounded & airborne & (~self.was_airborne)
     vertical_speed = torch.clamp(asset.data.root_link_lin_vel_w[:, 2], min=0.0)
     reward = liftoff.float() * torch.clamp(vertical_speed / target_speed, max=1.0)
 
-    self.was_airborne = torch.where(active, self.was_airborne | airborne, torch.zeros_like(airborne))
+    self.was_airborne = torch.where(
+      active,
+      self.was_airborne | (self.has_grounded & airborne),
+      torch.zeros_like(airborne),
+    )
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return reward / env.step_dt
@@ -1985,6 +1994,7 @@ class AerialRotationCompletion:
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     self.progress = torch.zeros(env.num_envs, device=env.device)
     self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.has_grounded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
@@ -1994,6 +2004,7 @@ class AerialRotationCompletion:
   def reset(self, env_ids: torch.Tensor) -> None:
     self.progress[env_ids] = 0.0
     self.was_airborne[env_ids] = False
+    self.has_grounded[env_ids] = False
     self.awarded[env_ids] = False
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
@@ -2025,6 +2036,7 @@ class AerialRotationCompletion:
     clear = new_skill | reset | (~active)
     self.progress[clear] = 0.0
     self.was_airborne[clear] = False
+    self.has_grounded[clear] = False
     self.awarded[clear] = False
     self.landing_settle_time[clear] = 0.0
 
@@ -2039,7 +2051,8 @@ class AerialRotationCompletion:
     )
     contacts = _wheel_contacts(env, sensor_name)
     airborne = ~torch.any(contacts, dim=1)
-    self.was_airborne |= active & airborne
+    self.has_grounded |= active & torch.all(contacts, dim=1)
+    self.was_airborne |= active & self.has_grounded & airborne
     signed_delta = (
       active.to(axis_rate.dtype)
       * airborne.to(axis_rate.dtype)

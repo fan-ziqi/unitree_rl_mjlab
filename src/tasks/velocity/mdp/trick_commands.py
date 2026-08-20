@@ -401,6 +401,11 @@ class AerialRotationCommand(CommandTerm):
       cfg.mode_probabilities, dtype=torch.float32, device=self.device
     )
     self.was_airborne = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+    # Contact sensors can report no match on the first simulation step after
+    # reset.  A maneuver cannot have taken off until it has first been seen on
+    # its ordinary four-wheel support, otherwise an unchanging idle robot can
+    # be incorrectly labelled as a landed aerial attempt.
+    self.has_grounded = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
     self._landing_settle_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
@@ -419,6 +424,7 @@ class AerialRotationCommand(CommandTerm):
       return
     self.command_buf[env_ids] = 0.0
     self.was_airborne[env_ids] = False
+    self.has_grounded[env_ids] = False
     self._landing_settle_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
@@ -441,6 +447,7 @@ class AerialRotationCommand(CommandTerm):
     active = torch.sum(self.command_buf, dim=1) > 0.5
     if not torch.any(active):
       self.was_airborne[~active] = False
+      self.has_grounded[~active] = False
       self._landing_settle_time[~active] = 0.0
       self._rotation_progress[~active] = 0.0
       self._new_skill[~active] = False
@@ -461,7 +468,8 @@ class AerialRotationCommand(CommandTerm):
     assert found is not None
     contacts = (found.reshape(self.num_envs, found.shape[1], -1) > 0).any(dim=-1)
     airborne = ~torch.any(contacts, dim=1)
-    self.was_airborne |= active & airborne
+    self.has_grounded |= active & torch.all(contacts, dim=1)
+    self.was_airborne |= active & self.has_grounded & airborne
 
     axis_rate = torch.sum(
       asset.data.root_link_ang_vel_w * self._launch_axis_w, dim=1

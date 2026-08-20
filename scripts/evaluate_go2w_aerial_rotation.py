@@ -166,6 +166,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     leg_joint_ids, _ = robot.find_joints(GO2W_LEG_JOINTS, preserve_order=True)
 
     trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
+    has_grounded = torch.zeros_like(trial_open)
     ever_airborne = torch.zeros_like(trial_open)
     completed = torch.zeros_like(trial_open)
     failed = torch.zeros_like(trial_open)
@@ -201,11 +202,12 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             obs, _, dones, _ = env.step(policy(obs))
             contacts = _wheel_contacts(wheel_sensor)
             airborne = ~torch.any(contacts, dim=1)
-            first_liftoff = trial_open & airborne & ~ever_airborne
+            has_grounded |= trial_open & torch.all(contacts, dim=1)
+            first_liftoff = trial_open & has_grounded & airborne & ~ever_airborne
             takeoff_vertical_speed[first_liftoff] = torch.clamp(
                 robot.data.root_link_lin_vel_w[first_liftoff, 2], min=0.0
             )
-            ever_airborne |= trial_open & airborne
+            ever_airborne |= trial_open & has_grounded & airborne
             height_delta = robot.data.root_link_pos_w[:, 2] - default_height
             peak_height_delta = torch.maximum(
                 peak_height_delta,
