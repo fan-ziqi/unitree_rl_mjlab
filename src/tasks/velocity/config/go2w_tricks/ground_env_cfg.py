@@ -448,7 +448,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "static_two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=45.0,
+      # V8's broad alignment discovers a two-wheel lean but leaves normal,
+      # front, and the side branches at visibly wrong final attitudes.  This
+      # is the same measured gravity outcome with a sharper preference, not a
+      # pose or phase reference.
+      weight=100.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
@@ -483,6 +487,18 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         # a horizontal two-wheel orbit; spin-rate credit remains strict, so a
         # merely tilted four-wheel robot cannot satisfy the command.
         "horizontal_gravity_std": 0.75,
+      },
+    ),
+    "dynamic_spin_horizontal_precision": RewardTermCfg(
+      func=trick_rewards.spin_dynamic_horizontal_precision_exp,
+      # The broad two-wheel signal above is valuable for leaving the normal
+      # reset.  This companion eliminates its low-crouch local optimum by
+      # making a truly horizontal dynamic support materially preferable.
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "std": 0.28,
       },
     ),
     "dynamic_spin_rate": RewardTermCfg(
@@ -530,17 +546,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,
-      weight=60.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_lengths": (0.0, 0.35, 0.35, 0.35, 0.35),
-        "activation_lengths": (0.0, 0.16, 0.16, 0.16, 0.16),
+        # Start from a folded but already tilted stance.  Waiting for 0.16 m
+        # at 0.90 gravity alignment left V8's front/side branches with no
+        # useful extension gradient until after their local lean optimum.
+        "activation_lengths": (0.0, 0.0, 0.0, 0.0, 0.0),
         "length_power": 2.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "minimum_gravity_alignment": 0.90,
+        "minimum_gravity_alignment": 0.75,
         "asset_cfg": _SUPPORT_LEG_GEOMETRY,
       },
     ),
