@@ -9,37 +9,35 @@ def unitree_go2w_upright_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     actor=RslRlModelCfg(
       hidden_dims=(512, 256, 128),
       activation="elu",
-      obs_normalization=True,
+      # Match the reference Go2W handstand policy configuration.
+      obs_normalization=False,
       distribution_cfg={
         "class_name": "GaussianDistribution",
-        # Match the reference upright task: the strict wheel-only contact
-        # constraint needs enough initial exploration to discover the rear
-        # wheel support state from the ordinary four-foot reset.
-        # Front-wheel lift-off requires a roughly one-sigma front-leg residual
-        # even before the rear wheel motor is released.  Keep this fresh-run
-        # exploration broad; task-level action filtering still bounds the
-        # physical target scale and reward-based smoothness regularization.
-        "init_std": 1.2,
+        # The reference task uses unit-variance initial exploration.  With a
+        # 0.25-rad direct action scale, this is required to discover a rise
+        # from the four-wheel reset; it has no runtime effect on the deployed
+        # deterministic policy and is not an action filter.
+        "init_std": 1.0,
         "std_type": "scalar",
       },
     ),
     critic=RslRlModelCfg(
       hidden_dims=(512, 256, 128),
       activation="elu",
-      obs_normalization=True,
+      obs_normalization=False,
     ),
     algorithm=RslRlPpoAlgorithmCfg(
       value_loss_coef=1.0,
       use_clipped_value_loss=True,
       clip_param=0.2,
-      entropy_coef=0.02,
+      entropy_coef=0.01,
       num_learning_epochs=5,
       num_mini_batches=4,
       learning_rate=1.0e-3,
       schedule="adaptive",
       # Keep the rollout/return horizon aligned with the proven Go2 upright
-      # configuration. Smoothness remains enforced by task rewards and action
-      # filtering, rather than by a long return horizon.
+      # configuration. Smoothness remains enforced by direct task costs, not
+      # by a temporal action filter or a long return horizon.
       gamma=0.99,
       lam=0.95,
       desired_kl=0.01,

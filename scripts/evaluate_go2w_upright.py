@@ -10,6 +10,7 @@ import tyro
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from mjlab.utils.lab_api.math import quat_apply_inverse
 
 TASK_ID = "Unitree-Go2W-Upright-Flat"
 FRONT_LEG_JOINTS = (
@@ -23,7 +24,12 @@ FRONT_LEG_JOINTS = (
 FRONT_LEG_HANGING_POSE = (0.0, 1.75, -1.30, 0.0, 1.75, -1.30)
 FRONT_ARM_BEND_POSE = (1.75, -1.30, 1.75, -1.30)
 FRONT_WHEEL_SITES = ("FL", "FR")
+REAR_WHEEL_SITES = ("RL", "RR")
 FRONT_WHEEL_MIN_HEIGHT = 0.41
+FRONT_WHEEL_HANGING_POSITIONS_B = (
+  (-0.11467, 0.14200, 0.00000),
+  (-0.11467, -0.14200, 0.00000),
+)
 REAR_LEG_JOINTS = (
   "RL_hip_joint",
   "RL_thigh_joint",
@@ -60,6 +66,20 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   twist.ranges.lin_vel_x = (cfg.command_x, cfg.command_x)
   twist.ranges.lin_vel_y = (cfg.command_y, cfg.command_y)
   twist.ranges.ang_vel_z = (cfg.command_yaw, cfg.command_yaw)
+  # A nonzero evaluation command must be issued to every environment.  The
+  # training configuration intentionally mixes in standing commands, but
+  # leaving that mixture enabled here silently halves a requested forward
+  # command and invalidates the tracking measurement.
+  twist.rel_standing_envs = (
+    1.0
+    if abs(cfg.command_x) < 1.0e-6 and abs(cfg.command_y) < 1.0e-6 and abs(cfg.command_yaw) < 1.0e-6
+    else 0.0
+  )
+  # Evaluation must issue exactly the requested command to every environment;
+  # the task's training sampler otherwise intentionally replaces a portion
+  # with pure-yaw or pure-linear commands.
+  twist.rel_yaw_only_envs = 0.0
+  twist.rel_linear_only_envs = 0.0
   twist.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
 
   agent_cfg = load_rl_cfg(TASK_ID)
@@ -82,9 +102,12 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   front_hip_ids = [front_leg_ids[0], front_leg_ids[3]]
   front_arm_bend_ids = [front_leg_ids[1], front_leg_ids[2], front_leg_ids[4], front_leg_ids[5]]
   rear_leg_ids, _ = robot.find_joints(REAR_LEG_JOINTS, preserve_order=True)
+  rear_hip_ids = [rear_leg_ids[0], rear_leg_ids[3]]
+  all_hip_ids = front_hip_ids + rear_hip_ids
   rear_thigh_ids = [rear_leg_ids[1], rear_leg_ids[4]]
   rear_calf_ids = [rear_leg_ids[2], rear_leg_ids[5]]
   front_wheel_site_ids, _ = robot.find_sites(FRONT_WHEEL_SITES, preserve_order=True)
+  rear_wheel_site_ids, _ = robot.find_sites(REAR_WHEEL_SITES, preserve_order=True)
   initial_gravity_error = torch.sum(
     torch.square(robot.data.projected_gravity_b - target_gravity), dim=1
   )
@@ -98,6 +121,8 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   action_delta_sum = torch.zeros((), device=env.device)
   velocity_error_sum = torch.zeros((), device=env.device)
   forward_velocity_sum = torch.zeros((), device=env.device)
+  yaw_velocity_error_sum = torch.zeros((), device=env.device)
+  yaw_velocity_sum = torch.zeros((), device=env.device)
   wheel_action_abs_sum = torch.zeros((), device=env.device)
   applied_wheel_action_abs_sum = torch.zeros((), device=env.device)
   pre_upright_forward_abs_sum = torch.zeros((), device=env.device)
@@ -141,6 +166,9 @@ def run(cfg: EvalConfig) -> dict[str, float]:
       actual_x = torch.sum(velocity_xy * body_z_w, dim=1)
       velocity_error_sum += torch.abs(actual_x - cfg.command_x).mean()
       forward_velocity_sum += actual_x.mean()
+      actual_yaw = robot.data.root_link_ang_vel_w[:, 2]
+      yaw_velocity_error_sum += torch.abs(actual_yaw - cfg.command_yaw).mean()
+      yaw_velocity_sum += actual_yaw.mean()
       # The upright task exposes only RL/RR wheel velocity actions; FL/FR are
       # intentionally passive hanging-arm wheels.
       wheel_action_abs_sum += actions[:, -2:].abs().mean()
@@ -202,6 +230,12 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   front_hip_parallel_error = torch.linalg.vector_norm(
     robot.data.joint_pos[:, front_hip_ids], dim=1
   )
+  # Hip joints are the lateral swing DoFs.  Check every leg, not only the
+  # hanging front pair, so a rear support that splays its wheels outward
+  # cannot pass the final validation.
+  all_hip_max_deviation = torch.abs(
+    robot.data.joint_pos[:, all_hip_ids]
+  ).amax(dim=1)
   front_arm_bend_target = torch.tensor(
     FRONT_ARM_BEND_POSE, dtype=robot.data.joint_pos.dtype, device=env.device
   )
@@ -209,6 +243,35 @@ def run(cfg: EvalConfig) -> dict[str, float]:
     robot.data.joint_pos[:, front_arm_bend_ids] - front_arm_bend_target, dim=1
   )
   front_wheel_height = robot.data.site_pos_w[:, front_wheel_site_ids, 2].mean(dim=1)
+  front_wheel_offset_w = (
+    robot.data.site_pos_w[:, front_wheel_site_ids]
+    - robot.data.root_link_pos_w[:, None]
+  )
+  root_quat_w = robot.data.root_link_quat_w[:, None].expand(
+    -1, front_wheel_offset_w.shape[1], -1
+  )
+  front_wheel_pos_b = quat_apply_inverse(root_quat_w, front_wheel_offset_w)
+  front_wheel_hanging_target = torch.tensor(
+    FRONT_WHEEL_HANGING_POSITIONS_B,
+    dtype=front_wheel_pos_b.dtype,
+    device=env.device,
+  )
+  front_wheel_side_error = torch.abs(
+    front_wheel_pos_b - front_wheel_hanging_target
+  ).mean(dim=(1, 2))
+  rear_wheel_offset_w = (
+    robot.data.site_pos_w[:, rear_wheel_site_ids]
+    - robot.data.root_link_pos_w[:, None]
+  )
+  rear_wheel_pos_b = quat_apply_inverse(
+    root_quat_w, rear_wheel_offset_w
+  )
+  # RL/RR are the two support wheels.  Their centres must differ only along
+  # the lateral body axis; a mismatch in body x or z is the unwanted
+  # fore/aft scissor that makes the two rolling axes non-collinear.
+  rear_wheel_axis_error = torch.abs(
+    rear_wheel_pos_b[:, 0, (0, 2)] - rear_wheel_pos_b[:, 1, (0, 2)]
+  ).sum(dim=1)
   rear_target = torch.tensor(
     REAR_LEG_SUPPORT_POSE, dtype=robot.data.joint_pos.dtype, device=env.device
   )
@@ -236,10 +299,13 @@ def run(cfg: EvalConfig) -> dict[str, float]:
     "mean_gravity_error": gravity_error.mean().item(),
     "mean_base_height": robot.data.root_link_pos_w[:, 2].mean().item(),
     "mean_front_wheel_height": front_wheel_height.mean().item(),
+    "mean_front_wheel_side_error": front_wheel_side_error.mean().item(),
+    "mean_rear_wheel_axis_error": rear_wheel_axis_error.mean().item(),
     # Keep these ungated diagnostics so near-upright checkpoints can be
     # improved before they are strict enough to count as a completed stance.
     "mean_front_leg_pose_error_all": front_leg_pose_error.mean().item(),
     "mean_front_hip_parallel_error_all": front_hip_parallel_error.mean().item(),
+    "mean_all_hip_max_deviation_all": all_hip_max_deviation.mean().item(),
     "mean_front_arm_bend_error_all": front_arm_bend_error.mean().item(),
     "mean_rear_leg_support_pose_error_all": rear_leg_pose_error.mean().item(),
     "mean_rear_thigh_position": robot.data.joint_pos[:, rear_thigh_ids].mean().item(),
@@ -250,8 +316,16 @@ def run(cfg: EvalConfig) -> dict[str, float]:
     "upright_front_wheel_clearance_rate": (
       (upright & (front_wheel_height > FRONT_WHEEL_MIN_HEIGHT)).float().mean().item()
     ),
+    "upright_front_wheel_side_alignment_rate": (
+      (upright & (front_wheel_side_error < 0.04)).float().mean().item()
+    ),
+    "upright_rear_wheel_axis_alignment_rate": (
+      (upright & (rear_wheel_axis_error < 0.02)).float().mean().item()
+    ),
     "mean_velocity_abs_error": (velocity_error_sum / num_steps).item(),
     "mean_forward_velocity": (forward_velocity_sum / num_steps).item(),
+    "mean_yaw_velocity_abs_error": (yaw_velocity_error_sum / num_steps).item(),
+    "mean_yaw_velocity": (yaw_velocity_sum / num_steps).item(),
     "mean_wheel_action_abs": (wheel_action_abs_sum / num_steps).item(),
     "mean_applied_wheel_action_abs": (
       applied_wheel_action_abs_sum / num_steps
@@ -279,6 +353,9 @@ def run(cfg: EvalConfig) -> dict[str, float]:
     ),
     "upright_front_hip_parallel_rate": (
       (upright & (front_hip_parallel_error < 0.20)).float().mean().item()
+    ),
+    "upright_all_hip_no_splay_rate": (
+      (upright & (all_hip_max_deviation < 0.12)).float().mean().item()
     ),
     "upright_front_arm_bend_error": (
       front_arm_bend_error[upright].mean().item()

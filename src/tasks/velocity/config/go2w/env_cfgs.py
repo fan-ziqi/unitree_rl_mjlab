@@ -1,8 +1,5 @@
 """Unitree Go2W upright walking environment configuration."""
 
-from dataclasses import replace
-
-from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.managers import TerminationTermCfg
@@ -10,7 +7,6 @@ from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
-from mjlab.tasks.velocity.mdp import UniformVelocityCommandCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
   GO2W_JOINTS,
@@ -20,15 +16,12 @@ from src.assets.robots.unitree_go2w.go2w_constants import (
   get_go2w_robot_cfg,
 )
 from src.tasks.velocity import mdp
+from src.tasks.velocity.mdp.velocity_command import UniformVelocityCommandCfg
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
 
 # Entity-local Go2W joint order is FL leg, FL wheel, FR leg, FR wheel, ... .
-# Explicit IDs avoid mjlab 1.2 re-resolving a regex differently for play-mode
-# configurations, while retaining the intended FL-then-FR target ordering.
-_FRONT_LEG_JOINT_IDS = [0, 1, 2, 4, 5, 6]
-_FRONT_HIP_JOINT_IDS = [0, 4]
-_REAR_LEG_JOINT_IDS = [8, 9, 10, 12, 13, 14]
-_ALL_LEG_JOINT_IDS = _FRONT_LEG_JOINT_IDS + _REAR_LEG_JOINT_IDS
+# The smoothness costs cover precisely the twelve articulated leg joints.
+_ALL_LEG_JOINT_IDS = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]
 # The upright task is a rear-wheel biped.  The former front wheels stay in the
 # model for contact and visual fidelity, but are deliberately omitted from the
 # policy action interface so they can never propel the robot.
@@ -36,21 +29,17 @@ _REAR_WHEEL_JOINTS = ("RL_wheel_joint", "RR_wheel_joint")
 # Only these two tyres are legal ground supports after the robot has reared.
 # FL/FR are passive hanging-arm wheels, not support wheels.
 _REAR_WHEEL_GEOMS = GO2W_WHEEL_GEOMS[2:]
-# In the reared frame the former front legs are arms.  Keep both hip joints
-# neutral so the two front wheels stay parallel to the trunk instead of
-# splaying outward.  With the reference-mapped rear support below, forward
-# kinematics places these wheel centres at about 44 cm: beside and below the
-# raised trunk, not held out or used as extra supports.
-_FRONT_LEG_HANGING_POSE = (0.0, 1.75, -1.30, 0.0, 1.75, -1.30)
-# The reference pose provides the initial geometry, then a static MuJoCo COM
-# check makes the small Go2W-specific correction below.  At this pose the COM
-# projection is 1.2 mm from the RL/RR axle (instead of 4.1 cm in front of it
-# with 2.25 rad thighs), so the post-stand wheel controller starts from an
-# actual two-wheel balance geometry rather than a seated lean.
-_REAR_LEG_SUPPORT_POSE = (0.0, 2.425, -1.75, 0.0, 2.425, -1.75)
 _UPRIGHT_GRAVITY = (-1.0, 0.0, 0.0)
 # One criterion defines a qualified final stance across the task and evaluator.
 _QUALIFIED_UPRIGHT_ERROR = 0.12
+# Wheel-centre locations for a naturally bent front arm hanging down the body.
+# They keep the wheels at the body's longitudinal mid-plane (not stretched out
+# ahead of it).  These are task-space coordinates in base_link, not a
+# joint-angle template.
+_NATURAL_FRONT_WHEEL_POSITIONS_B = (
+  (-0.11467, 0.14200, 0.00000),
+  (-0.11467, -0.14200, 0.00000),
+)
 
 
 def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
@@ -61,23 +50,32 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
   discover a smooth transition from the ordinary four-foot reset pose itself.
   """
   cfg = make_velocity_env_cfg()
+  # The stock velocity command sampler has only continuous samples, making an
+  # exact in-place turn effectively absent.  This task-local command class
+  # adds explicit linear-only and yaw-only samples; it does not alter any
+  # other robot task.
+  cfg.commands["twist"] = UniformVelocityCommandCfg(
+    entity_name="robot",
+    resampling_time_range=(3.0, 8.0),
+    heading_command=False,
+    rel_standing_envs=0.50,
+    rel_yaw_only_envs=0.0,
+    rel_linear_only_envs=0.0,
+    yaw_upright_gate_error=_QUALIFIED_UPRIGHT_ERROR,
+    yaw_minimum_root_height=0.48,
+    ranges=UniformVelocityCommandCfg.Ranges(
+      lin_vel_x=(-1.0, 1.0),
+      lin_vel_y=(0.0, 0.0),
+      ang_vel_z=(-0.5, 0.5),
+      heading=None,
+    ),
+  )
   # Training does not render, so build the collision-only model.  Play mode
   # deliberately retains the visual meshes for video and visual inspection.
   cfg.scene.entities = {"robot": get_go2w_robot_cfg(headless=not play)}
-  # This is a task-level controller mapping, not a static-model edit.  The
-  # user-specified upright reference uses P gains 40/1; the static Go2W asset
-  # uses 20/0.5 for ordinary quadruped locomotion.  Reaching a rear-wheel
-  # stance from four wheels needs the reference controller authority, while
-  # keeping the XML geometry, collision shapes, masses, and effort limits
-  # unchanged.  The wheel velocity actuator is intentionally untouched.
-  robot_cfg = cfg.scene.entities["robot"]
-  assert robot_cfg.articulation is not None
-  robot_cfg.articulation.actuators = tuple(
-    replace(actuator, stiffness=40.0, damping=1.0)
-    if isinstance(actuator, BuiltinPositionActuatorCfg)
-    else actuator
-    for actuator in robot_cfg.articulation.actuators
-  )
+  # Preserve the Go2W asset's native actuator gains.  Standing smoothness is
+  # a policy objective (action-rate / joint-motion costs), not a hidden change
+  # to the controller that will differ from the deployed robot.
   cfg.sim.njmax = 500
   cfg.sim.contact_sensor_maxmatch = 128
   cfg.sim.mujoco.ccd_iterations = 100
@@ -210,14 +208,16 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
     "joint_pos": envs_mdp.JointPositionActionCfg(
       entity_name="robot",
       actuator_names=GO2W_LEG_JOINTS,
-      # Direct reference-style residual mapping.  Start from the source Go2
-      # task's conservative 0.125/0.25-rad gains; the broad deployment action
-      # range below covers the whole final posture without a temporal filter.
-      # Smoothness is rewarded rather than imposed in the action interface.
+      # Keep this asset's native P20/D0.5 gains, while using the verified direct
+      # residual ranges needed to reach a two-wheel stance from the four-wheel
+      # default.  This changes neither model gains nor action timing.
       scale={
-        r".*_hip_joint": 0.125,
-        r".*_thigh_joint": 0.25,
-        r".*_calf_joint": 0.25,
+        r"^(FL|FR)_hip_joint$": 0.25,
+        r"^(FL|FR)_thigh_joint$": 0.80,
+        r"^(FL|FR)_calf_joint$": 0.40,
+        r"^(RL|RR)_hip_joint$": 0.25,
+        r"^(RL|RR)_thigh_joint$": 0.50,
+        r"^(RL|RR)_calf_joint$": 0.30,
       },
       use_default_offset=True,
     ),
@@ -236,14 +236,24 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
 
   twist_cmd = cfg.commands["twist"]
   assert isinstance(twist_cmd, UniformVelocityCommandCfg)
+  # Keep the command envelope centred on the demonstration speeds.  Narrower
+  # values make accurate differential turning learnable before introducing a
+  # high-speed driving curriculum.
   twist_cmd.ranges.lin_vel_x = (-1.0, 1.0)
-  # A rear-wheel upright robot is non-holonomic.  Keep the usual three-value
-  # command interface, but train the initial task on feasible longitudinal
-  # motion only; lateral and yaw ranges can be introduced in a later curriculum.
+  # A rear-wheel upright robot is non-holonomic.  Train feasible longitudinal
+  # and yaw commands directly through the two rear-wheel velocity motors;
+  # lateral commands remain unavailable.  Uniform sampling includes pure
+  # turns as well as forward/reverse turns for the requested driving demo.
   twist_cmd.ranges.lin_vel_y = (0.0, 0.0)
-  twist_cmd.ranges.ang_vel_z = (0.0, 0.0)
+  twist_cmd.ranges.ang_vel_z = (-0.5, 0.5)
   twist_cmd.heading_command = False
   twist_cmd.ranges.heading = None
+  # Command mix: static balance, pure fore/aft driving, pure differential
+  # turns, and combined arcs all occur explicitly.  Pure turns are required
+  # for the requested left/right sections of the demonstration video.
+  twist_cmd.rel_standing_envs = 0.50
+  twist_cmd.rel_yaw_only_envs = 0.0
+  twist_cmd.rel_linear_only_envs = 0.0
 
   cfg.events["foot_friction"].params["asset_cfg"] = SceneEntityCfg(
     "robot", geom_names=GO2W_WHEEL_GEOMS
@@ -286,77 +296,154 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
   # Direct mapping of the reference task's tracking term.  It is ineligible
   # until the static upright test passes, therefore it cannot teach four-wheel
   # driving at reset.
-  cfg.rewards["track_linear_velocity"].weight = 2.5
-  cfg.rewards["track_linear_velocity"].params["std"] = 0.5
+  # Once the final stance is attained, wheel speed must be a first-class
+  # objective: otherwise the policy can use a constant wheel drift to balance
+  # while receiving much larger posture rewards.
+  cfg.rewards["track_linear_velocity"].weight = 10.0
+  cfg.rewards["track_linear_velocity"].params["std"] = 0.4
   cfg.rewards["track_linear_velocity"].params["target_gravity"] = _UPRIGHT_GRAVITY
   cfg.rewards["track_linear_velocity"].params["upright_gate_error"] = _QUALIFIED_UPRIGHT_ERROR
+  # A merely vertical but low body is still converting from four to two wheels;
+  # it cannot receive any driving incentive until the final body-height region.
+  cfg.rewards["track_linear_velocity"].params["minimum_root_height"] = 0.48
   cfg.rewards["track_angular_velocity"].func = mdp.track_upright_angular_velocity
-  cfg.rewards["track_angular_velocity"].weight = 2.5
+  cfg.rewards["track_angular_velocity"].weight = 10.0
   cfg.rewards["track_angular_velocity"].params["std"] = 0.7
   cfg.rewards["track_angular_velocity"].params["target_gravity"] = _UPRIGHT_GRAVITY
   cfg.rewards["track_angular_velocity"].params["upright_gate_error"] = _QUALIFIED_UPRIGHT_ERROR
-  # A strong positive final-state attitude objective.  The old low-weight L2
-  # cost is algebraically a weak alignment preference but left the policy in a
-  # front-wheel-supported local optimum before it had sampled lift-off.  This
-  # is still only the same target gravity direction—no phase, time signal, or
-  # joint-space get-up reference is introduced.
+  cfg.rewards["track_angular_velocity"].params["minimum_root_height"] = 0.48
+  # One continuous, all-time final-attitude objective.  It is the standard
+  # positive exponential form: ordinary four-wheel reset receives little
+  # reward and the requested body-frame gravity direction receives one.  This
+  # avoids turning the entire pre-stand exploration region into a negative
+  # return, while still specifying no phase or prescribed standing trajectory.
   cfg.rewards["upright"] = RewardTermCfg(
-    func=mdp.target_projected_gravity_alignment,
-    weight=12.0,
-    params={"target_gravity": _UPRIGHT_GRAVITY},
+    func=mdp.target_projected_gravity_exp,
+    # Together with the single body-height reward below, this is the complete
+    # posture objective: no front/rear joint position, wheel-height, or
+    # contact-lift reward is used to prescribe how the robot must get up.
+    weight=5.0,
+    params={"target_gravity": _UPRIGHT_GRAVITY, "std": 1.0},
   )
+  cfg.rewards.pop("upright_precision", None)
   cfg.rewards.pop("upright_precise", None)
-  cfg.rewards["alive"] = RewardTermCfg(func=envs_mdp.is_alive, weight=1.0)
+  # The supplied upright reference has no alive bonus.  Adding one makes the
+  # original four-wheel pose a high-survival local optimum, even though it is
+  # continuously wrong for both posture objectives.
+  cfg.rewards.pop("alive", None)
 
-  front_leg_cfg = SceneEntityCfg("robot", joint_ids=_FRONT_LEG_JOINT_IDS)
   all_leg_cfg = SceneEntityCfg("robot", joint_ids=_ALL_LEG_JOINT_IDS)
-  final_leg_pose = _FRONT_LEG_HANGING_POSE + _REAR_LEG_SUPPORT_POSE
-  # ``default_pos`` from the reference task, adapted to Go2W's final static
-  # morphology: relaxed arms with neutral hips (parallel front wheels) and
-  # naturally bent rear wheel-support legs.  This is one state-only term.
-  cfg.rewards["desired_leg_pose"] = RewardTermCfg(
-    func=mdp.joint_position_l1,
-    weight=-0.1,
-    params={"target_joint_pos": final_leg_pose, "asset_cfg": all_leg_cfg},
+  # RobotLab's standard hip-deviation regularizer.  The Go2W hip joints are
+  # the lateral swing DoFs, so this one all-time cost stops both the two raised
+  # front arms and the two rear support legs from splaying apart.  It keeps the
+  # pitch joints unconstrained; the robot must still learn the stand-up from
+  # the ordinary four-wheel reset rather than follow a joint-space trajectory.
+  cfg.rewards["joint_deviation_hip_l1"] = RewardTermCfg(
+    func=mdp.joint_deviation_l1,
+    # RobotLab uses -0.2 in its ordinary quadruped velocity task.  Here the
+    # final front-wheel geometry term is deliberately much stronger (-40), so
+    # scale this identical all-hip regularizer to retain the user's no-splay
+    # requirement in the completed rear-wheel stance.
+    weight=-4.0,
+    params={"asset_cfg": SceneEntityCfg("robot", joint_names=r".*_hip_joint")},
   )
+  # The sole geometric posture objective.  The plain-Go2 reference uses
+  # 0.47 m, but forward kinematics of this Go2W asset's rear-wheel support
+  # gives 0.561 m.  Using the asset-correct height keeps the 34 cm low
+  # front-wheel prop distinctly below the requested stance.  Natural arm hang
+  # and wheel alignment must emerge from dynamics/default pose, not a hidden
+  # joint-space template.
+  cfg.rewards["upright_base_height"] = RewardTermCfg(
+    func=mdp.root_height_l1_exp,
+    # A low front-wheel-supported lean remains roughly 18 cm below the target
+    # and otherwise earns a sizeable broad exponential reward.  Give this
+    # same single body-height objective enough weight to prefer the requested
+    # 0.561 m rear-wheel stance; no extra leg or wheel target is introduced.
+    weight=5.0,
+    params={
+      "target_height": 0.561,
+      "scale": 5.0,
+      "asset_cfg": SceneEntityCfg("robot"),
+    },
+  )
+  # This is a final support-state criterion, not a leg target or a timed
+  # stand-up cue: the requested robot must have both former front wheels off
+  # the terrain before it is a rear-wheel biped.  The pure body-only objective
+  # otherwise converges to a low front-wheel-supported lean.
   cfg.rewards["front_wheels_air"] = RewardTermCfg(
     func=mdp.all_contacting_geoms_in_air,
-    # A front wheel on the floor is the observed sitting local optimum, not
-    # the requested rear-wheel stance.  This remains a state-only support
-    # objective and has no elapsed-time or transition reference.
     weight=2.0,
     params={"sensor_name": front_wheel_contact_cfg.name, "force_threshold": 1.0},
   )
-  # Static final-height objective for the measured Go2W geometry.  A 0.5 m
-  # width gave the low four-wheel configuration over half of the final reward,
-  # which the model-200 evaluation confirmed as a local optimum.  This still
-  # contains no time, phase, or intermediate-pose cue; it simply distinguishes
-  # the required hanging-wheel height from the reset height.
+  # The same geometric signal used by the Go2W handstand reference, expressed
+  # for this asset's wheel-centre sites.  It supplies a continuous gradient
+  # toward the required free front wheels; it does not prescribe a joint pose.
   cfg.rewards["front_wheel_height"] = RewardTermCfg(
     func=mdp.site_height_exp,
-    # Make the requested hanging-wheel height materially better than a front
-    # wheel still parked on the terrain.  The former broad bell gave the
-    # observed low sitting configuration a sizeable final-state reward.
     weight=5.0,
     params={
-      # The natural hanging-arm pose is 11.5 cm below the upright root.  The
-      # COM-aligned rear support puts that root at 56.1 cm, so the free
-      # front wheels sit around 44 cm high—beside and below the trunk, rather
-      # than propping it on the floor.
       "target_height": 0.446,
-      # The reference task's very sharp terminal-height bell is almost zero
-      # while a Go2W still has its front wheels on the floor.  That admitted a
-      # stationary seated local optimum in headless evaluation.  This remains
-      # the same single final world-height target, but gives a usable static
-      # gradient all the way from the four-wheel reset to the lifted arms.
       "std": 0.35,
       "asset_cfg": SceneEntityCfg("robot", site_names=("FL", "FR")),
     },
   )
+  # Penalize excess height on exactly the same two wheel centres only after
+  # the rear-wheel stand exists.  This selects the natural side-hanging wheel
+  # level without obstructing discovery or specifying a single joint angle.
+  cfg.rewards["front_wheel_height_error"] = RewardTermCfg(
+    func=mdp.upright_site_height_l1,
+    weight=-15.0,
+    params={
+      "target_height": 0.446,
+      "target_gravity": _UPRIGHT_GRAVITY,
+      "upright_gate_error": _QUALIFIED_UPRIGHT_ERROR,
+      "minimum_root_height": 0.48,
+      "asset_cfg": SceneEntityCfg("robot", site_names=("FL", "FR")),
+    },
+  )
+  # Height alone admits an asymmetric folded-arm pose.  Constrain the two
+  # *wheel centres* relative to the trunk in the final stance, so the passive
+  # front wheels are level with the body sides and the arms hang naturally.
+  # This has no joint-position target and no influence on the rise itself.
+  cfg.rewards["front_wheel_side_alignment"] = RewardTermCfg(
+    func=mdp.upright_site_position_l1,
+    # Once the stand is physically stable this must dominate the remaining
+    # front-leg redundancy: height-only supervision can still leave a wheel
+    # several centimetres forward of the trunk.  The gate keeps this from
+    # prescribing the rise itself.
+    weight=-40.0,
+    params={
+      "target_positions_b": _NATURAL_FRONT_WHEEL_POSITIONS_B,
+      "target_gravity": _UPRIGHT_GRAVITY,
+      "upright_gate_error": _QUALIFIED_UPRIGHT_ERROR,
+      "minimum_root_height": 0.48,
+      "asset_cfg": SceneEntityCfg("robot", site_names=("FL", "FR")),
+    },
+  )
+  # The two rear wheels are the sole ground-support pair.  Their centres must
+  # lie on one lateral body-frame axle (same x and z, free y separation), so
+  # the robot cannot stand with its rear legs scissored fore/aft.  Like the
+  # front-wheel geometry terms this only selects the completed configuration;
+  # it neither imposes a joint target nor prescribes the rise.
+  cfg.rewards["rear_wheel_axis_alignment"] = RewardTermCfg(
+    func=mdp.upright_wheel_axis_alignment_l1,
+    weight=-20.0,
+    params={
+      "target_gravity": _UPRIGHT_GRAVITY,
+      # Begin shaping only in the last near-vertical portion of the rise.  A
+      # 0.12 final-only gate left the deterministic policy just outside the
+      # upright manifold, where this essential geometry could not improve.
+      # This is still state-gated (not timed or phased) and retains the strict
+      # 0.12 criterion in the evaluator.
+      "upright_gate_error": 0.25,
+      "minimum_root_height": 0.48,
+      "asset_cfg": SceneEntityCfg("robot", site_names=("RL", "RR")),
+    },
+  )
+  # A bounded, continuous clearance score makes the required off-ground
+  # support geometry reachable from the four-wheel reset.  It is still only a
+  # final spatial condition on the two passive front wheel centres.
   cfg.rewards["front_wheel_clearance"] = RewardTermCfg(
-    # A rear-wheel upright has its front wheels clear of the terrain.  This
-    # direct static support criterion preserves a useful gradient from the
-    # normal four-wheel reset without encoding an ordered lifting motion.
     func=mdp.site_height_at_least,
     weight=8.0,
     params={
@@ -364,42 +451,12 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
       "asset_cfg": SceneEntityCfg("robot", site_names=("FL", "FR")),
     },
   )
-  # Same static final-pose preference as the reference's
-  # ``default_pos_reward``.  It activates only after the objective posture is
-  # reached, so it cannot prescribe a separate standing-up trajectory.
-  cfg.rewards["front_legs_hanging_final"] = RewardTermCfg(
-    func=mdp.upright_joint_position_exp,
-    # Once the robot has actually reached the outcome-space upright manifold,
-    # make the relaxed side-hanging arms a meaningful final-pose objective.
-    # The gate keeps it entirely out of the four-foot-to-two-wheel transition.
-    weight=4.0,
-    params={
-      "std": 1.5,
-      "target_joint_pos": _FRONT_LEG_HANGING_POSE,
-      "target_gravity": _UPRIGHT_GRAVITY,
-      "upright_gate_error": _QUALIFIED_UPRIGHT_ERROR,
-      "asset_cfg": front_leg_cfg,
-    },
-  )
-  # Direct mapping of the reference task's continuous base-height term.  The
-  # high reference-mapped target distinguishes the reared stance from the
-  # four-wheel reset, so this can remain an all-time final-state objective
-  # without adding a stand-up phase or trajectory reward.
-  cfg.rewards["upright_base_height"] = RewardTermCfg(
-    func=mdp.root_height_l1_exp,
-    weight=1.5,
-    params={
-      "target_height": 0.561,
-      "scale": 5.0,
-      "asset_cfg": SceneEntityCfg("robot"),
-    },
-  )
   cfg.rewards["forbidden_ground_collision"] = RewardTermCfg(
     # Literal mapping of the reference Go2 upright task's collision term:
     # penalise every non-foot/non-wheel terrain contact throughout the rollout.
     # FL/FR are deliberately excluded here because four-wheel reset is valid;
-    # their final lift-off is handled by the dedicated clearance reward and
-    # strict final-support terminal below.  This prevents the policy from
+    # their final lift-off follows from the hanging-arm geometry and strict
+    # final-support terminal below.  This prevents the policy from
     # parking just outside the upright gate with a calf, thigh, hip, or body
     # quietly propping it up on the terrain.
     func=mdp.terrain_contact_count,
@@ -413,17 +470,18 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
       "force_threshold": 0.1,
     },
   )
-  # Smoothness is enforced by the reference action-rate and joint-acceleration
-  # costs below.  Do not add a joint-velocity cost: it discouraged the required
-  # finite-speed rise and produced a low four-wheel local optimum.
-  cfg.rewards["joint_acc_l2"].weight = -2.5e-4
+  # Smoothness is enforced on the direct deployable policy output and its
+  # resulting joint motion.  These costs neither filter nor delay an action.
+  # Keep the discovery signal sufficiently dense, then use the reference
+  # task's direct action-change cost to avoid an impulsive rise.
+  cfg.rewards["joint_acc_l2"].weight = -2.5e-5
   cfg.rewards["leg_excess_velocity"] = RewardTermCfg(
     # Deployment-compatible transition smoothing: only velocity above this
     # physical threshold is penalized, so a finite-speed rear-wheel rise is
     # possible without filtering or rewriting the policy action.
     func=mdp.joint_velocity_above_l2,
     weight=-0.01,
-    params={"threshold": 4.0, "asset_cfg": all_leg_cfg},
+    params={"threshold": 6.0, "asset_cfg": all_leg_cfg},
   )
   # Continuous wheel joints have no meaningful position range.  Restrict the
   # inherited joint-limit regularizer to the twelve articulated leg joints.
@@ -431,13 +489,18 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
   cfg.rewards["joint_pos_limits"].params["asset_cfg"] = SceneEntityCfg(
     "robot", joint_names=GO2W_LEG_JOINTS
   )
-  # Direct reference mapping.  Failure still resets immediately; no terminal
-  # bonus/penalty changes the static posture objective.
-  cfg.rewards["is_terminated"].weight = 0.0
+  # Keep the base task's standard fall penalty.  This is a safety/failure
+  # signal, not a posture target: without it a policy can improve return by
+  # immediately ending an episode to avoid the continuous height/orientation
+  # error instead of learning a stand-up transition.
+  cfg.rewards["is_terminated"].weight = -200.0
   cfg.rewards["joint_acc_l2"].params["asset_cfg"] = SceneEntityCfg(
     "robot", joint_names=GO2W_LEG_JOINTS
   )
-  cfg.rewards["action_rate_l2"].weight = -0.10
+  # Penalise target changes directly.  This is evaluated on successive policy
+  # actions and does not filter, delay, or rewrite the action sent to the PD
+  # controller.
+  cfg.rewards["action_rate_l2"].weight = -0.055
   cfg.rewards["body_ang_vel"].weight = -0.05
   cfg.rewards["body_ang_vel"].params["asset_cfg"] = SceneEntityCfg(
     "robot", body_names=("base_link",)
@@ -459,11 +522,12 @@ def unitree_go2w_upright_flat_env_cfg(play: bool = False) -> ManagerBasedRlEnvCf
     params={
       "sensor_name": forbidden_contact_cfg.name,
       "target_gravity": _UPRIGHT_GRAVITY,
-      # Once the base has made meaningful progress toward the final upright
-      # attitude, FL/FR contact is a propped sitting posture rather than a
-      # valid four-wheel reset.  A purely state-based gate preserves the
-      # original reset and does not prescribe how quickly to stand.
-      "upright_gate_error": 0.80,
+      # The four-wheel reset remains valid, but a body that is already more
+      # than half-way to the requested upright attitude must not settle back
+      # onto its front wheels.  This removes the observed low front-wheel
+      # prop without supplying a trajectory or an additional reward.
+      "upright_gate_error": 0.60,
+      "minimum_root_height": 0.25,
       "force_threshold": 0.5,
     },
   )

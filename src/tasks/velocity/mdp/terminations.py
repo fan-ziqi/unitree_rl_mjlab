@@ -75,6 +75,7 @@ def upright_illegal_contact(
   sensor_name: str,
   target_gravity: tuple[float, float, float],
   upright_gate_error: float,
+  minimum_root_height: float = 0.0,
   force_threshold: float = 0.5,
   asset_name: str = "robot",
 ) -> torch.Tensor:
@@ -87,6 +88,8 @@ def upright_illegal_contact(
   """
   if upright_gate_error <= 0.0:
     raise ValueError("upright_gate_error must be positive.")
+  if minimum_root_height < 0.0:
+    raise ValueError("minimum_root_height must be non-negative.")
   asset: Entity = env.scene[asset_name]
   target = torch.tensor(
     target_gravity, dtype=asset.data.projected_gravity_b.dtype, device=env.device
@@ -94,7 +97,12 @@ def upright_illegal_contact(
   gravity_error = torch.sum(
     torch.square(asset.data.projected_gravity_b - target), dim=1
   )
-  return (gravity_error < upright_gate_error) & illegal_contact(
+  # Attitude alone is not the completed two-wheel stance: while the body is
+  # still low, the front wheels can briefly remain in contact as the rear legs
+  # extend.  Require the final root-height region too, so this remains a
+  # final-support validity check rather than cutting off that physical motion.
+  final_height_reached = asset.data.root_link_pos_w[:, 2] >= minimum_root_height
+  return (gravity_error < upright_gate_error) & final_height_reached & illegal_contact(
     env, sensor_name=sensor_name, force_threshold=force_threshold
   )
 

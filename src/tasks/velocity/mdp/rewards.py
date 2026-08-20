@@ -62,6 +62,21 @@ def target_projected_gravity_alignment(
   )
 
 
+def target_projected_gravity_alignment_power(
+  env: ManagerBasedRlEnv,
+  target_gravity: tuple[float, float, float],
+  power: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Sharpen one static target-gravity alignment near exact upright."""
+  if power <= 1.0:
+    raise ValueError("power must be greater than one.")
+  alignment = target_projected_gravity_alignment(
+    env, target_gravity=target_gravity, asset_cfg=asset_cfg
+  )
+  return torch.pow(alignment, power)
+
+
 def joint_position_l1(
   env: ManagerBasedRlEnv,
   target_joint_pos: tuple[float, ...],
@@ -87,6 +102,23 @@ def joint_position_l1(
   return torch.sum(
     torch.abs(asset.data.joint_pos[:, asset_cfg.joint_ids] - target), dim=1
   )
+
+
+def joint_deviation_l1(
+  env: ManagerBasedRlEnv,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """L1 distance from the asset's default joint positions.
+
+  This is the same regularizer used by RobotLab's
+  ``create_joint_deviation_l1_rewterm``.  Selecting the four Go2W hip joints
+  constrains lateral leg splay on both the raised front arms and the rear-wheel
+  support legs, while leaving the pitch joints free to discover the stand-up.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+  default_joint_pos = asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+  return torch.sum(torch.abs(joint_pos - default_joint_pos), dim=1)
 
 
 def joint_velocity_above_l2(
@@ -234,7 +266,7 @@ def upright_joint_position_exp(
   """
   asset: Entity = env.scene[asset_cfg.name]
   if isinstance(asset_cfg.joint_ids, slice):
-    raise ValueError("upright_joint_position_exp requires an explicit joint subset.")
+    raise TypeError("upright_joint_position_exp requires an explicit joint subset.")
   if len(target_joint_pos) != len(asset_cfg.joint_ids):
     raise ValueError(
       "target_joint_pos must contain one value for each selected joint "
@@ -274,7 +306,7 @@ def upright_joint_position_l2(
   """
   asset: Entity = env.scene[asset_cfg.name]
   if isinstance(asset_cfg.joint_ids, slice):
-    raise ValueError("upright_joint_position_l2 requires an explicit joint subset.")
+    raise TypeError("upright_joint_position_l2 requires an explicit joint subset.")
   if len(target_joint_pos) != len(asset_cfg.joint_ids):
     raise ValueError(
       "target_joint_pos must contain one value for each selected joint "
@@ -410,27 +442,6 @@ def site_height_at_least(
   ).mean(dim=1)
 
 
-def site_height_l1(
-  env: ManagerBasedRlEnv,
-  target_height: float,
-  asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-  """Mean absolute error to a static site-height target.
-
-  Go2W's natural hanging wheels start about 35 cm below their final reference
-  height.  An exponential with a steep scale is nearly flat over that range;
-  this dense final-state cost preserves the same target while making the
-  posture objectively reachable through policy-gradient exploration.  It has
-  no time, phase, contact, or attitude condition.
-  """
-  asset: Entity = env.scene[asset_cfg.name]
-  if isinstance(asset_cfg.site_ids, slice):
-    raise TypeError("site_height_l1 requires an explicit site subset.")
-  return torch.mean(
-    torch.abs(asset.data.site_pos_w[:, asset_cfg.site_ids, 2] - target_height), dim=1
-  )
-
-
 def root_height_l1_exp(
   env: ManagerBasedRlEnv,
   target_height: float,
@@ -508,6 +519,134 @@ def upright_root_height_exp(
   return (gravity_error < upright_gate_error).to(reward.dtype) * reward
 
 
+def upright_site_height_l1(
+  env: ManagerBasedRlEnv,
+  target_height: float,
+  target_gravity: tuple[float, float, float],
+  upright_gate_error: float,
+  minimum_root_height: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Measure a site-height error only in the completed upright stance.
+
+  This is a static final-geometry constraint.  It deliberately does not shape
+  the four-wheel-to-upright transition, so a natural hanging-wheel preference
+  cannot prevent the policy from first discovering a valid rear-wheel stand.
+  """
+  if upright_gate_error <= 0.0:
+    raise ValueError("upright_gate_error must be positive.")
+  if minimum_root_height < 0.0:
+    raise ValueError("minimum_root_height must be non-negative.")
+  asset: Entity = env.scene[asset_cfg.name]
+  if isinstance(asset_cfg.site_ids, slice):
+    raise TypeError("upright_site_height_l1 requires an explicit site subset.")
+  target_up = torch.tensor(
+    target_gravity, dtype=asset.data.projected_gravity_b.dtype, device=env.device
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - target_up), dim=1
+  )
+  final_stance = (gravity_error < upright_gate_error) & (
+    asset.data.root_link_pos_w[:, 2] >= minimum_root_height
+  )
+  error = torch.abs(
+    asset.data.site_pos_w[:, asset_cfg.site_ids, 2] - target_height
+  ).mean(dim=1)
+  return final_stance.to(error.dtype) * error
+
+
+def upright_site_position_l1(
+  env: ManagerBasedRlEnv,
+  target_positions_b: tuple[tuple[float, float, float], ...],
+  target_gravity: tuple[float, float, float],
+  upright_gate_error: float,
+  minimum_root_height: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Measure final site positions relative to the trunk, without joint targets.
+
+  This is intentionally a task-space condition on the visible front wheel
+  centres, active only after a rear-wheel stance has been reached.  It selects
+  wheels hanging beside the trunk rather than an arbitrary folded front-leg
+  configuration, while leaving the four-wheel-to-upright motion unconstrained.
+  """
+  if upright_gate_error <= 0.0:
+    raise ValueError("upright_gate_error must be positive.")
+  if minimum_root_height < 0.0:
+    raise ValueError("minimum_root_height must be non-negative.")
+  if isinstance(asset_cfg.site_ids, slice):
+    raise TypeError("upright_site_position_l1 requires an explicit site subset.")
+  if len(target_positions_b) != len(asset_cfg.site_ids):
+    raise ValueError("target_positions_b must have one position per selected site.")
+
+  asset: Entity = env.scene[asset_cfg.name]
+  target_up = torch.tensor(
+    target_gravity,
+    dtype=asset.data.projected_gravity_b.dtype,
+    device=env.device,
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - target_up), dim=1
+  )
+  final_stance = (gravity_error < upright_gate_error) & (
+    asset.data.root_link_pos_w[:, 2] >= minimum_root_height
+  )
+
+  wheel_offset_w = (
+    asset.data.site_pos_w[:, asset_cfg.site_ids] - asset.data.root_link_pos_w[:, None]
+  )
+  root_quat_w = asset.data.root_link_quat_w[:, None].expand(
+    -1, wheel_offset_w.shape[1], -1
+  )
+  wheel_pos_b = quat_apply_inverse(root_quat_w, wheel_offset_w)
+  target_pos_b = torch.tensor(
+    target_positions_b, dtype=wheel_pos_b.dtype, device=env.device
+  )
+  error = torch.abs(wheel_pos_b - target_pos_b).mean(dim=(1, 2))
+  return final_stance.to(error.dtype) * error
+
+
+def upright_wheel_axis_alignment_l1(
+  env: ManagerBasedRlEnv,
+  target_gravity: tuple[float, float, float],
+  upright_gate_error: float,
+  minimum_root_height: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Align a left/right wheel pair on one lateral axle in the final stance.
+
+  The pair may differ only along the body's y axis.  Their body-frame x and z
+  positions must match, which prevents the rear support wheels from forming a
+  fore/aft scissor and keeps their rolling axes collinear.  This is a final
+  wheel-centre geometry condition, not a joint-angle or get-up-trajectory
+  target.
+  """
+  if upright_gate_error <= 0.0:
+    raise ValueError("upright_gate_error must be positive.")
+  if minimum_root_height < 0.0:
+    raise ValueError("minimum_root_height must be non-negative.")
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 2:
+    raise ValueError("upright_wheel_axis_alignment_l1 requires exactly two sites.")
+
+  asset: Entity = env.scene[asset_cfg.name]
+  target_up = torch.tensor(
+    target_gravity, dtype=asset.data.projected_gravity_b.dtype, device=env.device
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - target_up), dim=1
+  )
+  final_stance = (gravity_error < upright_gate_error) & (
+    asset.data.root_link_pos_w[:, 2] >= minimum_root_height
+  )
+  wheel_offset_w = (
+    asset.data.site_pos_w[:, asset_cfg.site_ids] - asset.data.root_link_pos_w[:, None]
+  )
+  root_quat_w = asset.data.root_link_quat_w[:, None].expand(-1, 2, -1)
+  wheel_pos_b = quat_apply_inverse(root_quat_w, wheel_offset_w)
+  error = torch.sum(torch.abs(wheel_pos_b[:, 0, (0, 2)] - wheel_pos_b[:, 1, (0, 2)]), dim=1)
+  return final_stance.to(error.dtype) * error
+
+
 def site_height_exp(
   env: ManagerBasedRlEnv,
   target_height: float,
@@ -570,7 +709,7 @@ def upright_site_clearance_l2(
   """
   asset: Entity = env.scene[asset_cfg.name]
   if isinstance(asset_cfg.site_ids, slice):
-    raise ValueError("upright_site_clearance_l2 requires an explicit site subset.")
+    raise TypeError("upright_site_clearance_l2 requires an explicit site subset.")
   target_up = torch.tensor(
     target_gravity, dtype=asset.data.projected_gravity_b.dtype, device=env.device
   )
@@ -607,13 +746,14 @@ def track_upright_linear_velocity(
   command_name: str,
   target_gravity: tuple[float, float, float] = (-1.0, 0.0, 0.0),
   upright_gate_error: float = 0.20,
+  minimum_root_height: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Track planar commands only after reaching the reared Go2W attitude.
 
-  A four-wheel pose must never earn locomotion reward: it first has to solve
-  the generic final upright objective.  The gate is an eligibility condition
-  for commanded motion, rather than an intermediate get-up reward.
+  A four-wheel or low reared pose must never earn locomotion reward: it first
+  has to solve the generic final upright geometry.  The gate is an eligibility
+  condition for commanded motion, rather than an intermediate get-up reward.
   """
   asset: Entity = env.scene[asset_cfg.name]
   command = env.command_manager.get_command(command_name)
@@ -636,7 +776,10 @@ def track_upright_linear_velocity(
   gravity_error = torch.sum(
     torch.square(asset.data.projected_gravity_b - target_up), dim=1
   )
-  return (gravity_error < upright_gate_error).to(velocity_reward.dtype) * velocity_reward
+  final_stance = (gravity_error < upright_gate_error) & (
+    asset.data.root_link_pos_w[:, 2] >= minimum_root_height
+  )
+  return final_stance.to(velocity_reward.dtype) * velocity_reward
 
 
 def track_upright_angular_velocity(
@@ -645,6 +788,7 @@ def track_upright_angular_velocity(
   command_name: str,
   target_gravity: tuple[float, float, float] = (-1.0, 0.0, 0.0),
   upright_gate_error: float = 0.20,
+  minimum_root_height: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Track yaw only after reaching the reared Go2W attitude."""
@@ -659,7 +803,10 @@ def track_upright_angular_velocity(
   gravity_error = torch.sum(
     torch.square(asset.data.projected_gravity_b - target_up), dim=1
   )
-  return (gravity_error < upright_gate_error).to(yaw_reward.dtype) * yaw_reward
+  final_stance = (gravity_error < upright_gate_error) & (
+    asset.data.root_link_pos_w[:, 2] >= minimum_root_height
+  )
+  return final_stance.to(yaw_reward.dtype) * yaw_reward
 
 
 def track_linear_velocity(

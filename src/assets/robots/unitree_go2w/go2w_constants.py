@@ -1,5 +1,6 @@
 """Static, collision-optimized Unitree Go2W configuration."""
 
+from copy import deepcopy
 from pathlib import Path
 
 import mujoco
@@ -151,10 +152,25 @@ class _Go2WEntityCfg(EntityCfg):
 
 
 def get_go2w_robot_cfg(*, headless: bool = False) -> EntityCfg:
-  """Return the final static model, with visuals only for play/video."""
+  """Return the final static model, with visuals only for play/video.
+
+  Articulation configs are mutable dataclasses.  Give every task its own
+  P20/D0.5 actuator instances so a specialised task cannot accidentally
+  overwrite the native gains of the upright task during package registration.
+  """
   return _Go2WEntityCfg(
     init_state=GO2W_FOUR_FOOT_INIT_STATE,
     collisions=(GO2W_FULL_COLLISION,),
     spec_fn=get_headless_spec if headless else get_spec,
-    articulation=GO2W_ARTICULATION,
+    articulation=EntityArticulationInfoCfg(
+      actuators=deepcopy(
+        (
+          GO2W_ACTUATOR_HIP,
+          GO2W_ACTUATOR_THIGH,
+          GO2W_ACTUATOR_CALF,
+          GO2W_ACTUATOR_WHEEL,
+        )
+      ),
+      soft_joint_pos_limit_factor=GO2W_ARTICULATION.soft_joint_pos_limit_factor,
+    ),
   )

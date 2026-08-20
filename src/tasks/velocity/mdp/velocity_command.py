@@ -36,6 +36,11 @@ class UniformVelocityCommand(CommandTerm):
     self.robot: Entity = env.scene[cfg.entity_name]
 
     self.vel_command_b = torch.zeros(self.num_envs, 3, device=self.device)
+    # Keep the sampled target separate from the command visible to the policy.
+    # Some tasks must finish a posture transition before any locomotion is
+    # meaningful; their task configuration can then expose this stored target
+    # only after the state gate is met.
+    self.sampled_vel_command_b = torch.zeros(self.num_envs, 3, device=self.device)
     self.heading_target = torch.zeros(self.num_envs, device=self.device)
     self.heading_error = torch.zeros(self.num_envs, device=self.device)
     self.is_heading_env = torch.zeros(
@@ -71,10 +76,33 @@ class UniformVelocityCommand(CommandTerm):
 
   def _resample_command(self, env_ids: torch.Tensor) -> None:
     r = torch.empty(len(env_ids), device=self.device)
-    self.vel_command_b[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
-    self.vel_command_b[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
-    self.vel_command_b[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
-    self.vel_command_b[env_ids, :] *= (torch.norm(self.vel_command_b[env_ids, :], dim=1) > 0.1).unsqueeze(1)
+    self.sampled_vel_command_b[env_ids, 0] = r.uniform_(*self.cfg.ranges.lin_vel_x)
+    self.sampled_vel_command_b[env_ids, 1] = r.uniform_(*self.cfg.ranges.lin_vel_y)
+    self.sampled_vel_command_b[env_ids, 2] = r.uniform_(*self.cfg.ranges.ang_vel_z)
+    # Explicit locomotion modes are important for a rear-wheel differential
+    # drive: a purely continuous (vx, yaw) sample almost never asks for an
+    # in-place turn, so a policy has no reason to learn the requested left and
+    # right turning behaviours.  The default probabilities are zero and leave
+    # all other velocity tasks unchanged.
+    if self.cfg.rel_yaw_only_envs + self.cfg.rel_linear_only_envs > 0.0:
+      motion_mode = torch.rand(len(env_ids), device=self.device)
+      yaw_only = motion_mode < self.cfg.rel_yaw_only_envs
+      linear_only = (
+        (motion_mode >= self.cfg.rel_yaw_only_envs)
+        & (motion_mode < self.cfg.rel_yaw_only_envs + self.cfg.rel_linear_only_envs)
+      )
+      self.sampled_vel_command_b[env_ids[yaw_only], :2] = 0.0
+      self.sampled_vel_command_b[env_ids[linear_only], 2] = 0.0
+    # Keep the stock tiny-command dead zone.  The explicit pure-turn samples
+    # are retained at a modest probability by Go2W, while this avoids adding
+    # noisy near-zero targets during the difficult initial rise.
+    self.sampled_vel_command_b[env_ids, :] *= (
+      torch.norm(self.sampled_vel_command_b[env_ids, :], dim=1) > 0.1
+    ).unsqueeze(1)
+    # CommandManager can evaluate observations immediately after a resample,
+    # before its regular update hook.  Mirror the freshly sampled target now
+    # so this class has the same first-frame semantics as MJLab's stock term.
+    self.vel_command_b[env_ids, :] = self.sampled_vel_command_b[env_ids, :]
     if self.cfg.heading_command:
       assert self.cfg.ranges.heading is not None
       self.heading_target[env_ids] = r.uniform_(*self.cfg.ranges.heading)
@@ -87,16 +115,17 @@ class UniformVelocityCommand(CommandTerm):
       root_pos = self.robot.data.root_link_pos_w[init_vel_env_ids]
       root_quat = self.robot.data.root_link_quat_w[init_vel_env_ids]
       lin_vel_b = self.robot.data.root_link_lin_vel_b[init_vel_env_ids]
-      lin_vel_b[:, :2] = self.vel_command_b[init_vel_env_ids, :2]
+      lin_vel_b[:, :2] = self.sampled_vel_command_b[init_vel_env_ids, :2]
       root_lin_vel_w = quat_apply(root_quat, lin_vel_b)
       root_ang_vel_b = self.robot.data.root_link_ang_vel_b[init_vel_env_ids]
-      root_ang_vel_b[:, 2] = self.vel_command_b[init_vel_env_ids, 2]
+      root_ang_vel_b[:, 2] = self.sampled_vel_command_b[init_vel_env_ids, 2]
       root_state = torch.cat(
         [root_pos, root_quat, root_lin_vel_w, root_ang_vel_b], dim=-1
       )
       self.robot.write_root_state_to_sim(root_state, init_vel_env_ids)
 
   def _update_command(self) -> None:
+    self.vel_command_b[:] = self.sampled_vel_command_b
     if self.cfg.heading_command:
       self.heading_error = wrap_to_pi(self.heading_target - self.robot.data.heading_w)
       env_ids = self.is_heading_env.nonzero(as_tuple=False).flatten()
@@ -107,6 +136,40 @@ class UniformVelocityCommand(CommandTerm):
       )
     standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
     self.vel_command_b[standing_env_ids, :] = 0.0
+    if self.cfg.command_upright_gate_error is not None:
+      target_gravity = torch.tensor(
+        self.cfg.command_upright_target_gravity,
+        dtype=self.robot.data.projected_gravity_b.dtype,
+        device=self.device,
+      )
+      gravity_error = torch.sum(
+        torch.square(self.robot.data.projected_gravity_b - target_gravity), dim=1
+      )
+      command_eligible = gravity_error < self.cfg.command_upright_gate_error
+      if self.cfg.command_minimum_root_height is not None:
+        command_eligible &= (
+          self.robot.data.root_link_pos_w[:, 2]
+          >= self.cfg.command_minimum_root_height
+        )
+      self.vel_command_b[~command_eligible, :] = 0.0
+    if self.cfg.yaw_upright_gate_error is not None:
+      target_gravity = torch.tensor(
+        self.cfg.command_upright_target_gravity,
+        dtype=self.robot.data.projected_gravity_b.dtype,
+        device=self.device,
+      )
+      gravity_error = torch.sum(
+        torch.square(self.robot.data.projected_gravity_b - target_gravity), dim=1
+      )
+      yaw_eligible = gravity_error < self.cfg.yaw_upright_gate_error
+      if self.cfg.yaw_minimum_root_height is not None:
+        yaw_eligible &= (
+          self.robot.data.root_link_pos_w[:, 2] >= self.cfg.yaw_minimum_root_height
+        )
+      # Preserve fore/aft command semantics from the established upright task,
+      # while preventing a quadruped-reset policy from reacting to an
+      # inapplicable differential-turn target before it has reared.
+      self.vel_command_b[~yaw_eligible, 2] = 0.0
 
   # GUI.
 
@@ -252,8 +315,15 @@ class UniformVelocityCommandCfg(CommandTermCfg):
   heading_command: bool = False
   heading_control_stiffness: float = 1.0
   rel_standing_envs: float = 0.0
+  rel_yaw_only_envs: float = 0.0
+  rel_linear_only_envs: float = 0.0
   rel_heading_envs: float = 1.0
   init_velocity_prob: float = 0.0
+  command_upright_gate_error: float | None = None
+  command_upright_target_gravity: tuple[float, float, float] = (-1.0, 0.0, 0.0)
+  command_minimum_root_height: float | None = None
+  yaw_upright_gate_error: float | None = None
+  yaw_minimum_root_height: float | None = None
 
   @dataclass
   class Ranges:
@@ -280,3 +350,9 @@ class UniformVelocityCommandCfg(CommandTermCfg):
         "The velocity command has heading commands active (heading_command=True) but "
         "the `ranges.heading` parameter is set to None."
       )
+    if not 0.0 <= self.rel_yaw_only_envs <= 1.0:
+      raise ValueError("rel_yaw_only_envs must be in [0, 1].")
+    if not 0.0 <= self.rel_linear_only_envs <= 1.0:
+      raise ValueError("rel_linear_only_envs must be in [0, 1].")
+    if self.rel_yaw_only_envs + self.rel_linear_only_envs > 1.0:
+      raise ValueError("yaw-only and linear-only command probabilities must sum to at most one.")
