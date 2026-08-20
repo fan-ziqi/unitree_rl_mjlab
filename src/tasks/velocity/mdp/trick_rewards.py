@@ -869,7 +869,13 @@ class DynamicTallPairSupportCenterStillness:
     self.previous_center.copy_(center)
     self.previous_pair.copy_(pair_index)
     self.initialized[:] = True
-    stillness = torch.exp(-torch.square(center_speed) / speed_std**2)
+    # A Gaussian is almost flat once a nominal pivot drifts beyond its scale:
+    # it withholds credit but never makes a bicycle-like translation worse
+    # than a slightly smaller one.  Give zero centre motion positive credit,
+    # make ``speed_std`` the zero-credit tolerance, and retain a bounded
+    # negative gradient above it.  This is a measured contact-centre outcome,
+    # not a prescribed body or joint motion.
+    stillness = torch.clamp(1.0 - center_speed / speed_std, min=-2.0, max=1.0)
     return (
       spin_stand_mask(env, command_name, speed_deadband)
       * initialized.to(stillness.dtype)
@@ -1161,7 +1167,9 @@ class FixedPairSupportCenterStillness:
     alignment = torch.clamp(
       0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
     )
-    stillness = torch.exp(-torch.square(center_speed) / speed_std**2)
+    # See DynamicTallPairSupportCenterStillness: an in-place turn needs an
+    # explicit ranking against translating the same legal wheel pair.
+    stillness = torch.clamp(1.0 - center_speed / speed_std, min=-2.0, max=1.0)
     return (
       active
       * initialized.to(stillness.dtype)
