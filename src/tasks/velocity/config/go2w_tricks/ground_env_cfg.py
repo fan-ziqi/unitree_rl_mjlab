@@ -399,11 +399,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Keep every branch present in every PPO batch.  V7 over-corrected for
-      # the unfinished normal/left cases, which let a fresh policy forget the
-      # already discovered rear and right skills.  Normal still receives a
-      # little more than an even share and is dynamic for 70% of its samples.
-      mode_probabilities=(0.32, 0.17, 0.17, 0.17, 0.17),
+      # V9's uniformly sampled but over-constrained policy preserved only the
+      # two easy side balances.  Keep a single fused actor while giving the
+      # still-undiscovered front branch additional fresh rollouts; rear and
+      # both sides remain present in every batch.
+      mode_probabilities=(0.32, 0.23, 0.15, 0.15, 0.15),
       spin_idle_probability=0.30,
       spin_rate_range=(1.0, 4.0),
       spin_rate_ramp_rate=4.0,
@@ -448,11 +448,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "static_two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      # V8's broad alignment discovers a two-wheel lean but leaves normal,
-      # front, and the side branches at visibly wrong final attitudes.  This
-      # is the same measured gravity outcome with a sharper preference, not a
-      # pose or phase reference.
-      weight=100.0,
+      # V9's weight of 100 made the formerly viable front/rear recovery
+      # collapse into contact failures.  Retain a sharper terminal preference
+      # than V8, without overpowering the transition and support signals.
+      weight=65.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
@@ -491,10 +490,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "dynamic_spin_horizontal_precision": RewardTermCfg(
       func=trick_rewards.spin_dynamic_horizontal_precision_exp,
-      # The broad two-wheel signal above is valuable for leaving the normal
-      # reset.  This companion eliminates its low-crouch local optimum by
-      # making a truly horizontal dynamic support materially preferable.
-      weight=80.0,
+      # A modest terminal horizontal preference removes the low crouch while
+      # leaving the broad discovery signal dominant during the normal-mode
+      # transition.
+      weight=40.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -513,7 +512,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "dynamic_support_cycle": RewardTermCfg(
       func=trick_rewards.SpinSupportCycle,
-      weight=1.0,
+      # A true Thomas-like orbit must change a settled support pair.  V8's
+      # nearly zero event reward allowed a static low two-wheel compromise.
+      weight=4.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -546,21 +547,31 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,
-      weight=80.0,
+      weight=60.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_lengths": (0.0, 0.35, 0.35, 0.35, 0.35),
-        # Start from a folded but already tilted stance.  Waiting for 0.16 m
-        # at 0.90 gravity alignment left V8's front/side branches with no
-        # useful extension gradient until after their local lean optimum.
-        "activation_lengths": (0.0, 0.0, 0.0, 0.0, 0.0),
+        "activation_lengths": (0.0, 0.16, 0.16, 0.16, 0.16),
         "length_power": 2.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "minimum_gravity_alignment": 0.75,
+        "minimum_gravity_alignment": 0.85,
         "asset_cfg": _SUPPORT_LEG_GEOMETRY,
+      },
+    ),
+    # The normal one-hot at zero spin starts in a valid four-wheel support.
+    # Prefer its zero residual controller over needless leg actuation, but
+    # leave every actual spin request (including dynamic normal) unrestricted.
+    "normal_idle_action_effort": RewardTermCfg(
+      func=trick_rewards.stance_stationary_action_l2,
+      weight=-5.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "velocity_deadband": 0.20,
+        "num_modes": 5,
       },
     ),
     "spin_planar_drift": RewardTermCfg(
