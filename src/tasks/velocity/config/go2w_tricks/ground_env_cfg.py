@@ -77,11 +77,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(8.0, 8.0),
-      # Front now reaches the requested vertical support reliably, whereas
-      # normal idle and the rear support remain the unfinished branches.  The
-      # actor is still one fused policy; this only prevents the easy front
-      # solution from dominating fresh PPO rollouts.
-      mode_probabilities=(0.40, 0.25, 0.35),
+      # V8 established the rear rise but its fused actor still under-sampled
+      # front support and let the normal idle branch drift.  Preserve rear
+      # exposure while putting the next zero-start discovery batch on normal
+      # and front; this remains one mode-conditioned policy.
+      mode_probabilities=(0.40, 0.35, 0.25),
       idle_probability=0.45,
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
@@ -345,6 +345,22 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 4.0,
         "minimum_gravity_alignment": 0.90,
+      },
+    ),
+    # The correct normal zero-command reset is already a physical four-wheel
+    # support state.  Penalise only residual controller effort in that exact
+    # command case, so the actor cannot improve a shared representation by
+    # continually issuing a non-zero action that lifts one wheel.  This is
+    # neither a joint target nor a prescribed normal pose, and it is inactive
+    # during every two-wheel rise and every requested x/yaw motion.
+    "normal_stationary_action_effort": RewardTermCfg(
+      func=trick_rewards.stance_stationary_action_l2,
+      weight=-5.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "velocity_deadband": 0.04,
+        "num_modes": 3,
       },
     ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),

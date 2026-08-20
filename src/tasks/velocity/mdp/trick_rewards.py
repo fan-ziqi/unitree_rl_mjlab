@@ -1151,6 +1151,31 @@ def stance_stationary_ground_speed_abs_error(
   return active.to(error.dtype) * stationary.to(error.dtype) * error
 
 
+def stance_stationary_action_l2(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  modes: tuple[int, ...],
+  velocity_deadband: float,
+  num_modes: int = 3,
+) -> torch.Tensor:
+  """Measure control effort only for a genuinely stationary stance request.
+
+  This has no position target: it merely lets a normal four-wheel idle state
+  prefer the controller's zero residual instead of repeatedly issuing a
+  constant non-zero action that lifts a wheel from an already valid reset.
+  Moving x/yaw requests and the two-wheel rise remain entirely unaffected.
+  """
+  if velocity_deadband < 0.0:
+    raise ValueError("velocity_deadband must be non-negative.")
+  active, _ = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  command = _command(env, command_name)
+  stationary = (
+    torch.linalg.vector_norm(command[:, num_modes:], dim=1) <= velocity_deadband
+  )
+  effort = torch.sum(torch.square(env.action_manager.action), dim=1)
+  return active.to(effort.dtype) * stationary.to(effort.dtype) * effort
+
+
 def mode_stationary_root_ang_speed(
   env: "ManagerBasedRlEnv",
   command_name: str,
