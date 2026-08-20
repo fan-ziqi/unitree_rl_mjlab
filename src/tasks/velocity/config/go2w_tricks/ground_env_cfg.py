@@ -35,6 +35,13 @@ from .common_env_cfg import (
 _WHEEL_SITES = SceneEntityCfg(
   "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
 )
+# Reward-manager resolution writes numeric IDs onto selector objects.  Every
+# reward term therefore needs its own otherwise-identical selector; sharing
+# one across terms works in a training build by accident but fails when a
+# play/evaluation environment resolves the same site names again.
+_STATIC_FREE_WHEEL_SITES = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+)
 # Reward-manager resolution stores IDs on this mutable config object.  Keep a
 # separate identical selector for the root-clearance term rather than reusing
 # ``_WHEEL_SITES`` after the free-wheel term has resolved it.
@@ -45,6 +52,12 @@ _FIXED_PIVOT_WHEEL_SITES = SceneEntityCfg(
   "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
 )
 _DYNAMIC_PIVOT_WHEEL_SITES = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+)
+_DYNAMIC_CLEARANCE_WHEEL_SITES = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+)
+_DYNAMIC_FREE_WHEEL_SITES = SceneEntityCfg(
   "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
 )
 _SUPPORT_LEG_GEOMETRY = SceneEntityCfg(
@@ -551,7 +564,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "minimum_height": 0.22,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "gravity_power": 1.0,
-        "asset_cfg": _WHEEL_SITES,
+        "asset_cfg": _STATIC_FREE_WHEEL_SITES,
       },
     ),
     "static_support_clearance": RewardTermCfg(
@@ -588,7 +601,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "sensor_name": wheel_contact_cfg.name,
         "minimum_clearance": 0.38,
         "std": 0.14,
-        "asset_cfg": _DYNAMIC_PIVOT_WHEEL_SITES,
+        "asset_cfg": _DYNAMIC_CLEARANCE_WHEEL_SITES,
       },
     ),
     "dynamic_tall_pair_free_wheel_clearance": RewardTermCfg(
@@ -599,7 +612,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_height": 0.22,
-        "asset_cfg": _DYNAMIC_PIVOT_WHEEL_SITES,
+        "asset_cfg": _DYNAMIC_FREE_WHEEL_SITES,
       },
     ),
     "dynamic_tall_pair_rate": RewardTermCfg(
