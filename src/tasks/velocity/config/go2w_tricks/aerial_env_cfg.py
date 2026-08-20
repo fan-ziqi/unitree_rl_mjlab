@@ -86,12 +86,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     params={
       "command_name": "trick",
       "target_angle": math.tau,
-      # This is a safety bound for a failed aerial attempt, not the success
-      # tolerance.  The former 0.75-rad cap left a 10-rad/s maneuver less than
-      # 80 ms to brake after one turn, while the outcome rewards correctly
-      # exposed a wider recovery window.  Strict command completion below
-      # still accepts only one turn plus 0.75 rad.
-      "max_overrotation": 0.75 * math.tau,
+      "max_overrotation": 0.75,
       "activation_step": 0,
     },
   )
