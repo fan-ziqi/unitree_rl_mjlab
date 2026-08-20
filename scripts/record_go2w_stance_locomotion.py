@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import os
 from pathlib import Path
+
+# The remote training host has no X11 display.  This must be set before any
+# import path can initialize MuJoCo, matching the aerial and spin recorders.
+os.environ.setdefault("MUJOCO_GL", "egl")
 
 import torch
 import tyro
