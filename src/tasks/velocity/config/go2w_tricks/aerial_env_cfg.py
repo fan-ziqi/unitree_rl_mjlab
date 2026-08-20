@@ -175,17 +175,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "descent_distance": 0.30,
       },
     ),
-    # Once most of the measured turn is complete, continuing to accumulate
-    # angular momentum is no longer useful.  This is intentionally a gentle
-    # state-cost rather than a desired-rate trajectory: PPO remains free to
-    # choose its entire launch, flip, and recovery coordination, but a
-    # wheel-first landing ranks above an equally complete high-spin landing.
-    "late_axis_rate": RewardTermCfg(
+    # V51 charged residual spin while the robot was still in free flight,
+    # which disrupted the direction-specific launch itself.  Charge it only
+    # after a wheel has actually returned to the floor: this ranks a quiet
+    # recovery above a high-spin wheel strike without prescribing when or how
+    # the aerial turn should brake.
+    "post_turn_contact_axis_rate": RewardTermCfg(
       func=trick_rewards.aerial_late_axis_rate_abs,
-      weight=-3.0,
+      weight=-5.0,
       params={
         "command_name": "trick",
-        "start_angle": 0.80 * math.tau,
+        "sensor_name": wheel_contact_cfg.name,
+        "require_wheel_contact": True,
+        "start_angle": 0.98 * math.tau,
         "max_angle": math.tau + 0.75,
       },
     ),

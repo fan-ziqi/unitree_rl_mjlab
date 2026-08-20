@@ -1871,19 +1871,25 @@ def aerial_late_axis_rate_abs(
   command_name: str,
   start_angle: float,
   max_angle: float,
+  sensor_name: str | None = None,
+  require_wheel_contact: bool = False,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Measure residual spin only after an aerial attempt has nearly turned.
+  """Measure residual spin after a near-complete aerial attempt.
 
   The directed-progress term should be free to discover whatever launch rate
   completes the first 95 percent of a turn.  At that point, however, continued
   angular momentum is precisely what prevents a wheel-first recovery.  This
   term is intentionally expressed in the command term's measured accumulated
   angle and measured root angular velocity; it exposes neither quantity to the
-  actor and contains no timed reference or joint target.
+  actor and contains no timed reference or joint target.  A caller can
+  additionally require a physical wheel contact, which makes the cost a
+  landing-quality signal rather than an in-flight braking prescription.
   """
   if start_angle <= 0.0 or max_angle <= start_angle:
     raise ValueError("late-axis-rate angles must be ordered positive values.")
+  if require_wheel_contact and sensor_name is None:
+    raise ValueError("sensor_name is required when wheel contact is required.")
   asset: Entity = env.scene[asset_cfg.name]
   command_term = env.command_manager.get_term(command_name)
   active = aerial_active(env, command_name) > 0.5
@@ -1898,7 +1904,17 @@ def aerial_late_axis_rate_abs(
   )
   axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
   late_turn = (progress >= start_angle) & (progress <= max_angle)
-  return active.float() * qualified_flight.float() * late_turn.float() * torch.abs(axis_rate)
+  contact_gate = torch.ones_like(axis_rate)
+  if require_wheel_contact:
+    assert sensor_name is not None
+    contact_gate = torch.any(_wheel_contacts(env, sensor_name), dim=1).to(axis_rate.dtype)
+  return (
+    active.float()
+    * qualified_flight.float()
+    * late_turn.float()
+    * contact_gate
+    * torch.abs(axis_rate)
+  )
 
 
 class AerialPostTurnLandingProgress:
