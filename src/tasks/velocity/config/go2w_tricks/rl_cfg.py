@@ -91,15 +91,20 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # a 393k-sample PPO batch remains ample).
     num_steps_per_env=48,
     gamma=0.997,
+    # Five physically distinct launch/landing mappings share this policy.  A
+    # wider middle layer is inexpensive relative to MuJoCo collection at 8192
+    # environments and prevents the easy yaw branch from monopolising a small
+    # latent representation.
+    hidden_dims=(512, 512, 256),
     # This leaves initial exploration inside the physically tested compact
     # position-residual envelope while still exposing coordinated launch
     # pulses in the large parallel batch.
-    init_std=0.50,
+    init_std=0.55,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
     clip_actions=1.0,
     # Keep enough stochasticity for all five one-hots, but not enough to turn
     # a compliant torque actuator into a permanently saturated random kick.
-    entropy_coef=0.001,
+    entropy_coef=0.003,
   )

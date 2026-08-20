@@ -46,10 +46,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # small but explicit share of it during training so this transition is
       # learned rather than being left undefined after a completed maneuver.
       idle_probability=0.12,
-      # This remains one fused five-one-hot policy.  Front/back are materially
-      # harder than side/yaw turns in the measured rollouts, so give them more
-      # samples without splitting policies or adding a mode-specific pose.
-      mode_probabilities=(0.28, 0.28, 0.15, 0.15, 0.14),
+      # Five equally exposed events keep the one fused actor from spending
+      # most of its capacity on the mechanically easiest pitch directions.
+      # The former front/back bias left the negative side flip under-trained.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -183,6 +183,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_linear_speed": 3.0,
       },
     ),
+    # A partial wheel touchdown is not enough: the public event completes
+    # only after a continuous strict normal-wheel landing.  This adds a small
+    # per-step outcome credit inside exactly that state so PPO prefers holding
+    # it rather than immediately falling out of a near-complete recovery.
+    # It contains no target joint configuration or timed reference phase.
+    "strict_landing_hold": RewardTermCfg(
+      func=trick_rewards.aerial_strict_landing_hold,
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "max_overrotation": 1.25,
+      },
+    ),
     "late_axis_spin": RewardTermCfg(
       func=trick_rewards.aerial_late_axis_rate_abs,
       # V60 reaches an upright wheel landing most often in yaw, but then
@@ -236,7 +251,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.06),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
-  # There is deliberately no reward curriculum.  The target stays one full
-  # turn from the first sample, and all five commands remain equally likely.
+  # There is deliberately no reward curriculum: every command is one full
+  # turn from the first sample and all five events remain equally likely.
   cfg.curriculum = {}
   return cfg

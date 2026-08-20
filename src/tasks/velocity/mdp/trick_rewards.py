@@ -2659,6 +2659,53 @@ class AerialLandingRecoveryProgress:
     return (self.best_score - previous_best) / env.step_dt
 
 
+def aerial_strict_landing_hold(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  sensor_name: str,
+  target_angle: float,
+  max_overrotation: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Recognize each physically valid post-turn landing control step.
+
+  This deliberately measures the same four-wheel, upright, low-momentum
+  state needed by command completion.  It gives PPO a local reason to retain
+  a correct touchdown long enough for the event's dwell requirement, without
+  encoding how the launch, flight, or braking should be performed.
+  """
+  if target_angle <= 0.0 or max_overrotation < 0.0:
+    raise ValueError("target_angle must be positive and max_overrotation non-negative.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command_term = env.command_manager.get_term(command_name)
+  active = aerial_active(env, command_name) > 0.5
+  was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
+  progress = getattr(
+    command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+  )
+  normal_gravity = torch.tensor(
+    (0.0, 0.0, -1.0),
+    dtype=asset.data.projected_gravity_b.dtype,
+    device=env.device,
+  )
+  gravity_error = torch.sum(
+    torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+  )
+  linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
+  angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+  strict = (
+    active
+    & was_airborne
+    & (progress >= target_angle)
+    & (progress <= target_angle + max_overrotation)
+    & torch.all(_wheel_contacts(env, sensor_name), dim=1)
+    & (gravity_error < command_term.cfg.landing_gravity_error_limit)
+    & (linear_speed < command_term.cfg.landing_linear_velocity_limit)
+    & (angular_speed < command_term.cfg.landing_angular_velocity_limit)
+  )
+  return strict.to(asset.data.root_link_pos_w.dtype)
+
+
 class AerialRotationProgress:
   """Reward high-clearance new directed progress, capped at one complete turn."""
 
