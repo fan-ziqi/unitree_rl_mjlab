@@ -331,7 +331,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Rear fixed-pair spin is already discovered.  Keep one fused actor but
+      # devote more fresh rollouts to the four unfinished command modes rather
+      # than letting that easy rear solution dominate PPO updates.
+      mode_probabilities=(0.27, 0.22, 0.11, 0.20, 0.20),
       spin_idle_probability=0.45,
       spin_rate_range=(1.0, 4.0),
       spin_rate_ramp_rate=4.0,
@@ -401,7 +404,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     # change over the orbit rather than hard-coding an axis or pose.
     "dynamic_spin_support": RewardTermCfg(
       func=trick_rewards.spin_dynamic_support_exp,
-      weight=50.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
