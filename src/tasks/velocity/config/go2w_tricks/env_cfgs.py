@@ -1200,11 +1200,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "rate_clip": 20.0,
         "clearance_start": None,
         "clearance_full": None,
-        # Keep full spin discovery through 0.70 turn, as the v38 0.60-turn
-        # fade caused front/side modes to plateau below a full turn.  Recovery
-        # now starts at the same 0.70-turn hand-off below, so PPO receives a
-        # braking signal earlier without taking away the launch momentum that
-        # makes a compact full flip physically reachable.
+        # Keep the validated 0.70--0.85-turn momentum hand-off.  Both earlier
+        # recovery variants (v38/v39) suppressed front/side full-turn
+        # discovery; partial wheel-touchdown shaping below supplies the new
+        # landing bridge without competing before the turn is nearly complete.
         "stop_angle": 0.70 * math.tau,
         "stop_angle_fade": 0.15 * math.tau,
       },
@@ -1216,15 +1215,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "activation_angle": 0.70 * math.tau,
-        "gravity_std": 1.0,
+        "activation_angle": 0.85 * math.tau,
+        "gravity_std": 0.75,
         # This is the braking half of the maneuver.  The old 6-rad/s target
         # actively trained a policy to keep spinning through touchdown.
-        "target_axis_rate": 2.0,
-        # Use a meaningful preference for slowing before touchdown.  The
-        # former 30-rad/s clip barely distinguished a 6-rad/s recovery from
-        # a 10-rad/s crash; strict success remains at 1.5 rad/s.
-        "axis_rate_clip": 14.0,
+        "target_axis_rate": 1.5,
+        "axis_rate_clip": 30.0,
       },
     ),
     "soft_landing": RewardTermCfg(
