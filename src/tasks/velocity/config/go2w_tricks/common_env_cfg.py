@@ -1,0 +1,206 @@
+"""Small shared scene builder for the three Go2W trick environments.
+
+The policy interface is deliberately identical in every task: command,
+angular velocity, gravity vector, joint position/velocity, and last action.
+Contacts and geometry remain private outcome signals for reward and validity.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs import mdp as envs_mdp
+from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
+from mjlab.managers import TerminationTermCfg
+from mjlab.managers.event_manager import EventTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg
+
+from src.assets.robots.unitree_go2w.go2w_constants import (
+  GO2W_JOINTS,
+  GO2W_LEG_JOINTS,
+  GO2W_WHEEL_GEOMS,
+  GO2W_WHEEL_JOINTS,
+  get_go2w_robot_cfg,
+)
+from src.tasks.velocity import mdp
+from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
+
+
+# Wheel order is [FL, FR, RL, RR].  Gravity targets are expressed in base
+# coordinates; they are task semantics, never actor observations.
+STANCE_GRAVITY_TARGETS = (
+  (0.0, 0.0, -1.0),
+  (1.0, 0.0, 0.0),
+  (-1.0, 0.0, 0.0),
+  (0.0, 1.0, 0.0),
+  (0.0, -1.0, 0.0),
+)
+STANCE_CONTACT_MASKS = (
+  (1.0, 1.0, 1.0, 1.0),
+  (1.0, 1.0, 0.0, 0.0),
+  (0.0, 0.0, 1.0, 1.0),
+  (1.0, 0.0, 1.0, 0.0),
+  (0.0, 1.0, 0.0, 1.0),
+)
+LOCOMOTION_GRAVITY_TARGETS = STANCE_GRAVITY_TARGETS[:3]
+LOCOMOTION_CONTACT_MASKS = STANCE_CONTACT_MASKS[:3]
+AERIAL_AXES = (
+  (0.0, 1.0, 0.0),
+  (0.0, -1.0, 0.0),
+  (1.0, 0.0, 0.0),
+  (-1.0, 0.0, 0.0),
+  (0.0, 0.0, 1.0),
+)
+
+
+def configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
+  """Use compliant, torque-limited legs rather than rigid target tracking."""
+  articulation = cfg.scene.entities["robot"].articulation
+  assert articulation is not None
+  gains = {
+    (".*hip_.*",): (200.0, 3.0),
+    (".*thigh_.*",): (170.0, 3.0),
+    (".*calf_.*",): (150.0, 3.0),
+  }
+  effort_limits = {
+    (".*hip_.*",): 90.0,
+    (".*thigh_.*",): 90.0,
+    (".*calf_.*",): 95.0,
+  }
+  articulation.actuators = tuple(
+    replace(
+      actuator,
+      stiffness=gains[actuator.target_names_expr][0],
+      damping=gains[actuator.target_names_expr][1],
+      effort_limit=effort_limits[actuator.target_names_expr],
+    )
+    if actuator.target_names_expr in gains
+    else actuator
+    for actuator in articulation.actuators
+  )
+
+
+def make_base_go2w_trick_cfg(
+  play: bool,
+) -> tuple[ManagerBasedRlEnvCfg, ContactSensorCfg, ContactSensorCfg]:
+  """Build flat ground, generic observations, and wheel-only support safety."""
+  cfg = make_velocity_env_cfg()
+  cfg.scene.entities = {"robot": get_go2w_robot_cfg(headless=not play)}
+  cfg.sim.njmax = 500
+  cfg.sim.nconmax = 35
+  cfg.sim.contact_sensor_maxmatch = 128
+  cfg.sim.mujoco.ccd_iterations = 100
+  cfg.episode_length_s = 8.0
+
+  assert cfg.scene.terrain is not None
+  cfg.scene.terrain.terrain_type = "plane"
+  cfg.scene.terrain.terrain_generator = None
+  cfg.scene.sensors = tuple(
+    sensor for sensor in (cfg.scene.sensors or ()) if sensor.name != "terrain_scan"
+  )
+  cfg.curriculum = {}
+
+  wheel_contact_cfg = ContactSensorCfg(
+    name="wheel_ground_contact",
+    primary=ContactMatch(mode="geom", pattern=GO2W_WHEEL_GEOMS, entity="robot"),
+    secondary=ContactMatch(mode="body", pattern="terrain"),
+    fields=("found", "force"),
+    reduce="netforce",
+    num_slots=1,
+    track_air_time=True,
+  )
+  nonwheel_contact_cfg = ContactSensorCfg(
+    name="nonwheel_ground_contact",
+    primary=ContactMatch(
+      mode="geom",
+      entity="robot",
+      pattern=r".*_collision\d*$",
+      exclude=GO2W_WHEEL_GEOMS,
+    ),
+    secondary=ContactMatch(mode="body", pattern="terrain"),
+    fields=("found", "force"),
+    reduce="none",
+    num_slots=1,
+    history_length=4,
+  )
+  cfg.scene.sensors = (cfg.scene.sensors or ()) + (
+    wheel_contact_cfg,
+    nonwheel_contact_cfg,
+  )
+
+  for group_name in ("actor", "critic"):
+    terms = cfg.observations[group_name].terms
+    for name in (
+      "phase",
+      "height_scan",
+      "base_lin_vel",
+      "foot_height",
+      "foot_air_time",
+      "foot_contact",
+      "foot_contact_forces",
+    ):
+      terms.pop(name, None)
+    terms["base_ang_vel"].params["sensor_name"] = "robot/imu_gyro"
+    terms["gravity_vec"] = terms.pop("projected_gravity")
+    terms["commands"] = terms.pop("command")
+    terms["joint_pos"].func = mdp.joint_pos_rel_without_wheel
+    terms["joint_pos"].params["asset_cfg"] = SceneEntityCfg(
+      "robot", joint_names=GO2W_JOINTS
+    )
+    terms["joint_pos"].params["wheel_asset_cfg"] = SceneEntityCfg(
+      "robot", joint_names=GO2W_WHEEL_JOINTS
+    )
+    terms["joint_vel"].params["asset_cfg"] = SceneEntityCfg(
+      "robot", joint_names=GO2W_JOINTS
+    )
+
+  cfg.actions = {
+    "joint_pos": JointPositionActionCfg(
+      entity_name="robot",
+      actuator_names=GO2W_LEG_JOINTS,
+      scale={
+        r".*_hip_joint": 0.35,
+        r".*_thigh_joint": 0.85,
+        r".*_calf_joint": 0.85,
+      },
+      use_default_offset=True,
+    ),
+    "joint_vel": JointVelocityActionCfg(
+      entity_name="robot",
+      actuator_names=GO2W_WHEEL_JOINTS,
+      scale=40.0,
+      use_default_offset=True,
+    ),
+  }
+  cfg.viewer.body_name = "base_link"
+  cfg.viewer.distance = 2.0
+  cfg.viewer.elevation = -8.0
+  cfg.events["foot_friction"].params["asset_cfg"] = SceneEntityCfg(
+    "robot", geom_names=GO2W_WHEEL_GEOMS
+  )
+  cfg.events["base_com"].params["asset_cfg"] = SceneEntityCfg(
+    "robot", body_names=("base_link",)
+  )
+  cfg.events["reset_base"].params["pose_range"] = {
+    "x": (-0.25, 0.25), "y": (-0.25, 0.25), "yaw": (-0.2, 0.2)
+  }
+  cfg.events.pop("push_robot", None)
+  cfg.terminations = {
+    "time_out": TerminationTermCfg(func=envs_mdp.time_out, time_out=True),
+    # A thigh, calf, hip, or trunk is never a valid support.  This is a
+    # physical validity rule, not a pose target or reference trajectory.
+    "illegal_contact": TerminationTermCfg(
+      func=mdp.illegal_contact,
+      params={"sensor_name": nonwheel_contact_cfg.name, "force_threshold": 10.0},
+    ),
+  }
+  if play:
+    cfg.episode_length_s = int(1e9)
+    cfg.observations["actor"].enable_corruption = False
+    cfg.observations["critic"].enable_corruption = False
+    cfg.events["randomize_terrain"] = EventTermCfg(
+      func=envs_mdp.randomize_terrain, mode="reset", params={}
+    )
+  return cfg, wheel_contact_cfg, nonwheel_contact_cfg

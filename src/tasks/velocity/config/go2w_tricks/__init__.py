@@ -5,7 +5,7 @@ from mjlab.tasks.registry import register_mjlab_task
 from src.tasks.velocity.rl import VelocityOnPolicyRunner
 
 from .aerial_env_cfg import unitree_go2w_aerial_rotation_flat_env_cfg
-from .env_cfgs import (
+from .ground_env_cfg import (
   unitree_go2w_spin_stance_flat_env_cfg,
   unitree_go2w_stance_locomotion_flat_env_cfg,
 )

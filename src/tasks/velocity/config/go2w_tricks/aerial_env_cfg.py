@@ -24,10 +24,10 @@ from src.assets.robots.unitree_go2w.go2w_constants import (
 from src.tasks.velocity.mdp import trick_rewards
 from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
 
-from .env_cfgs import (
-  _AERIAL_AXES,
-  _configure_compact_aerial_actuators,
-  _make_base_go2w_trick_cfg,
+from .common_env_cfg import (
+  AERIAL_AXES,
+  configure_compact_aerial_actuators,
+  make_base_go2w_trick_cfg,
 )
 
 
@@ -35,8 +35,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Train one policy for front, back, left, right, and yaw aerial turns."""
-  cfg, wheel_contact_cfg, _ = _make_base_go2w_trick_cfg(play)
-  _configure_compact_aerial_actuators(cfg)
+  cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
+  configure_compact_aerial_actuators(cfg)
   cfg.episode_length_s = 3.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": AerialRotationCommandCfg(
@@ -46,7 +46,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       idle_probability=0.0,
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
-      axes=_AERIAL_AXES,
+      axes=AERIAL_AXES,
       debug_vis=False,
     )
   }
@@ -107,7 +107,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "axes": _AERIAL_AXES,
+        "axes": AERIAL_AXES,
         "target_angle": math.tau,
         "clearance_start": 0.06,
         "clearance_full": 0.18,
@@ -131,7 +131,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "axes": _AERIAL_AXES,
+        "axes": AERIAL_AXES,
         "target_angle": math.tau,
         "landing_settle_time": 0.10,
         "landing_linear_velocity_limit": 0.75,
