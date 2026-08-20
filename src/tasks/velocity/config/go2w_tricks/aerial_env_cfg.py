@@ -181,7 +181,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "free_deviation": 0.14,
+        # Let a compact flip use continuous small hip/knee correction instead
+        # of snapping every joint back to its default as soon as it is airborne.
+        # The separate 0.55-rad measured-state envelope still rejects the
+        # large collision-driven sweeps that are visually and physically wrong.
+        "free_deviation": 0.20,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
         # Takeoff and landing need a physically discovered leg stroke.  Only
         # penalise flailing while wheel-free, where compactness is visible and
@@ -189,7 +193,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "airborne_only": True,
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
+    # Aerial motion needs impulse, but not a sequence of saturated target
+    # reversals.  This is the only smoothness preference; it carries no pose,
+    # time, or direction-dependent reference.
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.06),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
   # There is deliberately no reward curriculum.  The target stays one full

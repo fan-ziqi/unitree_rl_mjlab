@@ -56,13 +56,20 @@ AERIAL_AXES = (
 
 
 def configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Use compliant, torque-limited legs rather than rigid target tracking."""
+  """Use responsive, torque-limited legs without turning them into struts.
+
+  The first aerial pass used P gains near the actuator effort saturation point.
+  It could create launch impulse, but it made the learned legs hit a target as
+  a rigid four-bar cylinder.  These gains still support a compact jump while
+  leaving enough compliance for the policy to use small continuous knee/hip
+  adjustments for momentum and landing control.
+  """
   articulation = cfg.scene.entities["robot"].articulation
   assert articulation is not None
   gains = {
-    (".*hip_.*",): (200.0, 3.0),
-    (".*thigh_.*",): (170.0, 3.0),
-    (".*calf_.*",): (150.0, 3.0),
+    (".*hip_.*",): (120.0, 2.0),
+    (".*thigh_.*",): (110.0, 2.0),
+    (".*calf_.*",): (105.0, 2.0),
   }
   effort_limits = {
     (".*hip_.*",): 90.0,
