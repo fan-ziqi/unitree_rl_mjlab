@@ -29,6 +29,7 @@ class RecordConfig:
   checkpoint_file: Path
   output_dir: Path
   mode: int = 0
+  idle: bool = False
   duration_s: float = 3.0
   width: int = 960
   height: int = 720
@@ -37,7 +38,9 @@ class RecordConfig:
   seed: int = 42
 
 
-def _fixed_reset_observation(base_env: ManagerBasedRlEnv, mode: int) -> TensorDict:
+def _fixed_reset_observation(
+  base_env: ManagerBasedRlEnv, mode: int | None
+) -> TensorDict:
   """Pin the command before inference and replace reset-time random history.
 
   The policy's 10-frame history is an ordinary observation input, so the
@@ -46,7 +49,22 @@ def _fixed_reset_observation(base_env: ManagerBasedRlEnv, mode: int) -> TensorDi
   equivalent to a stationary 200-ms pre-roll and does not change physics.
   """
   command_term = base_env.command_manager.get_term("trick")
-  _pin_mode(command_term, mode)
+  if mode is None:
+    # The aerial idle command is deliberately all-zero, unlike a maneuver
+    # one-hot.  Retain the ordinary physical reset and only rebuild the actor
+    # history so this is a true untriggered-command rollout.
+    command_term.command_buf.zero_()
+    command_term.was_airborne.zero_()
+    command_term.has_grounded.zero_()
+    command_term._airborne_time.zero_()
+    command_term._flight_rotation.zero_()
+    command_term._current_flight_qualified.zero_()
+    command_term._landing_settle_time.zero_()
+    command_term._rotation_progress.zero_()
+    command_term._launch_axis_w.zero_()
+    command_term._new_skill.fill_(False)
+  else:
+    _pin_mode(command_term, mode)
   history_length = 10
   base_env.observation_manager._obs_buffer = None
   for _ in range(history_length):
@@ -61,7 +79,7 @@ def run(cfg: RecordConfig) -> Path:
 
   if not cfg.checkpoint_file.is_file():
     raise FileNotFoundError(cfg.checkpoint_file)
-  if not 0 <= cfg.mode < len(MODE_NAMES):
+  if not cfg.idle and not 0 <= cfg.mode < len(MODE_NAMES):
     raise ValueError(f"mode must be in [0, {len(MODE_NAMES) - 1}]")
   if cfg.duration_s <= 0.0:
     raise ValueError("duration_s must be positive")
@@ -99,7 +117,7 @@ def run(cfg: RecordConfig) -> Path:
   policy = runner.get_inference_policy(device=cfg.device)
 
   env.reset()
-  obs = _fixed_reset_observation(base_env, cfg.mode)
+  obs = _fixed_reset_observation(base_env, None if cfg.idle else cfg.mode)
   with torch.inference_mode():
     for _ in range(num_steps):
       obs, _, dones, _ = env.step(policy(obs))
