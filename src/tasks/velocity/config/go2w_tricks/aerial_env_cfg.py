@@ -77,9 +77,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     func=trick_rewards.aerial_leg_excursion_exceeded,
     params={
       "command_name": "trick",
-      # Leave enough measured range for airborne angular-momentum exchange;
-      # this is still a compact envelope, not unrestricted leg flailing.
-      "max_deviation": 0.65,
+      # V54 used the entire 0.65-rad envelope and converted limb sweep into
+      # collision-driven rotation.  A 0.55-rad measured bound still leaves a
+      # substantial dynamic stroke but rejects that non-wheel landing route.
+      "max_deviation": 0.55,
       "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
     },
   )
@@ -133,6 +134,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
         "max_overrotation": 0.75,
         "descent_distance": 0.35,
+        "wheel_contact_weight": 0.80,
         "max_axis_rate": 30.0,
         "max_linear_speed": 3.0,
       },
@@ -153,11 +155,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "compact_leg_motion": RewardTermCfg(
       func=trick_rewards.aerial_airborne_joint_excursion_l2,
-      weight=-8.0,
+      weight=-14.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "free_deviation": 0.18,
+        "free_deviation": 0.14,
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
         # Takeoff and landing need a physically discovered leg stroke.  Only
         # penalise flailing while wheel-free, where compactness is visible and

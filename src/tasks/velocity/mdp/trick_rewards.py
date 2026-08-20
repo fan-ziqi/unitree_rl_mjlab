@@ -2050,6 +2050,7 @@ class AerialLandingRecoveryProgress:
     target_angle: float,
     max_overrotation: float,
     descent_distance: float,
+    wheel_contact_weight: float,
     max_axis_rate: float,
     max_linear_speed: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -2059,10 +2060,11 @@ class AerialLandingRecoveryProgress:
       or target_angle <= recovery_start_angle
       or max_overrotation <= 0.0
       or descent_distance <= 0.0
+      or not 0.0 <= wheel_contact_weight <= 1.0
       or max_axis_rate <= 0.0
       or max_linear_speed <= 0.0
     ):
-      raise ValueError("Aerial recovery progress parameters must be ordered positive values.")
+      raise ValueError("Aerial recovery progress parameters are invalid.")
 
     asset: Entity = env.scene[asset_cfg.name]
     command_term = env.command_manager.get_term(command_name)
@@ -2114,7 +2116,14 @@ class AerialLandingRecoveryProgress:
     clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
     descent = torch.clamp(1.0 - clearance / descent_distance, min=0.0, max=1.0)
     wheel_fraction = _wheel_contacts(env, sensor_name).float().mean(dim=1)
-    approach_ground = 0.5 * (descent + wheel_fraction)
+    # Descent alone is only a bridge: the real target is wheel-first support.
+    # V54 weighted these equally and therefore learned a clean-looking but
+    # contact-free fall.  Keep a small pre-contact gradient while ensuring a
+    # measured wheel return dominates every recovery improvement.
+    approach_ground = (
+      (1.0 - wheel_contact_weight) * descent
+      + wheel_contact_weight * wheel_fraction
+    )
 
     score = (
       in_window.float()
