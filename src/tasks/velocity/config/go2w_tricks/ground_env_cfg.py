@@ -299,6 +299,27 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
       weight=25.0,
       params={"command_name": "trick", "speed_deadband": 0.20, "std": 1.0},
     ),
+    "spin_rate_error": RewardTermCfg(
+      func=trick_rewards.commanded_spin_rate_abs_error,
+      weight=-15.0,
+      params={"command_name": "trick", "speed_deadband": 0.20},
+    ),
+    "extended_support_legs": RewardTermCfg(
+      func=trick_rewards.mode_support_leg_length_min,
+      weight=60.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "sensor_name": wheel_contact_cfg.name,
+        "minimum_lengths": (0.0, 0.35, 0.35, 0.35, 0.35),
+        "activation_lengths": (0.0, 0.16, 0.16, 0.16, 0.16),
+        "length_power": 2.0,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "minimum_gravity_alignment": 0.90,
+        "asset_cfg": _SUPPORT_LEG_GEOMETRY,
+      },
+    ),
     "spin_planar_drift": RewardTermCfg(
       func=trick_rewards.spin_planar_speed_l2,
       weight=-0.25,

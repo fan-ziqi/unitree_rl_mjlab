@@ -745,6 +745,33 @@ def fixed_pair_spin_rate_exp(
   return fixed_pair_spin_mask(env, command_name, speed_deadband) * rate_reward
 
 
+def commanded_spin_rate_abs_error(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Non-saturating rate error for normal/front/rear spin commands.
+
+  The Gaussian spin score is useful for precise control but almost flat when
+  an untrained policy misses a fast requested rate.  This companion ranks
+  smaller measured error above larger error without exposing an axis: the
+  world-down direction is read from the robot's own gravity vector.
+  """
+  if speed_deadband < 0.0:
+    raise ValueError("speed_deadband must be non-negative.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  moving = (
+    (torch.argmax(command[:, :5], dim=1) <= 2)
+    & (torch.abs(command[:, 5]) > speed_deadband)
+  )
+  down = asset.data.projected_gravity_b
+  down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1.0e-6)
+  actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
+  return moving.to(actual_rate.dtype) * torch.abs(command[:, 5] - actual_rate)
+
+
 def spin_planar_speed_l2(
   env: "ManagerBasedRlEnv",
   command_name: str,
