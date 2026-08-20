@@ -270,6 +270,40 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "minimum_gravity_alignment": 0.90,
       },
     ),
+    # The normal four-wheel command has no transition to complete, so it must
+    # never trade a correctly upright attitude for a self-propelled roll when
+    # x=yaw=0.  Its earlier shared stillness terms were outweighed by posture
+    # credit after learning progressed.  These are deliberately normal-only:
+    # front/rear remain free to build momentum until their requested two-wheel
+    # gravity direction has actually been found.
+    "normal_stationary_speed": RewardTermCfg(
+      func=trick_rewards.stance_stationary_ground_speed_exp,
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "velocity_deadband": 0.04,
+        "std": 0.10,
+        "lateral_weight": 2.0,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+      },
+    ),
+    "normal_stationary_speed_error": RewardTermCfg(
+      func=trick_rewards.stance_stationary_ground_speed_abs_error,
+      weight=-150.0,
+      params={
+        "command_name": "trick",
+        "modes": (0,),
+        "velocity_deadband": 0.04,
+        "lateral_weight": 2.0,
+        "num_modes": 3,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+        "minimum_gravity_alignment": 0.90,
+      },
+    ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
     "joint_limits": RewardTermCfg(
       func=envs_mdp.joint_pos_limits,
