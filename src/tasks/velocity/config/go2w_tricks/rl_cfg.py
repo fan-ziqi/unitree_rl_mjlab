@@ -85,7 +85,11 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
 def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   return _trick_runner_cfg(
     "go2w_aerial_rotation",
-    num_steps_per_env=96,
+    # A maneuver's measured ballistic interval is about 0.5--1.0 s.  Forty-
+    # eight control steps keep a complete landing transition in a rollout
+    # while avoiding the 96-step collection stall (with 8,192 environments,
+    # a 393k-sample PPO batch remains ample).
+    num_steps_per_env=48,
     gamma=0.997,
     # This leaves initial exploration inside the physically tested compact
     # position-residual envelope while still exposing coordinated launch
