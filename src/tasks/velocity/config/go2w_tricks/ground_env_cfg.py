@@ -33,6 +33,12 @@ from .common_env_cfg import (
 _WHEEL_SITES = SceneEntityCfg(
   "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
 )
+# Reward-manager resolution stores IDs on this mutable config object.  Keep a
+# separate identical selector for the root-clearance term rather than reusing
+# ``_WHEEL_SITES`` after the free-wheel term has resolved it.
+_ROOT_CLEARANCE_WHEEL_SITES = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+)
 _SUPPORT_LEG_GEOMETRY = SceneEntityCfg(
   "robot",
   body_names=("FL_hip", "FR_hip", "RL_hip", "RR_hip"),
@@ -205,7 +211,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 2.0,
         "minimum_gravity_alignment": 0.75,
-        "asset_cfg": _WHEEL_SITES,
+        "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
       },
     ),
     "track_x": RewardTermCfg(
