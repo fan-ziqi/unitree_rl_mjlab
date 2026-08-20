@@ -146,7 +146,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # nearby asymmetric stance.  This applies no constraint once a maneuver
       # one-hot is active, so the aerial motion remains fully discovered by
       # PPO rather than being shaped by a joint trajectory.
-      weight=-20.0,
+      weight=-40.0,
       params={"command_name": "trick"},
     ),
     "takeoff_clearance": RewardTermCfg(

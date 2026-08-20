@@ -400,7 +400,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # during every two-wheel rise and every requested x/yaw motion.
     "normal_stationary_action_effort": RewardTermCfg(
       func=trick_rewards.stance_stationary_action_l2,
-      weight=-5.0,
+      # For a public normal zero command the exact model default is already
+      # dynamically valid.  Make a residual action decisively less valuable
+      # than borrowing a slight lean from a two-wheel skill.
+      weight=-40.0,
       params={
         "command_name": "trick",
         "modes": (0,),
@@ -706,7 +709,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     # leave every actual spin request (including dynamic normal) unrestricted.
     "normal_idle_action_effort": RewardTermCfg(
       func=trick_rewards.stance_stationary_action_l2,
-      weight=-15.0,
+      # A m200 fixed-command audit showed that a small residual action was
+      # enough to lose the four-wheel default support.  Normal+rate=0 has an
+      # unambiguous controller target (all residuals zero), so enforce it
+      # strongly while leaving every non-zero spin command unrestricted.
+      weight=-80.0,
       params={
         "command_name": "trick",
         "modes": (0,),
