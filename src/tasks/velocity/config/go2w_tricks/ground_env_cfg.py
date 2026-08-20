@@ -11,11 +11,13 @@ from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
 from src.tasks.velocity.mdp import trick_rewards
+from src.tasks.velocity.mdp import trick_curriculums
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
   StanceSpinCommandCfg,
@@ -536,6 +538,34 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "gravity_power": 4.0,
       },
     ),
+    # These two result-space signals make the four-wheel-to-two-wheel rise
+    # discoverable.  They name only which wheels must become free and the
+    # minimum trunk-to-support clearance; neither is a joint target or a
+    # timed stand-up trajectory.
+    "static_free_wheel_clearance": RewardTermCfg(
+      func=trick_rewards.mode_non_support_wheel_clearance,
+      weight=45.0,
+      params={
+        "command_name": "trick",
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "minimum_height": 0.22,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "gravity_power": 1.0,
+        "asset_cfg": _WHEEL_SITES,
+      },
+    ),
+    "static_support_clearance": RewardTermCfg(
+      func=trick_rewards.mode_support_wheel_root_clearance_min_exp,
+      weight=35.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "minimum_clearances": (0.0, 0.38, 0.38, 0.38, 0.38),
+        "std": 0.14,
+        "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
+      },
+    ),
     # A normal nonzero rate is the AS2-W-style local contact pivot.  It can
     # settle on either transverse high pair; neither command nor observation
     # tells the actor which one to choose.  These are measured final outcomes,
@@ -547,6 +577,29 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
+      },
+    ),
+    "dynamic_tall_pair_clearance": RewardTermCfg(
+      func=trick_rewards.dynamic_tall_pair_support_clearance_exp,
+      weight=35.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
+        "minimum_clearance": 0.38,
+        "std": 0.14,
+        "asset_cfg": _DYNAMIC_PIVOT_WHEEL_SITES,
+      },
+    ),
+    "dynamic_tall_pair_free_wheel_clearance": RewardTermCfg(
+      func=trick_rewards.dynamic_tall_pair_free_wheel_clearance_exp,
+      weight=45.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
+        "minimum_height": 0.22,
+        "asset_cfg": _DYNAMIC_PIVOT_WHEEL_SITES,
       },
     ),
     "dynamic_tall_pair_rate": RewardTermCfg(
@@ -661,5 +714,43 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
-  cfg.curriculum = {}
+  # This is a command-distribution curriculum, not a trajectory curriculum.
+  # First the *same actor* learns all four static wheel stands from default
+  # four-wheel resets.  It then sees a gentle signed rate and finally the
+  # AS2-W-speed range.  The command itself is unchanged throughout:
+  # five-way one-hot plus one scalar rate.
+  cfg.curriculum = {
+    "spin_commands": CurriculumTermCfg(
+      func=trick_curriculums.stance_spin_command_stages,
+      params={
+        "command_name": "trick",
+        "stages": (
+          {
+            "step": 0,
+            "mode_probabilities": (0.12, 0.24, 0.24, 0.20, 0.20),
+            "spin_idle_probability": 1.0,
+            "spin_rate_range": (2.0, 4.0),
+          },
+          {
+            "step": 100_000_000,
+            "mode_probabilities": (0.18, 0.25, 0.25, 0.16, 0.16),
+            "spin_idle_probability": 0.65,
+            "spin_rate_range": (2.0, 4.0),
+          },
+          {
+            "step": 220_000_000,
+            "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
+            "spin_idle_probability": 0.40,
+            "spin_rate_range": (4.0, 6.0),
+          },
+          {
+            "step": 320_000_000,
+            "mode_probabilities": (0.24, 0.23, 0.23, 0.15, 0.15),
+            "spin_idle_probability": 0.25,
+            "spin_rate_range": (5.0, 9.0),
+          },
+        ),
+      },
+    )
+  }
   return cfg

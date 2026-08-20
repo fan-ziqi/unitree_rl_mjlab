@@ -726,6 +726,66 @@ def dynamic_tall_pair_support_exp(
   return spin_stand_mask(env, command_name, speed_deadband) * dense_score
 
 
+def dynamic_tall_pair_support_clearance_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  sensor_name: str,
+  minimum_clearance: float,
+  std: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Grow a normal-rate pivot into a visibly tall support.
+
+  The selected front/rear support pair is inferred from physical contact and
+  attitude.  Thus this adds a continuous trunk-to-wheel clearance outcome but
+  does not tell the policy which pair to select or how any joint should move.
+  """
+  if minimum_clearance <= 0.0 or std <= 0.0:
+    raise ValueError("minimum_clearance and std must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+    raise ValueError("dynamic_tall_pair_support_clearance_exp needs four wheel sites.")
+  dense_score, _, pair_index = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  pair_indices = torch.tensor(((0, 1), (2, 3)), device=env.device)
+  wheel_pos = asset.data.site_pos_w[:, asset_cfg.site_ids]
+  batch = torch.arange(env.num_envs, device=env.device)
+  support_height = 0.5 * (
+    wheel_pos[batch, pair_indices[pair_index, 0], 2]
+    + wheel_pos[batch, pair_indices[pair_index, 1], 2]
+  )
+  clearance = asset.data.root_link_pos_w[:, 2] - support_height
+  deficit = torch.clamp_min(minimum_clearance - clearance, 0.0)
+  score = torch.exp(-torch.square(deficit) / std**2)
+  return spin_stand_mask(env, command_name, speed_deadband) * dense_score * score
+
+
+def dynamic_tall_pair_free_wheel_clearance_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  sensor_name: str,
+  minimum_height: float,
+  asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Reward lifting the non-support pair during a normal-rate pivot."""
+  if minimum_height <= 0.0:
+    raise ValueError("minimum_height must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+    raise ValueError("dynamic_tall_pair_free_wheel_clearance_exp needs four wheel sites.")
+  dense_score, _, pair_index = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  free_indices = torch.tensor(((2, 3), (0, 1)), device=env.device)
+  height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+  batch = torch.arange(env.num_envs, device=env.device)
+  free_height = 0.5 * (
+    height[batch, free_indices[pair_index, 0]]
+    + height[batch, free_indices[pair_index, 1]]
+  )
+  score = torch.clamp(free_height / minimum_height, min=0.0, max=1.0)
+  return spin_stand_mask(env, command_name, speed_deadband) * dense_score * score
+
+
 def dynamic_tall_pair_spin_rate_exp(
   env: "ManagerBasedRlEnv",
   command_name: str,
