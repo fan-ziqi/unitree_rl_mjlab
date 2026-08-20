@@ -361,11 +361,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Rear fixed-pair spin is already discovered.  Keep one fused actor but
-      # devote more fresh rollouts to the four unfinished command modes rather
-      # than letting that easy rear solution dominate PPO updates.
-      mode_probabilities=(0.27, 0.22, 0.11, 0.20, 0.20),
-      spin_idle_probability=0.45,
+      # Front/rear and right static support are already strong.  Keep one
+      # fused actor but devote fresh rollouts to the unfinished normal dynamic
+      # orbit and left static balance instead of letting easy modes dominate.
+      mode_probabilities=(0.32, 0.16, 0.08, 0.30, 0.14),
+      # Preserve some normal four-wheel idle rollouts, but let the normal
+      # one-hot spend most of its samples on the unfinished dynamic orbit.
+      spin_idle_probability=0.30,
       spin_rate_range=(1.0, 4.0),
       spin_rate_ramp_rate=4.0,
       debug_vis=False,
@@ -409,7 +411,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "static_two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=45.0,
+      weight=65.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
@@ -444,6 +446,18 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         # a horizontal two-wheel orbit; spin-rate credit remains strict, so a
         # merely tilted four-wheel robot cannot satisfy the command.
         "horizontal_gravity_std": 0.75,
+      },
+    ),
+    "dynamic_spin_horizontal_precision": RewardTermCfg(
+      func=trick_rewards.spin_dynamic_horizontal_precision_exp,
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        # The broad support signal above discovers the tilt; this outcome
+        # term makes a horizontal trunk materially better than its observed
+        # low two-wheel crouch, without choosing a spin plane or axis.
+        "std": 0.28,
       },
     ),
     "dynamic_spin_rate": RewardTermCfg(
@@ -491,7 +505,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,
-      weight=60.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),

@@ -711,6 +711,33 @@ def spin_dynamic_support_exp(
   )
 
 
+def spin_dynamic_horizontal_precision_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Sharpen the horizontal final state of a dynamic two-wheel orbit.
+
+  The companion support reward deliberately has a broad horizontal score so
+  that a policy starting on four wheels can discover a tilt.  Once it finds a
+  low two-wheel crouch, that broad score alone admits a local optimum.  This
+  term is the final-state counterpart: it asks only for the measured body
+  gravity to be horizontal, with no selected horizontal direction, contact
+  pair, joint pose, action, or clock.
+  """
+  if std <= 0.0:
+    raise ValueError("std must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  gravity = asset.data.projected_gravity_b
+  gravity = gravity / torch.linalg.vector_norm(
+    gravity, dim=1, keepdim=True
+  ).clamp_min(1.0e-6)
+  score = torch.exp(-torch.square(gravity[:, 2]) / std**2)
+  return spin_stand_mask(env, command_name, speed_deadband) * score
+
+
 def spin_dynamic_rate_exp(
   env: "ManagerBasedRlEnv",
   command_name: str,
