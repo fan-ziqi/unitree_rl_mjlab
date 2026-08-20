@@ -77,7 +77,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(8.0, 8.0),
-      mode_probabilities=(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+      # Front now reaches the requested vertical support reliably, whereas
+      # normal idle and the rear support remain the unfinished branches.  The
+      # actor is still one fused policy; this only prevents the easy front
+      # solution from dominating fresh PPO rollouts.
+      mode_probabilities=(0.40, 0.25, 0.35),
       idle_probability=0.45,
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
@@ -108,7 +112,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # The m399 audit showed a stable 50--55 degree lean with the desired
       # wheel pair down.  It is a useful discovery waypoint, but not the
       # requested handstand, so make the final attitude decisively preferable.
-      weight=75.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -124,7 +128,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # request.
     "normal_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=45.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "modes": (0,),
@@ -146,7 +150,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "normal_four_wheel_precision": RewardTermCfg(
       func=trick_rewards.mode_contact_match,
-      weight=35.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "modes": (0,),
@@ -181,7 +185,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_lengths": (0.0, 0.35, 0.35),
-        "activation_lengths": (0.0, 0.16, 0.16),
+        # A 0.16 m activation threshold made a visibly folded 0.13 m front
+        # support receive exactly zero extension gradient.  Start from zero:
+        # this still specifies only hip-to-wheel length, not any joint pose.
+        "activation_lengths": (0.0, 0.0, 0.0),
         "length_power": 2.0,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         # The old 0.90 gate lay beyond the observed low lean (about 0.89),
