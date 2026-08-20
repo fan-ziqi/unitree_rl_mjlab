@@ -567,15 +567,17 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     ),
     "static_two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      # V9's weight of 100 made the formerly viable front/rear recovery
-      # collapse into contact failures.  Retain a sharper terminal preference
-      # than V8, without overpowering the transition and support signals.
-      weight=65.0,
+      # The linear attitude score gets PPO from the four-wheel reset into the
+      # broad two-wheel basin.  V25 then plateaued at 20--25 degrees of lean:
+      # that is a locally comfortable support but not the requested vertical
+      # stance.  A sharply powered final score ranks the last part of the
+      # *measured* attitude outcome without describing a joint pose or route.
+      weight=110.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
         "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "power": 8.0,
+        "power": 20.0,
       },
     ),
     "static_two_wheel_contact_precision": RewardTermCfg(
