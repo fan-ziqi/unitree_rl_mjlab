@@ -104,18 +104,20 @@ def _configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
     # cap-hugging rebound that appeared in v35 after touchdown.  The cap is
     # still set separately below, so this changes stiffness, not maximum
     # actuator torque.
-    (".*hip_.*",): (420.0, 8.0),
-    (".*thigh_.*",): (320.0, 8.0),
-    (".*calf_.*",): (345.0, 9.0),
+    (".*hip_.*",): (750.0, 10.0),
+    (".*thigh_.*",): (565.0, 10.0),
+    (".*calf_.*",): (435.0, 11.0),
   }
   effort_limits = {
-    # AS2-W-like compact aerial impulse.  Keep this task-local: the ordinary
-    # Go2W locomotion configurations retain their physical 23.5/35.5-Nm
-    # effort limits.  Without this power density, the measured 19-kg Go2W
-    # model plateaued at 0.25--0.27 m under the required compact envelope.
-    (".*hip_.*",): 50.0,
-    (".*thigh_.*",): 50.0,
-    (".*calf_.*",): 75.0,
+    # The AS2-W comparison supplies the appropriate compact-jump power
+    # density: each industrial joint is rated around 95 Nm.  With the old
+    # [50, 50, 75]-Nm caps, shortening the action window also removed about
+    # 35--40% of the useful push-off work, and v36 could not reach a turn.
+    # Keep this aerial-only: ordinary Go2W locomotion configurations retain
+    # their model-level 23.5/35.5-Nm limits.
+    (".*hip_.*",): 90.0,
+    (".*thigh_.*",): 90.0,
+    (".*calf_.*",): 95.0,
   }
   articulation.actuators = tuple(
     replace(
@@ -1072,7 +1074,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
       # AS2-W/B2-W-style aerial motion is a short, torque-limited launch and
       # recovery, not a quadruped-scale squat.  v35 revealed that PPO was
       # sitting at the former 0.42-rad measured-state limit.  These
-      # +/-[0.12, 0.16, 0.22]-rad targets retain full [50, 50, 75]-Nm effort
+      # +/-[0.12, 0.16, 0.22]-rad targets retain full [90, 90, 95]-Nm effort
       # via the gains above, while removing that large-sweep solution.
       r".*_hip_joint": 0.12,
       r".*_thigh_joint": 0.16,
