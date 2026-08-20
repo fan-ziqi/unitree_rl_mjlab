@@ -89,7 +89,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # the powered copy only sharpens the final balanced stance.
     "mode_gravity": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=20.0,
+      weight=35.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -99,7 +99,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "two_wheel_gravity_precision": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment,
-      weight=30.0,
+      weight=45.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -110,7 +110,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "support_wheels": RewardTermCfg(
       func=trick_rewards.mode_contact_match,
-      weight=25.0,
+      weight=35.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -123,7 +123,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # already-near-target body state, so they cannot prescribe the rise.
     "free_wheel_clearance": RewardTermCfg(
       func=trick_rewards.mode_non_support_wheel_clearance,
-      weight=10.0,
+      weight=15.0,
       params={
         "command_name": "trick",
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
