@@ -89,7 +89,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     params={
       "command_name": "trick",
       "target_angle": math.tau,
-      "max_overrotation": 0.75,
+      # At the measured 3--7 rad/s residual rate, the former 0.75-rad
+      # (43-degree) guard ended an otherwise upright maneuver before the
+      # 0.10-s wheel-settle criterion could physically be observed.  This is
+      # still a one-turn task: it only gives the recovery controller a
+      # 72-degree braking window, and the upright recovery potential remains
+      # maximized at exactly one turn.
+      "max_overrotation": 1.25,
       "activation_step": 0,
     },
   )
@@ -132,10 +138,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "recovery_start_angle": 0.75 * math.tau,
         "target_angle": math.tau,
-        "max_overrotation": 0.75,
+        "max_overrotation": 1.25,
         "descent_distance": 0.35,
         "wheel_contact_weight": 0.80,
-        "max_axis_rate": 30.0,
+        # The prior 30-rad/s scale still treated a 5-rad/s touchdown as 83%
+        # recovered, although strict completion requires 1.5 rad/s.  This
+        # is only an outcome scale, never a requested rotation-rate command.
+        "max_axis_rate": 12.0,
         "max_linear_speed": 3.0,
       },
     ),
@@ -150,7 +159,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_settle_time": 0.10,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
-        "max_overrotation": 0.75,
+        "max_overrotation": 1.25,
       },
     ),
     "compact_leg_motion": RewardTermCfg(

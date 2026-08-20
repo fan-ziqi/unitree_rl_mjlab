@@ -204,6 +204,15 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     post_turn_best_angular_speed = torch.full(
         (cfg.num_envs,), float("inf"), device=base_env.device
     )
+    # Keep the physical failure modes separate.  A single ``illegal_reset``
+    # number tells us that an attempt failed but cannot distinguish a trunk
+    # collision from a compactness violation or a deliberate over-rotation
+    # guard.  These are evaluator-only diagnostics: none enters the policy
+    # observation or the reward.
+    termination_by_term = {
+        name: torch.zeros_like(trial_open)
+        for name in base_env.termination_manager._term_dones
+    }
 
     num_steps = round(cfg.duration_s / base_env.step_dt)
     with torch.inference_mode():
@@ -331,6 +340,10 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     contacts[completed_now], dim=1
                 )
             completed |= completed_now
+            for name, term_done in base_env.termination_manager._term_dones.items():
+                termination_by_term[name] |= (
+                    trial_open & dones.bool() & term_done
+                )
             failed |= trial_open & dones.bool() & ~completed_now
             trial_open &= ~(completed_now | dones.bool())
 
@@ -341,7 +354,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
         completed_count = completed_mask.sum().item()
         post_turn_touchdown_mask = post_turn_touchdown & mask
         post_turn_touchdown_count = post_turn_touchdown_mask.sum().item()
-        return {
+        metrics: MetricDict = {
             "mode": MODE_NAMES[mode_index],
             "mode_index": mode_index,
             "num_envs": int(mask.sum().item()),
@@ -419,6 +432,16 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             if post_turn_touchdown_count
             else float("inf"),
         }
+        metrics.update(
+            {
+                f"termination_{name}_rate": termination_by_term[name][mask]
+                .float()
+                .mean()
+                .item()
+                for name in termination_by_term
+            }
+        )
+        return metrics
 
     metrics: MetricDict | list[MetricDict]
     if cfg.all_modes:
