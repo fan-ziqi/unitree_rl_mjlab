@@ -47,6 +47,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
+      # Keep the command-completion state machine on exactly the same
+      # one-turn braking window as the terminal guard and landing reward
+      # below.  Otherwise a physically valid late touchdown can be rewarded
+      # while the command silently rejects it as an over-rotation.
+      target_angle=math.tau,
+      max_overrotation=1.25,
       debug_vis=False,
     )
   }
