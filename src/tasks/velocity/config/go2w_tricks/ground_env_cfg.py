@@ -112,7 +112,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # The m399 audit showed a stable 50--55 degree lean with the desired
       # wheel pair down.  It is a useful discovery waypoint, but not the
       # requested handstand, so make the final attitude decisively preferable.
-      weight=100.0,
+      # V9 reaches a legal but roughly 45-degree lean.  The dense alignment
+      # term gets it off the four-wheel reset; make this *existing* sharp
+      # terminal outcome decisive enough that a true vertical support pair
+      # beats that local optimum.  It still names no joint configuration.
+      weight=160.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -181,10 +185,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       weight=70.0,
       params={
         "command_name": "trick",
-        "modes": (1, 2),
+        # Normal zero command must be a properly supported four-wheel stand,
+        # not the low crouch seen in V9.  The same measured hip-to-wheel
+        # outcome applies to all supports; this does not select joint angles.
+        "modes": (0, 1, 2),
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
-        "minimum_lengths": (0.0, 0.35, 0.35),
+        "minimum_lengths": (0.32, 0.35, 0.35),
         # A 0.16 m activation threshold made a visibly folded 0.13 m front
         # support receive exactly zero extension gradient.  Start from zero:
         # this still specifies only hip-to-wheel length, not any joint pose.
@@ -295,7 +302,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "num_modes": 3,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 4.0,
-        "minimum_gravity_alignment": 0.90,
+        # Once the stance is mostly found, prolonged rolling is no longer a
+        # useful way to discover the last part of the rise.
+        "minimum_gravity_alignment": 0.80,
       },
     ),
     "stationary_angular_speed": RewardTermCfg(
@@ -310,7 +319,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "num_modes": 3,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 2.0,
-        "minimum_gravity_alignment": 0.90,
+        "minimum_gravity_alignment": 0.80,
       },
     ),
     # The normal four-wheel command has no transition to complete, so it must
