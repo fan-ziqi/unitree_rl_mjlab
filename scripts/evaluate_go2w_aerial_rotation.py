@@ -64,6 +64,8 @@ def _pin_modes(command_term, modes: torch.Tensor) -> None:
     command_term.was_airborne.zero_()
     command_term.has_grounded.zero_()
     command_term._airborne_time.zero_()
+    command_term._flight_rotation.zero_()
+    command_term._current_flight_qualified.zero_()
     command_term._landing_settle_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()

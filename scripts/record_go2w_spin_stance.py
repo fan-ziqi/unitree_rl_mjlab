@@ -30,7 +30,7 @@ class RecordConfig:
   checkpoint_file: Path
   output_dir: Path
   mode: int = 0
-  spin_rate: float = 2.0
+  spin_rate: float = 8.0
   duration_s: float = 6.0
   width: int = 960
   height: int = 720

@@ -1,0 +1,49 @@
+# AS2-W 24–40 s visual acceptance reference
+
+The north-star reference for Go2W trick work is the [Unitree AS2-W video](https://www.youtube.com/watch?v=Xha2TJ_1C6Q), **24.00–40.00 s**.  It is an evaluation reference only: no extracted frame, pose, phase, or trajectory may enter an actor observation or reward as an imitation target.
+
+## Preserved source material
+
+- Exact clip: `artifacts/reference/as2w_xha2tj_1c6q/as2w-24-40.mp4`
+- Dense archive: `artifacts/reference/as2w_xha2tj_1c6q/frames_50fps/frame_0001.jpg` through `frame_0800.jpg`
+- Frame mapping: reference timestamp = `24.00 + (frame_number - 1) / 50` seconds.
+
+The source is 50 fps.  Keep this archive outside Git because it is large, and use dense frames rather than a sparse overview for high-speed motions.
+
+## Observed requirements
+
+1. Frames 0201–0239 (about 28.00–28.76 s) show the clearest high-speed contact pivot.  The contact pair is the laterally separated front or rear pair, forming a balancing axle; it is not a same-side bicycle pair driving across the ground.
+2. The support-pair midpoint remains local while the torso turns about world down.  One visual revolution takes roughly 0.76 s, an approximate **8 rad/s** reference rate.  This is a video-derived tolerance target, not a motion-capture measurement.
+3. The non-support legs visibly move throughout the pivot.  A rigid, cylinder-like posture is not visually acceptable even if scalar rewards are high.
+4. The robot returns to ordinary four-wheel support around frames 0261 onward.  A spin that ends in a body/hip collision, crouch, or uncontrolled drift is a failure.
+5. Later airborne events must show a real launch, a signed rotation in the commanded direction, and a controlled return.  They must not be judged from reward alone or from a single still image.
+
+## Frame-by-frame motion notes
+
+The video is a showreel: it contains camera cuts and changing terrain, so it
+cannot supply centimetre-scale world trajectories.  These are deliberately
+visual observations, not invented labels for policy training.
+
+| Reference range | What is visible | Environment consequence |
+| --- | --- | --- |
+| 26.0–28.0 s, frames 0101–0200 | Ordinary four-wheel motion transitions into a tall two-wheel support; it is not spawned in the final stance. | Start every spin attempt from the regular four-wheel reset.  No hidden two-wheel reset pose. |
+| 28.0–29.2 s, frames 0201–0260 | A laterally separated front/rear wheel pair is the support axle.  The support is tall, turns quickly around a local centre, and then returns to four wheels.  The clearest turning interval is frames 0201–0239. | Fixed front/rear spin: exact support pair, commanded signed world-down turn, support-midpoint drift check, and normal-wheel recovery.  Same-side supports are not assigned this motion without contrary visual evidence. |
+| 30.0–35.2 s, frames 0301–0560 | Several cuts show real ballistic rotations: all wheels leave the ground, body rotates through an inverted attitude about one dominant signed axis, limbs reshape in flight, and wheels return before any other link. | Aerial progress must count only continuous wheel-free rotation, require the signed full turn and normal wheel-first settling, and keep non-wheel contact terminal. |
+| 36.0–40.0 s, frames 0601–0800 | A second two-wheel dynamic sequence has large, coordinated limb motion and alternates between tall support and rotation.  It is visually unlike a frozen four-bar linkage.  The clip ends mid-maneuver. | The normal-mode dynamic branch may discover contact-changing motion, but acceptance requires a separate full video and support/contact audit.  Do not infer a precise world path or a new side-pair geometry from this cut alone. |
+
+Across both tasks, the key visual distinction is **coordinated moving legs in a
+compact envelope**, not either extreme: neither a rigid cylinder nor wide,
+collision-driven flailing is acceptable.  This motivates compliant
+torque-limited actuators and a measured safety envelope, rather than a
+time-indexed joint target.
+
+## Required validation for every claimed skill
+
+For each checkpoint under review:
+
+1. Run fixed-command, headless metrics for every one-hot mode, including non-wheel/body contact and support-centre drift.
+2. Record deterministic videos from the ordinary four-wheel reset.  Use the same command duration and a camera view that makes the support pair and translation visible.
+3. Extract 50-fps frames (or preserve the native frame rate if higher) around the fast turn/flight, then compare them against this archive.  A contact pivot must visibly remain local; aerials must visibly rotate in the commanded sign and land.
+4. Do not call a mode learned if a population mean, reward, or isolated seed passes while the video has mode collapse, body support, bicycle-like translation, or a rigid-leg bounce.
+
+Current command design remains compact: one five-way one-hot plus signed spin-rate.  Gravity targets, contacts, and support-centre checks are task-side outcome criteria; they are not extra actor observations or a reference trajectory.

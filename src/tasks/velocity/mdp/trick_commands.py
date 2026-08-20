@@ -67,13 +67,11 @@ class StanceSpinCommand(CommandTerm):
     self._target_spin_rate[env_ids] = 0.0
     self.command_buf[env_ids, modes] = 1.0
 
-    # Stand uses a non-zero rate for the support-changing Thomas-like orbit.
-    # Every two-wheel support mode receives the same signed rate channel.  In
-    # particular, a side support is *not* a bicycle command: it must reshape
-    # its two contact wheels into a balanced, in-place turning support.  That
-    # distinction is enforced by outcome rewards, not by adding a pose target
-    # to this compact command.
-    spin_ids = env_ids
+    # The 50-fps AS2-W reference shows the high-speed contact spin on a
+    # front/rear wheel pair: the pair is already a two-wheel balancing axle.
+    # Left/right pairs remain static side supports; inventing a side-pair
+    # spin would train toward a motion absent from the target footage.
+    spin_ids = env_ids[modes <= 2]
     if len(spin_ids) == 0:
       return
     moving = torch.rand(len(spin_ids), device=self.device) > self.cfg.spin_idle_probability
@@ -137,8 +135,8 @@ class StanceSpinCommandCfg(CommandTermCfg):
     0.125,
   )
   spin_idle_probability: float = 0.55
-  spin_rate_range: tuple[float, float] = (1.0, 6.0)
-  spin_rate_ramp_rate: float = 2.0
+  spin_rate_range: tuple[float, float] = (5.0, 9.0)
+  spin_rate_ramp_rate: float = 12.0
 
   def build(self, env) -> StanceSpinCommand:
     return StanceSpinCommand(self, env)
@@ -410,6 +408,14 @@ class AerialRotationCommand(CommandTerm):
     # be incorrectly labelled as a landed aerial attempt.
     self.has_grounded = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
     self._airborne_time = torch.zeros(self.num_envs, device=self.device)
+    # Accumulate the complete continuous wheel-free interval.  We only commit
+    # it to the scored turn after it survives ``min_ballistic_time``; this
+    # rejects contact glitches without silently discarding the real initial
+    # part of a fast flip.
+    self._flight_rotation = torch.zeros(self.num_envs, device=self.device)
+    self._current_flight_qualified = torch.zeros(
+      self.num_envs, dtype=torch.bool, device=self.device
+    )
     self._landing_settle_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
@@ -430,6 +436,8 @@ class AerialRotationCommand(CommandTerm):
     self.was_airborne[env_ids] = False
     self.has_grounded[env_ids] = False
     self._airborne_time[env_ids] = 0.0
+    self._flight_rotation[env_ids] = 0.0
+    self._current_flight_qualified[env_ids] = False
     self._landing_settle_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
@@ -454,6 +462,8 @@ class AerialRotationCommand(CommandTerm):
       self.was_airborne[~active] = False
       self.has_grounded[~active] = False
       self._airborne_time[~active] = 0.0
+      self._flight_rotation[~active] = 0.0
+      self._current_flight_qualified[~active] = False
       self._landing_settle_time[~active] = 0.0
       self._rotation_progress[~active] = 0.0
       self._new_skill[~active] = False
@@ -486,12 +496,41 @@ class AerialRotationCommand(CommandTerm):
       self._airborne_time + self._env.step_dt,
       torch.zeros_like(self._airborne_time),
     )
-    self.was_airborne |= self._airborne_time >= self.cfg.min_ballistic_time
 
     axis_rate = torch.sum(
       asset.data.root_link_ang_vel_w * self._launch_axis_w, dim=1
     )
-    signed_delta = active * airborne * self.was_airborne * axis_rate * self._env.step_dt
+    raw_flight_delta = flight_step.to(axis_rate.dtype) * axis_rate * self._env.step_dt
+    self._flight_rotation = torch.where(
+      flight_step,
+      self._flight_rotation + raw_flight_delta,
+      torch.zeros_like(self._flight_rotation),
+    )
+    newly_qualified = (
+      flight_step
+      & (~self._current_flight_qualified)
+      & (self._airborne_time >= self.cfg.min_ballistic_time)
+    )
+    self._current_flight_qualified = torch.where(
+      flight_step,
+      self._current_flight_qualified | (
+        self._airborne_time >= self.cfg.min_ballistic_time
+      ),
+      torch.zeros_like(self._current_flight_qualified),
+    )
+    self.was_airborne |= self._current_flight_qualified
+    # A short gap earns nothing.  Once the interval is confirmed ballistic,
+    # credit every measured radian from liftoff exactly once.  Later airborne
+    # frames then contribute their ordinary per-step rotation.
+    signed_delta = torch.where(
+      newly_qualified,
+      self._flight_rotation,
+      torch.where(
+        flight_step & self._current_flight_qualified,
+        raw_flight_delta,
+        torch.zeros_like(axis_rate),
+      ),
+    )
     self._rotation_progress = torch.clamp_min(
       self._rotation_progress + signed_delta, 0.0
     )

@@ -419,10 +419,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   """Five support one-hots plus one signed spin-rate command.
 
   The normal one-hot with zero rate is ordinary four-wheel idle.  Its nonzero
-  rate requests the dynamic two-wheel Thomas-like orbit.  Every fixed
-  two-wheel mode follows the signed rate about its own down direction.  For
-  left/right, success additionally requires the legs to reshape the wheel pair
-  into a finite-width balanced support that turns in place.
+  rate requests the dynamic two-wheel Thomas-like orbit.  The AS2-W reference
+  shows its high-speed contact turn on front/rear wheel pairs, whose support
+  midpoint stays fixed while the body yaws about world-down.  Left/right
+  remain static two-wheel supports in this environment.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   _configure_fast_discovery(cfg)
@@ -435,15 +435,14 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
       # two easy side balances.  Keep a single fused actor while giving the
       # still-undiscovered front branch additional fresh rollouts; rear and
       # both sides remain present in every batch.
-      # V10 made front/rear and the two side supports viable, while
-      # both normal subcommands remained under-trained.  Keep all five modes
-      # in one actor, but let the normal zero-rate stand and normal dynamic
-      # orbit receive enough fresh zero-start rollouts to stop being eclipsed
-      # by the already easy two-wheel branches.
-      mode_probabilities=(0.45, 0.20, 0.15, 0.10, 0.10),
-      spin_idle_probability=0.35,
-      spin_rate_range=(1.0, 4.0),
-      spin_rate_ramp_rate=4.0,
+      # The reference spends about 0.76 s for its clearest contact-pivot
+      # turn, i.e. roughly 8 rad/s.  Sample the front/rear skills frequently
+      # enough that the one shared policy sees that speed rather than treating
+      # the two easy static side balances as the main task.
+      mode_probabilities=(0.30, 0.28, 0.22, 0.10, 0.10),
+      spin_idle_probability=0.25,
+      spin_rate_range=(5.0, 9.0),
+      spin_rate_ramp_rate=12.0,
       debug_vis=False,
     )
   }
@@ -571,37 +570,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "gravity_power": 4.0,
       },
     ),
-    "side_balancer_geometry": RewardTermCfg(
-      func=trick_rewards.side_spin_balancer_geometry_exp,
-      # Do not accept the tempting bicycle solution in which a side pair
-      # simply rolls along its fore/aft baseline.  Reward the actual support
-      # geometry needed for a two-wheel in-place turn, without a joint target.
-      weight=100.0,
+    "fixed_pair_turn_center_stillness": RewardTermCfg(
+      func=trick_rewards.FixedPairSupportCenterStillness,
+      # A two-wheel handstand may let the trunk move around its support axle,
+      # so root velocity alone is wrong.  The actual two-wheel midpoint must
+      # stay in place: this rules out a bicycle-like drive across the floor
+      # without prescribing how hips, thighs, or wheels coordinate.
+      weight=110.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "min_transverse_span": 0.08,
-        "full_transverse_span": 0.20,
-        "longitudinal_std": 0.18,
-        "gravity_power": 3.0,
-        "asset_cfg": _WHEEL_SITES,
-      },
-    ),
-    "side_turn_center_stillness": RewardTermCfg(
-      func=trick_rewards.SideSpinSupportCenterStillness,
-      weight=100.0,
-      params={
-        "command_name": "trick",
-        "speed_deadband": 0.20,
-        "sensor_name": wheel_contact_cfg.name,
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "min_transverse_span": 0.08,
-        "full_transverse_span": 0.20,
-        "longitudinal_std": 0.18,
-        "speed_std": 0.20,
-        "gravity_power": 3.0,
+        "speed_std": 0.25,
+        "gravity_power": 4.0,
         "asset_cfg": _ROOT_CLEARANCE_WHEEL_SITES,
       },
     ),

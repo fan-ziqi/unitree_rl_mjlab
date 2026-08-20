@@ -628,26 +628,16 @@ def fixed_pair_spin_mask(
   command_name: str,
   speed_deadband: float,
 ) -> torch.Tensor:
-  """Return any fixed two-wheel mode with an active spin request."""
+  """Return a spinning front/rear two-wheel handstand command.
+
+  The 50-fps AS2-W reference contains its rapid in-place contact pivot on a
+  laterally separated *front or rear* pair.  A same-side pair is not asked to
+  spin: those commands remain static support postures.
+  """
   command = _command(env, command_name)
   return (
     ((command[:, 1] > 0.5)
-    | (command[:, 2] > 0.5)
-    | (command[:, 3] > 0.5)
-    | (command[:, 4] > 0.5))
-    & (torch.abs(command[:, 5]) > speed_deadband)
-  ).float()
-
-
-def side_spin_mask(
-  env: "ManagerBasedRlEnv",
-  command_name: str,
-  speed_deadband: float,
-) -> torch.Tensor:
-  """Return left/right two-wheel commands with a non-zero turn request."""
-  command = _command(env, command_name)
-  return (
-    ((command[:, 3] > 0.5) | (command[:, 4] > 0.5))
+    | (command[:, 2] > 0.5))
     & (torch.abs(command[:, 5]) > speed_deadband)
   ).float()
 
@@ -821,7 +811,7 @@ def commanded_spin_rate_abs_error(
   fixed_gravity_power: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Non-saturating rate error for all five spin commands.
+  """Non-saturating rate error for normal and front/rear spin commands.
 
   The Gaussian spin score is useful for precise control but almost flat when
   an untrained policy misses a fast requested rate.  This companion ranks
@@ -833,7 +823,7 @@ def commanded_spin_rate_abs_error(
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
-  moving = (mode <= 4) & (torch.abs(command[:, 5]) > speed_deadband)
+  moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
   down = asset.data.projected_gravity_b
   down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1.0e-6)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
@@ -850,116 +840,14 @@ def commanded_spin_rate_abs_error(
   return moving.to(actual_rate.dtype) * posture_gate * torch.abs(command[:, 5] - actual_rate)
 
 
-def side_spin_balancer_geometry_exp(
-  env: "ManagerBasedRlEnv",
-  command_name: str,
-  speed_deadband: float,
-  sensor_name: str,
-  gravity_targets: tuple[tuple[float, float, float], ...],
-  min_transverse_span: float,
-  full_transverse_span: float,
-  longitudinal_std: float,
-  gravity_power: float,
-  asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-  """Reward a side-wheel pair only when it becomes a turnable balancer.
+class FixedPairSupportCenterStillness:
+  """Keep the active front/rear support axle at a local turn centre.
 
-  A left/right support starts as a bicycle-like front/rear pair: its two
-  contact centres are aligned with the base forward axis.  The AS2-W-style
-  in-place turn instead needs the legs to place that pair across the body,
-  making a finite-width balanced support.  This term measures only the wheel
-  contact geometry: transverse span, lack of a fore/aft bicycle baseline, and
-  the requested side gravity.  It intentionally contains no joint angle,
-  wheel-speed, or reference-trajectory target.
-  """
-  if (
-    min_transverse_span <= 0.0
-    or full_transverse_span < min_transverse_span
-    or longitudinal_std <= 0.0
-    or gravity_power < 0.0
-  ):
-    raise ValueError("Invalid side-spin balancer geometry parameters.")
-  asset: Entity = env.scene[asset_cfg.name]
-  if isinstance(asset_cfg.site_ids, slice):
-    raise ValueError("side_spin_balancer_geometry_exp needs explicit wheel sites.")
-  if len(asset_cfg.site_ids) != 4:
-    raise ValueError("side-spin geometry expects FL/FR/RL/RR wheel sites.")
-
-  command = _command(env, command_name)
-  mode = torch.argmax(command[:, :5], dim=1)
-  active = side_spin_mask(env, command_name, speed_deadband)
-  side_index = torch.clamp(mode - 3, 0, 1)
-  pair_indices = torch.tensor(((0, 2), (1, 3)), device=env.device)
-  first = pair_indices[side_index, 0]
-  second = pair_indices[side_index, 1]
-  wheel_pos = asset.data.site_pos_w[:, asset_cfg.site_ids]
-  batch = torch.arange(env.num_envs, device=env.device)
-  delta_xy = wheel_pos[batch, second, :2] - wheel_pos[batch, first, :2]
-
-  quat = asset.data.root_link_quat_w
-  body_x = quat_apply(
-    quat,
-    torch.tensor((1.0, 0.0, 0.0), dtype=quat.dtype, device=env.device).expand(
-      env.num_envs, -1
-    ),
-  )[:, :2]
-  # In a side stand body-y is world-down, so body-z is the horizontal axis
-  # across the desired two-wheel balancing support.
-  body_z = quat_apply(
-    quat,
-    torch.tensor((0.0, 0.0, 1.0), dtype=quat.dtype, device=env.device).expand(
-      env.num_envs, -1
-    ),
-  )[:, :2]
-  body_x = body_x / torch.linalg.vector_norm(body_x, dim=1, keepdim=True).clamp_min(1.0e-6)
-  body_z = body_z / torch.linalg.vector_norm(body_z, dim=1, keepdim=True).clamp_min(1.0e-6)
-  transverse = torch.abs(torch.sum(delta_xy * body_z, dim=1))
-  longitudinal = torch.abs(torch.sum(delta_xy * body_x, dim=1))
-  # Do not make the desired span a hard reward cliff.  A side stand begins as
-  # a nearly fore/aft bicycle pair, so it needs a useful outcome gradient from
-  # the first few millimetres of transverse leg motion.  The linear component
-  # ranks increasingly wider supports; the shortfall potential keeps that
-  # gradient alive below the minimum visible width.
-  span_shortfall = torch.clamp_min(min_transverse_span - transverse, 0.0)
-  shortfall_score = torch.exp(
-    -torch.square(span_shortfall) / (0.75 * min_transverse_span) ** 2
-  )
-  width_score = torch.clamp(transverse / full_transverse_span, 0.0, 1.0)
-  transverse_score = 0.25 * shortfall_score + 0.75 * width_score
-  non_bicycle_score = torch.exp(-torch.square(longitudinal) / longitudinal_std**2)
-
-  contacts = _wheel_contacts(env, sensor_name).float()
-  masks = torch.tensor(
-    ((1.0, 0.0, 1.0, 0.0), (0.0, 1.0, 0.0, 1.0)),
-    dtype=contacts.dtype,
-    device=env.device,
-  )
-  desired_contacts = masks[side_index]
-  contact_score = torch.mean(
-    contacts * desired_contacts + (1.0 - contacts) * (1.0 - desired_contacts), dim=1
-  )
-  targets = torch.tensor(gravity_targets, dtype=contacts.dtype, device=env.device)
-  gravity = asset.data.projected_gravity_b
-  gravity = gravity / torch.linalg.vector_norm(gravity, dim=1, keepdim=True).clamp_min(1.0e-6)
-  alignment = torch.clamp(
-    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
-  )
-  return (
-    active
-    * contact_score
-    * alignment.pow(gravity_power)
-    * transverse_score
-    * non_bicycle_score
-  )
-
-
-class SideSpinSupportCenterStillness:
-  """Reward a side-spin whose two-wheel support midpoint stays in place.
-
-  Root velocity is not suitable here: the trunk may orbit a fixed contact
-  midpoint while yawing.  The mean world position of the two support wheels is
-  the physically relevant turning-centre signal, and distinguishes an in-place
-  turn from a bicycle-like drive across the floor.
+  In the reference contact pivot the trunk and free legs move substantially,
+  so root velocity is the wrong proxy.  The midpoint of the two actual
+  supporting wheels is the meaningful signal: it should remain local while
+  the robot turns about gravity.  This is an outcome constraint, not a joint
+  target or a reference trajectory.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
@@ -977,95 +865,55 @@ class SideSpinSupportCenterStillness:
     speed_deadband: float,
     sensor_name: str,
     gravity_targets: tuple[tuple[float, float, float], ...],
-    min_transverse_span: float,
-    full_transverse_span: float,
-    longitudinal_std: float,
     speed_std: float,
     gravity_power: float,
     asset_cfg: SceneEntityCfg,
   ) -> torch.Tensor:
-    if (
-      min_transverse_span <= 0.0
-      or full_transverse_span < min_transverse_span
-      or longitudinal_std <= 0.0
-      or speed_std <= 0.0
-      or gravity_power < 0.0
-    ):
-      raise ValueError("Invalid side-spin support-centre parameters.")
+    if speed_std <= 0.0 or gravity_power < 0.0:
+      raise ValueError("Invalid fixed-pair support-centre parameters.")
     asset: Entity = env.scene[asset_cfg.name]
     if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
-      raise ValueError("SideSpinSupportCenterStillness needs FL/FR/RL/RR sites.")
+      raise ValueError("FixedPairSupportCenterStillness needs FL/FR/RL/RR sites.")
+
     command = _command(env, command_name)
     mode = torch.argmax(command[:, :5], dim=1)
-    side_index = torch.clamp(mode - 3, 0, 1)
-    pair_indices = torch.tensor(((0, 2), (1, 3)), device=env.device)
+    pair_index = torch.clamp(mode - 1, 0, 1)
+    pair_indices = torch.tensor(((0, 1), (2, 3)), device=env.device)
     wheel_pos = asset.data.site_pos_w[:, asset_cfg.site_ids, :2]
     batch = torch.arange(env.num_envs, device=env.device)
     center = 0.5 * (
-      wheel_pos[batch, pair_indices[side_index, 0]]
-      + wheel_pos[batch, pair_indices[side_index, 1]]
+      wheel_pos[batch, pair_indices[pair_index, 0]]
+      + wheel_pos[batch, pair_indices[pair_index, 1]]
     )
-    delta_xy = (
-      wheel_pos[batch, pair_indices[side_index, 1]]
-      - wheel_pos[batch, pair_indices[side_index, 0]]
-    )
-    initialized = self.initialized
-    speed = torch.linalg.vector_norm(
+    initialized = self.initialized.clone()
+    center_speed = torch.linalg.vector_norm(
       (center - self.previous_center) / env.step_dt, dim=1
     )
     self.previous_center.copy_(center)
     self.initialized[:] = True
 
-    active = side_spin_mask(env, command_name, speed_deadband)
+    active = fixed_pair_spin_mask(env, command_name, speed_deadband)
     contacts = _wheel_contacts(env, sensor_name).float()
-    masks = torch.tensor(
-      ((1.0, 0.0, 1.0, 0.0), (0.0, 1.0, 0.0, 1.0)),
+    contact_masks = torch.tensor(
+      ((1.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 1.0)),
       dtype=contacts.dtype,
       device=env.device,
     )
-    desired_contacts = masks[side_index]
+    desired_contacts = contact_masks[pair_index]
     contact_score = torch.mean(
       contacts * desired_contacts + (1.0 - contacts) * (1.0 - desired_contacts), dim=1
     )
-    targets = torch.tensor(gravity_targets, dtype=contacts.dtype, device=env.device)
-    gravity = asset.data.projected_gravity_b
-    gravity = gravity / torch.linalg.vector_norm(gravity, dim=1, keepdim=True).clamp_min(1.0e-6)
+    gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+    targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
     alignment = torch.clamp(
       0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
     )
-    quat = asset.data.root_link_quat_w
-    body_x = quat_apply(
-      quat,
-      torch.tensor((1.0, 0.0, 0.0), dtype=quat.dtype, device=env.device).expand(
-        env.num_envs, -1
-      ),
-    )[:, :2]
-    body_z = quat_apply(
-      quat,
-      torch.tensor((0.0, 0.0, 1.0), dtype=quat.dtype, device=env.device).expand(
-        env.num_envs, -1
-      ),
-    )[:, :2]
-    body_x = body_x / torch.linalg.vector_norm(body_x, dim=1, keepdim=True).clamp_min(1.0e-6)
-    body_z = body_z / torch.linalg.vector_norm(body_z, dim=1, keepdim=True).clamp_min(1.0e-6)
-    transverse = torch.abs(torch.sum(delta_xy * body_z, dim=1))
-    longitudinal = torch.abs(torch.sum(delta_xy * body_x, dim=1))
-    span_shortfall = torch.clamp_min(min_transverse_span - transverse, 0.0)
-    shortfall_score = torch.exp(
-      -torch.square(span_shortfall) / (0.75 * min_transverse_span) ** 2
-    )
-    width_score = torch.clamp(transverse / full_transverse_span, 0.0, 1.0)
-    geometry_gate = (
-      (0.25 * shortfall_score + 0.75 * width_score)
-      * torch.exp(-torch.square(longitudinal) / longitudinal_std**2)
-    )
-    stillness = torch.exp(-torch.square(speed) / speed_std**2)
+    stillness = torch.exp(-torch.square(center_speed) / speed_std**2)
     return (
       active
       * initialized.to(stillness.dtype)
       * contact_score
       * alignment.pow(gravity_power)
-      * geometry_gate
       * stillness
     )
 
@@ -1545,6 +1393,70 @@ def mode_root_height_exp(
 
 def aerial_active(env: "ManagerBasedRlEnv", command_name: str) -> torch.Tensor:
   return (torch.sum(_command(env, command_name)[:, :5], dim=1) > 0.5).float()
+
+
+def _advance_qualified_aerial_rotation(
+  *,
+  env: "ManagerBasedRlEnv",
+  active: torch.Tensor,
+  contacts: torch.Tensor,
+  axis_rate: torch.Tensor,
+  has_grounded: torch.Tensor,
+  airborne_time: torch.Tensor,
+  current_flight_qualified: torch.Tensor,
+  flight_rotation: torch.Tensor,
+  min_ballistic_time: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+  """Measure a whole continuous ballistic interval without crediting glitches.
+
+  A short wheel-contact dropout must not be allowed to masquerade as an aerial
+  turn.  Conversely, once an interval has survived the physical duration
+  check, its initial measured angular displacement belongs to the same real
+  flight and must not be discarded.  This helper returns the once-committed
+  signed increment together with the updated per-flight state.
+  """
+  if min_ballistic_time <= 0.0:
+    raise ValueError("min_ballistic_time must be positive.")
+  airborne = ~torch.any(contacts, dim=1)
+  has_grounded = has_grounded | (active & torch.all(contacts, dim=1))
+  flight_step = active & has_grounded & airborne
+  airborne_time = torch.where(
+    flight_step,
+    airborne_time + env.step_dt,
+    torch.zeros_like(airborne_time),
+  )
+  raw_delta = flight_step.to(axis_rate.dtype) * axis_rate * env.step_dt
+  flight_rotation = torch.where(
+    flight_step,
+    flight_rotation + raw_delta,
+    torch.zeros_like(flight_rotation),
+  )
+  newly_qualified = (
+    flight_step
+    & (~current_flight_qualified)
+    & (airborne_time >= min_ballistic_time)
+  )
+  current_flight_qualified = torch.where(
+    flight_step,
+    current_flight_qualified | (airborne_time >= min_ballistic_time),
+    torch.zeros_like(current_flight_qualified),
+  )
+  rotation_increment = torch.where(
+    newly_qualified,
+    flight_rotation,
+    torch.where(
+      flight_step & current_flight_qualified,
+      raw_delta,
+      torch.zeros_like(axis_rate),
+    ),
+  )
+  return (
+    has_grounded,
+    airborne_time,
+    current_flight_qualified,
+    flight_rotation,
+    rotation_increment,
+  )
 
 
 def aerial_base_height_exp(
@@ -2444,6 +2356,13 @@ class AerialRotationProgress:
     self.progress = torch.zeros(env.num_envs, device=env.device)
     self.best_progress = torch.zeros(env.num_envs, device=env.device)
     self.launch_axis_w = torch.zeros(env.num_envs, 3, device=env.device)
+    self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.has_grounded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.airborne_time = torch.zeros(env.num_envs, device=env.device)
+    self.current_flight_qualified = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
+    self.flight_rotation = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
 
@@ -2451,6 +2370,11 @@ class AerialRotationProgress:
     self.progress[env_ids] = 0.0
     self.best_progress[env_ids] = 0.0
     self.launch_axis_w[env_ids] = 0.0
+    self.was_airborne[env_ids] = False
+    self.has_grounded[env_ids] = False
+    self.airborne_time[env_ids] = 0.0
+    self.current_flight_qualified[env_ids] = False
+    self.flight_rotation[env_ids] = 0.0
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
 
@@ -2485,6 +2409,11 @@ class AerialRotationProgress:
     clear = new_skill | reset | (~active)
     self.progress[clear] = 0.0
     self.best_progress[clear] = 0.0
+    self.was_airborne[clear] = False
+    self.has_grounded[clear] = False
+    self.airborne_time[clear] = 0.0
+    self.current_flight_qualified[clear] = False
+    self.flight_rotation[clear] = 0.0
 
     axes_b = torch.tensor(
       axes, dtype=asset.data.root_link_quat_w.dtype, device=env.device
@@ -2495,21 +2424,26 @@ class AerialRotationProgress:
     axis_rate = torch.sum(
       asset.data.root_link_ang_vel_w * self.launch_axis_w, dim=1
     )
-    airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
     command_term = env.command_manager.get_term(command_name)
-    # ``was_airborne`` is set by AerialRotationCommand only after its short
-    # continuous wheel-free interval.  Do not pay a one-step contact gap or a
-    # ground pivot simply because it happened to pass the clearance gate.
-    qualified_flight = getattr(
-      command_term, "was_airborne", torch.zeros_like(active)
+    contacts = _wheel_contacts(env, sensor_name)
+    (
+      self.has_grounded,
+      self.airborne_time,
+      self.current_flight_qualified,
+      self.flight_rotation,
+      signed_delta,
+    ) = _advance_qualified_aerial_rotation(
+      env=env,
+      active=active,
+      contacts=contacts,
+      axis_rate=axis_rate,
+      has_grounded=self.has_grounded,
+      airborne_time=self.airborne_time,
+      current_flight_qualified=self.current_flight_qualified,
+      flight_rotation=self.flight_rotation,
+      min_ballistic_time=command_term.cfg.min_ballistic_time,
     )
-    signed_delta = (
-      active.to(axis_rate.dtype)
-      * airborne.to(axis_rate.dtype)
-      * qualified_flight.to(axis_rate.dtype)
-      * axis_rate
-      * env.step_dt
-    )
+    self.was_airborne |= self.current_flight_qualified
     self.progress = torch.clamp_min(self.progress + signed_delta, 0.0)
     old_best = self.best_progress.clone()
     self.best_progress = torch.maximum(self.best_progress, self.progress)
@@ -2602,6 +2536,11 @@ class AerialRotationCompletion:
     self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
     self.landing_settle_time = torch.zeros(env.num_envs, device=env.device)
     self.launch_axis_w = torch.zeros(env.num_envs, 3, device=env.device)
+    self.airborne_time = torch.zeros(env.num_envs, device=env.device)
+    self.current_flight_qualified = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
+    self.flight_rotation = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.progress[env_ids] = 0.0
@@ -2612,6 +2551,9 @@ class AerialRotationCompletion:
     self.previous_mode[env_ids] = -1
     self.landing_settle_time[env_ids] = 0.0
     self.launch_axis_w[env_ids] = 0.0
+    self.airborne_time[env_ids] = 0.0
+    self.current_flight_qualified[env_ids] = False
+    self.flight_rotation[env_ids] = 0.0
 
   def __call__(
     self,
@@ -2641,6 +2583,9 @@ class AerialRotationCompletion:
     self.has_grounded[clear] = False
     self.awarded[clear] = False
     self.landing_settle_time[clear] = 0.0
+    self.airborne_time[clear] = 0.0
+    self.current_flight_qualified[clear] = False
+    self.flight_rotation[clear] = 0.0
 
     axes_b = torch.tensor(
       axes, dtype=asset.data.root_link_quat_w.dtype, device=env.device
@@ -2652,23 +2597,25 @@ class AerialRotationCompletion:
       asset.data.root_link_ang_vel_w * self.launch_axis_w, dim=1
     )
     contacts = _wheel_contacts(env, sensor_name)
-    airborne = ~torch.any(contacts, dim=1)
-    self.has_grounded |= active & torch.all(contacts, dim=1)
-    # Share the command term's qualified-flight state.  The command requires
-    # sustained wheel-free motion, so a brief contact glitch cannot receive a
-    # strict full-turn/landing reward.
     command_term = env.command_manager.get_term(command_name)
-    qualified_flight = getattr(
-      command_term, "was_airborne", torch.zeros_like(active)
+    (
+      self.has_grounded,
+      self.airborne_time,
+      self.current_flight_qualified,
+      self.flight_rotation,
+      signed_delta,
+    ) = _advance_qualified_aerial_rotation(
+      env=env,
+      active=active,
+      contacts=contacts,
+      axis_rate=axis_rate,
+      has_grounded=self.has_grounded,
+      airborne_time=self.airborne_time,
+      current_flight_qualified=self.current_flight_qualified,
+      flight_rotation=self.flight_rotation,
+      min_ballistic_time=command_term.cfg.min_ballistic_time,
     )
-    self.was_airborne |= active & qualified_flight
-    signed_delta = (
-      active.to(axis_rate.dtype)
-      * airborne.to(axis_rate.dtype)
-      * qualified_flight.to(axis_rate.dtype)
-      * axis_rate
-      * env.step_dt
-    )
+    self.was_airborne |= self.current_flight_qualified
     self.progress = torch.clamp_min(self.progress + signed_delta, 0.0)
 
     normal_gravity = torch.tensor((0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device)
