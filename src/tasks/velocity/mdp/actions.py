@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp.actions import (
+  JointPositionAction,
+  JointPositionActionCfg,
   JointVelocityAction,
   JointVelocityActionCfg,
 )
@@ -72,3 +74,104 @@ class UprightGatedJointVelocityAction(JointVelocityAction):
       self._processed_actions[~rear_support] = self._offset[~rear_support]
     else:
       self._processed_actions[~rear_support] = self._offset
+
+
+@dataclass(kw_only=True)
+class DefaultIdleGatedJointPositionActionCfg(JointPositionActionCfg):
+  """Hold literal model-default positions for an untriggered trick command.
+
+  A normal stationary one-hot, or an all-zero aerial event command, is a
+  public controller state rather than a skill that PPO needs to rediscover.
+  The gate is inactive for every triggered command and does not encode a
+  two-wheel posture, a takeoff pulse, or a motion reference.
+  """
+
+  command_name: str = "trick"
+  idle_mode_index: int | None = 0
+  stationary_command_start_index: int = 0
+  command_deadband: float = 0.05
+
+  def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointPositionAction:
+    return DefaultIdleGatedJointPositionAction(self, env)
+
+
+@dataclass(kw_only=True)
+class DefaultIdleGatedJointVelocityActionCfg(JointVelocityActionCfg):
+  """Hold literal zero wheel velocity for an untriggered trick command."""
+
+  command_name: str = "trick"
+  idle_mode_index: int | None = 0
+  stationary_command_start_index: int = 0
+  command_deadband: float = 0.05
+
+  def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointVelocityAction:
+    return DefaultIdleGatedJointVelocityAction(self, env)
+
+
+class _DefaultIdleGate:
+  """Shared command predicate for default-idle action terms."""
+
+  cfg: DefaultIdleGatedJointPositionActionCfg | DefaultIdleGatedJointVelocityActionCfg
+
+  def _configure_default_idle_gate(self) -> None:
+    if self.cfg.command_deadband < 0.0:
+      raise ValueError("command_deadband must be non-negative.")
+    self._idle_command = self._env.command_manager.get_term(self.cfg.command_name)
+
+  def _default_idle_mask(self) -> torch.Tensor:
+    command = self._idle_command.command
+    if self.cfg.idle_mode_index is None:
+      # Aerial uses an all-zero event command as idle.  Its one-hot events
+      # have norm one, so the same scalar deadband remains unambiguous.
+      return torch.linalg.vector_norm(command, dim=1) <= self.cfg.command_deadband
+    if not 0 <= self.cfg.idle_mode_index < command.shape[1]:
+      raise ValueError("idle_mode_index is outside the command vector.")
+    if not 0 <= self.cfg.stationary_command_start_index <= command.shape[1]:
+      raise ValueError("stationary_command_start_index is outside the command vector.")
+    stationary = torch.linalg.vector_norm(
+      command[:, self.cfg.stationary_command_start_index :], dim=1
+    ) <= self.cfg.command_deadband
+    return (command[:, self.cfg.idle_mode_index] > 0.5) & stationary
+
+  def _apply_default_idle_target(self) -> None:
+    idle = self._default_idle_mask()
+    if isinstance(self._offset, torch.Tensor):
+      self._processed_actions[idle] = self._offset[idle]
+    else:
+      self._processed_actions[idle] = self._offset
+
+
+class DefaultIdleGatedJointPositionAction(
+  _DefaultIdleGate, JointPositionAction
+):
+  """Position residuals are disabled only while the public idle is active."""
+
+  cfg: DefaultIdleGatedJointPositionActionCfg
+
+  def __init__(
+    self, cfg: DefaultIdleGatedJointPositionActionCfg, env: ManagerBasedRlEnv
+  ) -> None:
+    super().__init__(cfg, env)
+    self._configure_default_idle_gate()
+
+  def process_actions(self, actions: torch.Tensor) -> None:
+    super().process_actions(actions)
+    self._apply_default_idle_target()
+
+
+class DefaultIdleGatedJointVelocityAction(
+  _DefaultIdleGate, JointVelocityAction
+):
+  """Wheel residuals are disabled only while the public idle is active."""
+
+  cfg: DefaultIdleGatedJointVelocityActionCfg
+
+  def __init__(
+    self, cfg: DefaultIdleGatedJointVelocityActionCfg, env: ManagerBasedRlEnv
+  ) -> None:
+    super().__init__(cfg, env)
+    self._configure_default_idle_gate()
+
+  def process_actions(self, actions: torch.Tensor) -> None:
+    super().process_actions(actions)
+    self._apply_default_idle_target()

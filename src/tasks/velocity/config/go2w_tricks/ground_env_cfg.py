@@ -27,6 +27,7 @@ from .common_env_cfg import (
   LOCOMOTION_GRAVITY_TARGETS,
   STANCE_CONTACT_MASKS,
   STANCE_GRAVITY_TARGETS,
+  configure_default_idle_actions,
   configure_ground_support_actuators,
   make_base_go2w_trick_cfg,
 )
@@ -115,6 +116,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       debug_vis=False,
     )
   }
+  configure_default_idle_actions(
+    cfg,
+    command_name="trick",
+    idle_mode_index=0,
+    stationary_command_start_index=3,
+    command_deadband=0.04,
+  )
   _use_history(cfg, "trick")
 
   cfg.rewards = {
@@ -436,18 +444,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
-  # A normal stationary command is not a trivial fallback: it is the public
-  # zero-command contract for this policy.  Both two-wheel rises begin from
-  # that same physical state, so establish the actor's zero-residual output
-  # first, then retain substantial normal-idle exposure as the other one-hots
-  # are added.  This is only a command-sampling curriculum: every mode still
-  # starts from the ordinary four-wheel reset and no target posture is given
-  # to the actor.
-  #
-  # ``common_step_counter`` advances once per 50-Hz control step.  With a
-  # 64-step rollout, 12,800 steps is about 200 PPO iterations.  The ground
-  # rolling branch needs this longer than spin: after 100 iterations it could
-  # remain upright while still driving itself forward under a zero command.
+  # Stationary normal is held by the command-interface idle gate, so PPO can
+  # explore the actual front/rear rise from the four-wheel reset immediately.
+  # First expose only static support outcomes; introduce x/yaw only after the
+  # same fused policy has had time to discover a legal two-wheel support.
+  # This changes command sampling only, never the reset state or joint target.
   cfg.curriculum = {
     "locomotion_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_locomotion_command_stages,
@@ -456,27 +457,20 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (1.0, 0.0, 0.0),
+            "mode_probabilities": (0.35, 0.40, 0.25),
             "idle_probability": 1.0,
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
           },
           {
             "step": 12_800,
-            "mode_probabilities": (0.60, 0.25, 0.15),
-            "idle_probability": 0.75,
+            "mode_probabilities": (0.35, 0.40, 0.25),
+            "idle_probability": 0.70,
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
           },
           {
             "step": 25_600,
-            "mode_probabilities": (0.45, 0.32, 0.23),
-            "idle_probability": 0.60,
-            "lin_vel_x_range": (-0.15, 0.15),
-            "yaw_rate_range": (-0.22, 0.22),
-          },
-          {
-            "step": 38_400,
             "mode_probabilities": (0.35, 0.40, 0.25),
             "idle_probability": 0.45,
             "lin_vel_x_range": (-0.20, 0.20),
@@ -521,6 +515,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
       debug_vis=False,
     )
   }
+  configure_default_idle_actions(
+    cfg,
+    command_name="trick",
+    idle_mode_index=0,
+    stationary_command_start_index=5,
+    command_deadband=0.20,
+  )
   _use_history(cfg, "trick")
 
   cfg.rewards = {
@@ -793,14 +794,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   # the former 100M-style values inadvertently left a 1,000-iteration run in
   # the all-static stage forever.
   #
-  # First establish the *same actor's* literal normal zero command.  The
-  # reset physics already validates it, but an initially random Gaussian
-  # actor can otherwise destroy that state before it has learned to separate
-  # the five one-hots.  Then add the front/rear supports, followed by side
-  # supports, all at zero rate.  Only once those outcomes have a chance to be
-  # represented do we introduce the gentle and then AS2-W-speed rate ranges.
-  # The command itself is unchanged throughout: five-way one-hot plus one
-  # scalar rate; no reset posture, phase, or motion trajectory is introduced.
+  # Default idle is held by the command-interface gate, so every static
+  # two-wheel one-hot can be explored from the first rollout.  Only after a
+  # long zero-rate support phase do we add a gentle and then AS2-W-speed rate.
+  # The actor command remains five-way one-hot plus one rate scalar; no reset
+  # posture, phase, or motion trajectory is introduced.
   cfg.curriculum = {
     "spin_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_spin_command_stages,
@@ -809,25 +807,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
-            "spin_idle_probability": 1.0,
-            "spin_rate_range": (2.0, 4.0),
-          },
-          {
-            "step": 6_400,
-            "mode_probabilities": (0.55, 0.25, 0.20, 0.0, 0.0),
-            "spin_idle_probability": 1.0,
-            "spin_rate_range": (2.0, 4.0),
-          },
-          {
-            "step": 19_200,
-            "mode_probabilities": (0.42, 0.23, 0.20, 0.075, 0.075),
+            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 1.0,
             "spin_rate_range": (2.0, 4.0),
           },
           {
             "step": 32_000,
-            "mode_probabilities": (0.38, 0.22, 0.20, 0.10, 0.10),
+            "mode_probabilities": (0.35, 0.23, 0.23, 0.095, 0.095),
             "spin_idle_probability": 0.65,
             "spin_rate_range": (2.0, 4.0),
           },

@@ -25,8 +25,11 @@ from src.assets.robots.unitree_go2w.go2w_constants import (
   get_go2w_robot_cfg,
 )
 from src.tasks.velocity import mdp
+from src.tasks.velocity.mdp.actions import (
+  DefaultIdleGatedJointPositionActionCfg,
+  DefaultIdleGatedJointVelocityActionCfg,
+)
 from src.tasks.velocity.velocity_env_cfg import make_velocity_env_cfg
-
 
 # Wheel order is [FL, FR, RL, RR].  Gravity targets are expressed in base
 # coordinates; they are task semantics, never actor observations.
@@ -115,6 +118,52 @@ def configure_ground_support_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
     if actuator.target_names_expr in ground_gains
     else actuator
     for actuator in articulation.actuators
+  )
+
+
+def configure_default_idle_actions(
+  cfg: ManagerBasedRlEnvCfg,
+  *,
+  command_name: str,
+  idle_mode_index: int | None,
+  stationary_command_start_index: int,
+  command_deadband: float,
+) -> None:
+  """Make a public idle command the model's literal default controller.
+
+  The gate is a command-interface invariant: default pose plus zero wheel
+  speed when no skill is requested.  It is entirely inactive for a triggered
+  one-hot and therefore supplies no two-wheel or aerial posture to PPO.
+  """
+  joint_pos = cfg.actions["joint_pos"]
+  joint_vel = cfg.actions["joint_vel"]
+  assert isinstance(joint_pos, JointPositionActionCfg)
+  assert isinstance(joint_vel, JointVelocityActionCfg)
+  common = {
+    "command_name": command_name,
+    "idle_mode_index": idle_mode_index,
+    "stationary_command_start_index": stationary_command_start_index,
+    "command_deadband": command_deadband,
+  }
+  cfg.actions["joint_pos"] = DefaultIdleGatedJointPositionActionCfg(
+    entity_name=joint_pos.entity_name,
+    actuator_names=joint_pos.actuator_names,
+    scale=joint_pos.scale,
+    offset=joint_pos.offset,
+    preserve_order=joint_pos.preserve_order,
+    clip=joint_pos.clip,
+    use_default_offset=joint_pos.use_default_offset,
+    **common,
+  )
+  cfg.actions["joint_vel"] = DefaultIdleGatedJointVelocityActionCfg(
+    entity_name=joint_vel.entity_name,
+    actuator_names=joint_vel.actuator_names,
+    scale=joint_vel.scale,
+    offset=joint_vel.offset,
+    preserve_order=joint_vel.preserve_order,
+    clip=joint_vel.clip,
+    use_default_offset=joint_vel.use_default_offset,
+    **common,
   )
 
 

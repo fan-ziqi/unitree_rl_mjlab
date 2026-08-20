@@ -27,6 +27,7 @@ from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
 from .common_env_cfg import (
   AERIAL_AXES,
   configure_compact_aerial_actuators,
+  configure_default_idle_actions,
   make_base_go2w_trick_cfg,
 )
 
@@ -80,6 +81,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     actuator_names=GO2W_WHEEL_JOINTS,
     scale=45.0,
     use_default_offset=True,
+  )
+  configure_default_idle_actions(
+    cfg,
+    command_name="trick",
+    # The all-zero event vector is the public aerial idle, not mode zero.
+    idle_mode_index=None,
+    stationary_command_start_index=0,
+    command_deadband=0.5,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
