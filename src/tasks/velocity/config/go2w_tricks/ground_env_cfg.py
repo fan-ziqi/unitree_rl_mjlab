@@ -773,7 +773,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "num_modes": 5,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "gravity_power": 4.0,
-        "minimum_gravity_alignment": 0.85,
+        # The stop command should brake an already established stance, not
+        # freeze the final part of the four-wheel-to-two-wheel rise.  The
+        # strict evaluator accepts 0.97, so keep a small buffer below that.
+        "minimum_gravity_alignment": 0.96,
       },
     ),
     # The normal one-hot at zero spin starts in a valid four-wheel support.
