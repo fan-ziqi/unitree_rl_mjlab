@@ -28,6 +28,7 @@ from .common_env_cfg import (
   LOCOMOTION_GRAVITY_TARGETS,
   STANCE_CONTACT_MASKS,
   STANCE_GRAVITY_TARGETS,
+  configure_ground_support_actuators,
   make_base_go2w_trick_cfg,
 )
 
@@ -95,6 +96,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   velocity is absent and is always penalised inside the x tracker.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
+  configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
   cfg.episode_length_s = 8.0 if not play else cfg.episode_length_s
   cfg.commands = {
@@ -449,6 +451,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
   world-down.  Left/right remain static two-wheel supports in this environment.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
+  configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
   cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
   cfg.commands = {

@@ -102,8 +102,13 @@ GO2W_ACTUATOR_WHEEL = BuiltinVelocityActuatorCfg(
 )
 
 # Four-wheel reset; the upright posture is only a learned final objective.
+# At the default 0.9/-1.8 leg configuration the wheel-cylinder centres lie
+# 0.273135 m below ``base_link`` and their physical radius is 0.086 m.  A
+# 0.365-m root therefore leaves every wheel 5.865 mm above the plane: it looks
+# grounded in a render but has no contact.  Set a small compliant preload so
+# the literal default configuration is a real four-wheel stand.
 GO2W_FOUR_FOOT_INIT_STATE = EntityCfg.InitialStateCfg(
-  pos=(0.0, 0.0, 0.365),
+  pos=(0.0, 0.0, 0.359),
   joint_pos={
     ".*hip_joint": 0.0,
     ".*thigh_joint": 0.9,

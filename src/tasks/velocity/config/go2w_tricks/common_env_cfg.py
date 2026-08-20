@@ -89,6 +89,35 @@ def configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
   )
 
 
+def configure_ground_support_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
+  """Give a zero position residual enough physical authority to hold default.
+
+  The imported Go2W model's generic P=20 leg controller lets gravity fold its
+  nominal four-wheel reset even when the action is exactly zero.  Ground
+  support tricks require that public idle state to be physically valid before
+  PPO can choose to preserve it.  These gains apply only to the ground spin
+  and stance-locomotion tasks; aerial control retains its deliberately more
+  compliant specialised actuator configuration.
+  """
+  articulation = cfg.scene.entities["robot"].articulation
+  assert articulation is not None
+  ground_gains = {
+    (".*hip_.*",): (120.0, 2.0),
+    (".*thigh_.*",): (120.0, 2.0),
+    (".*calf_.*",): (120.0, 2.0),
+  }
+  articulation.actuators = tuple(
+    replace(
+      actuator,
+      stiffness=ground_gains[actuator.target_names_expr][0],
+      damping=ground_gains[actuator.target_names_expr][1],
+    )
+    if actuator.target_names_expr in ground_gains
+    else actuator
+    for actuator in articulation.actuators
+  )
+
+
 def make_base_go2w_trick_cfg(
   play: bool,
 ) -> tuple[ManagerBasedRlEnvCfg, ContactSensorCfg, ContactSensorCfg]:
