@@ -400,10 +400,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # during every two-wheel rise and every requested x/yaw motion.
     "normal_stationary_action_effort": RewardTermCfg(
       func=trick_rewards.stance_stationary_action_l2,
-      # For a public normal zero command the exact model default is already
-      # dynamically valid.  Make a residual action decisively less valuable
-      # than borrowing a slight lean from a two-wheel skill.
-      weight=-40.0,
+      # The spin warmup learned the literal zero residual only after this
+      # term reached -80.  At -40, the locomotion velocity trackers still
+      # preferred a self-propelled normal solution despite a physical
+      # zero-action four-wheel stand being available.
+      weight=-80.0,
       params={
         "command_name": "trick",
         "modes": (0,),
@@ -444,7 +445,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   # to the actor.
   #
   # ``common_step_counter`` advances once per 50-Hz control step.  With a
-  # 64-step rollout, 6,400 steps is about 100 PPO iterations.
+  # 64-step rollout, 12,800 steps is about 200 PPO iterations.  The ground
+  # rolling branch needs this longer than spin: after 100 iterations it could
+  # remain upright while still driving itself forward under a zero command.
   cfg.curriculum = {
     "locomotion_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_locomotion_command_stages,
@@ -459,21 +462,21 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "yaw_rate_range": (-0.30, 0.30),
           },
           {
-            "step": 6_400,
+            "step": 12_800,
             "mode_probabilities": (0.60, 0.25, 0.15),
             "idle_probability": 0.75,
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
           },
           {
-            "step": 19_200,
+            "step": 25_600,
             "mode_probabilities": (0.45, 0.32, 0.23),
             "idle_probability": 0.60,
             "lin_vel_x_range": (-0.15, 0.15),
             "yaw_rate_range": (-0.22, 0.22),
           },
           {
-            "step": 32_000,
+            "step": 38_400,
             "mode_probabilities": (0.35, 0.40, 0.25),
             "idle_probability": 0.45,
             "lin_vel_x_range": (-0.20, 0.20),
