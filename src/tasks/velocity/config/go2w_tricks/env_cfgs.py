@@ -1106,16 +1106,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
     },
   )
   # A command requests one rotation, not an indefinitely fast spin.  The
-  # overrun failure starts only after compact full-turn discovery (16k global
-  # control steps), then gives PPO a clear landing-stage failure signal.  It
-  # does not expose a phase to the actor or prescribe any joint action.
+  # overrun failure starts only after all five directions have crossed the
+  # final ballistic-discovery curriculum (30k global control steps).  A hard
+  # failure at the initial landing stage made front/side flips abandon their
+  # just-discovered one-turn attempts before the recovery reward had enough
+  # time to shape them.  This does not expose a phase to the actor or
+  # prescribe any joint action.
   cfg.terminations["rotation_overrun"] = TerminationTermCfg(
     func=trick_rewards.aerial_rotation_overrun,
     params={
       "command_name": "trick",
       "target_angle": math.tau,
       "max_overrotation": 0.75,
-      "activation_step": 16_000,
+      "activation_step": 30_000,
     },
   )
   for group_name in ("actor", "critic"):
@@ -1378,11 +1381,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(play: bool = False) -> ManagerBase
         "reward_name": "post_turn_landing_progress",
         "weight_stages": [
           {"step": 0, "weight": 0.0},
-          # 16k synchronized steps is approximately 65M samples at 4096
-          # environments.  By this point the unmodified compact curriculum
-          # has demonstrated full turns; now optimize the real return-to-four
-          # wheels rather than suppressing initial momentum discovery.
-          {"step": 16_000, "weight": 120.0},
+          # Blend the sparse descent bridge in after basic turn discovery.
+          # Jumping immediately to its final strength at 16k steps made the
+          # shared policy regress from newly discovered side flips.  The
+          # weaker stages preserve their momentum signal while PPO learns
+          # that a measured full turn should descend upright and slow down.
+          {"step": 16_000, "weight": 20.0},
+          {"step": 22_000, "weight": 60.0},
+          # At 30k steps every mode has the final height gates and the hard
+          # over-rotation termination also begins, so full landing shaping
+          # can safely take priority over continuing to tumble.
+          {"step": 30_000, "weight": 120.0},
         ],
       },
     ),
