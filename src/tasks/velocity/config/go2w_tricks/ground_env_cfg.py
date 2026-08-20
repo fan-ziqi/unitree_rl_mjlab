@@ -340,12 +340,34 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "contact_masks": STANCE_CONTACT_MASKS,
       },
     ),
+    "static_two_wheel_gravity_precision": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment,
+      weight=45.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "power": 8.0,
+      },
+    ),
+    "static_two_wheel_contact_precision": RewardTermCfg(
+      func=trick_rewards.mode_contact_match,
+      weight=35.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "sensor_name": wheel_contact_cfg.name,
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+      },
+    ),
     # The normal-mode spin is deliberately posture-free: it asks only for a
     # horizontal body and two current wheel supports, allowing the pair to
     # change over the orbit rather than hard-coding an axis or pose.
     "dynamic_spin_support": RewardTermCfg(
       func=trick_rewards.spin_dynamic_support_exp,
-      weight=30.0,
+      weight=50.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -356,7 +378,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     "dynamic_spin_rate": RewardTermCfg(
       func=trick_rewards.spin_dynamic_rate_exp,
       weight=25.0,
-      params={"command_name": "trick", "speed_deadband": 0.20, "std": 1.0},
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "std": 1.0,
+        "horizontal_gravity_std": 0.45,
+      },
     ),
     "dynamic_support_cycle": RewardTermCfg(
       func=trick_rewards.SpinSupportCycle,
@@ -372,12 +399,24 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
     "front_rear_spin_rate": RewardTermCfg(
       func=trick_rewards.fixed_pair_spin_rate_exp,
       weight=25.0,
-      params={"command_name": "trick", "speed_deadband": 0.20, "std": 1.0},
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "std": 1.0,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "gravity_power": 4.0,
+      },
     ),
     "spin_rate_error": RewardTermCfg(
       func=trick_rewards.commanded_spin_rate_abs_error,
       weight=-15.0,
-      params={"command_name": "trick", "speed_deadband": 0.20},
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "dynamic_horizontal_gravity_std": 0.45,
+        "fixed_gravity_power": 4.0,
+      },
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,

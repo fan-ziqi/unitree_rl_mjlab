@@ -716,16 +716,27 @@ def spin_dynamic_rate_exp(
   command_name: str,
   speed_deadband: float,
   std: float,
+  horizontal_gravity_std: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Track world-down spin without a contact/posture exploration gate."""
+  """Track dynamic-spin rate only once the body has tipped horizontal.
+
+  A normal four-wheel robot can cheaply spin about world up while remaining
+  upright.  That is not the commanded Thomas-like dynamic support, so letting
+  it collect rate reward before the body is horizontal creates a persistent
+  upright-yaw local optimum.  The horizontal factor is a smooth outcome-space
+  gate; it supplies no joint target or prescribed route into the orbit.
+  """
+  if horizontal_gravity_std <= 0.0:
+    raise ValueError("horizontal_gravity_std must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   down = asset.data.projected_gravity_b
   down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1e-6)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
   rate_reward = torch.exp(-torch.square(command[:, 5] - actual_rate) / std**2)
-  return spin_stand_mask(env, command_name, speed_deadband) * rate_reward
+  horizontal = torch.exp(-torch.square(down[:, 2]) / horizontal_gravity_std**2)
+  return spin_stand_mask(env, command_name, speed_deadband) * horizontal * rate_reward
 
 
 def fixed_pair_spin_rate_exp(
@@ -733,22 +744,38 @@ def fixed_pair_spin_rate_exp(
   command_name: str,
   speed_deadband: float,
   std: float,
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  gravity_power: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Track spin for front/rear handstands while their pose terms act separately."""
+  """Track front/rear spin after their requested two-wheel attitude is found."""
+  if gravity_power < 0.0:
+    raise ValueError("gravity_power must be non-negative.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   down = asset.data.projected_gravity_b
   down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1e-6)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
   rate_reward = torch.exp(-torch.square(command[:, 5] - actual_rate) / std**2)
-  return fixed_pair_spin_mask(env, command_name, speed_deadband) * rate_reward
+  mode = torch.argmax(command[:, :len(gravity_targets)], dim=1)
+  targets = torch.tensor(gravity_targets, dtype=down.dtype, device=env.device)
+  alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(down * targets[mode], dim=1)), 0.0, 1.0
+  )
+  return (
+    fixed_pair_spin_mask(env, command_name, speed_deadband)
+    * alignment.pow(gravity_power)
+    * rate_reward
+  )
 
 
 def commanded_spin_rate_abs_error(
   env: "ManagerBasedRlEnv",
   command_name: str,
   speed_deadband: float,
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  dynamic_horizontal_gravity_std: float,
+  fixed_gravity_power: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Non-saturating rate error for normal/front/rear spin commands.
@@ -758,18 +785,29 @@ def commanded_spin_rate_abs_error(
   smaller measured error above larger error without exposing an axis: the
   world-down direction is read from the robot's own gravity vector.
   """
-  if speed_deadband < 0.0:
-    raise ValueError("speed_deadband must be non-negative.")
+  if speed_deadband < 0.0 or dynamic_horizontal_gravity_std <= 0.0 or fixed_gravity_power < 0.0:
+    raise ValueError("invalid spin-rate posture-gate parameters.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
+  mode = torch.argmax(command[:, :5], dim=1)
   moving = (
-    (torch.argmax(command[:, :5], dim=1) <= 2)
+    (mode <= 2)
     & (torch.abs(command[:, 5]) > speed_deadband)
   )
   down = asset.data.projected_gravity_b
   down = down / torch.linalg.vector_norm(down, dim=1, keepdim=True).clamp_min(1.0e-6)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
-  return moving.to(actual_rate.dtype) * torch.abs(command[:, 5] - actual_rate)
+  horizontal = torch.exp(
+    -torch.square(down[:, 2]) / dynamic_horizontal_gravity_std**2
+  )
+  targets = torch.tensor(gravity_targets, dtype=down.dtype, device=env.device)
+  fixed_alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(down * targets[mode], dim=1)), 0.0, 1.0
+  )
+  posture_gate = torch.where(
+    mode == 0, horizontal, fixed_alignment.pow(fixed_gravity_power)
+  )
+  return moving.to(actual_rate.dtype) * posture_gate * torch.abs(command[:, 5] - actual_rate)
 
 
 def spin_planar_speed_l2(
