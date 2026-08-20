@@ -186,10 +186,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "extended_support_legs": RewardTermCfg(
       func=trick_rewards.mode_support_leg_length_min,
-      # The front branch reaches the requested vertical gravity direction but
-      # still hides a 0.13 m folded support leg.  Rear and normal already meet
-      # this measured outcome, so make it decisive for all support modes.
-      weight=200.0,
+      # V11 made this geometry term dominant and front could no longer reach
+      # its vertical support at all.  Preserve the normal/rear extension
+      # outcome, while asking front for a visible *incremental* extension
+      # instead of an unreachable 0.35 m stroke.
+      weight=100.0,
       params={
         "command_name": "trick",
         # Normal zero command must be a properly supported four-wheel stand,
@@ -198,7 +199,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "modes": (0, 1, 2),
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
-        "minimum_lengths": (0.32, 0.35, 0.35),
+        "minimum_lengths": (0.32, 0.20, 0.35),
         # A 0.16 m activation threshold made a visibly folded 0.13 m front
         # support receive exactly zero extension gradient.  Start from zero:
         # this still specifies only hip-to-wheel length, not any joint pose.
@@ -248,7 +249,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      weight=20.0,
+      # V11's normal command tracked x but ignored a simultaneous yaw=0.2
+      # request.  The target is a public command outcome, so strengthen the
+      # existing tracker for every mode rather than adding a normal-only pose
+      # rule.
+      weight=50.0,
       params={
         "command_name": "trick",
         "std": 0.35,
@@ -272,7 +277,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw_error": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_abs_error,
-      weight=-20.0,
+      weight=-50.0,
       params={
         "command_name": "trick",
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
