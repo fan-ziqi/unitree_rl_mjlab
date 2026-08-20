@@ -140,6 +140,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "asset_cfg": SceneEntityCfg("robot", joint_names=GO2W_LEG_JOINTS),
       },
     ),
+    "idle_action_effort": RewardTermCfg(
+      func=trick_rewards.aerial_idle_action_l2,
+      # The all-zero event command means exactly the reset controller, not a
+      # nearby asymmetric stance.  This applies no constraint once a maneuver
+      # one-hot is active, so the aerial motion remains fully discovered by
+      # PPO rather than being shaped by a joint trajectory.
+      weight=-20.0,
+      params={"command_name": "trick"},
+    ),
     "takeoff_clearance": RewardTermCfg(
       func=trick_rewards.AerialClearanceProgress,
       weight=45.0,

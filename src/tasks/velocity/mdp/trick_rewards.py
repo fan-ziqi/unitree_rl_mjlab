@@ -1705,6 +1705,25 @@ def aerial_idle_default_joint_pos_exp(
   return idle.to(error.dtype) * torch.exp(-error / std**2)
 
 
+def aerial_idle_action_l2(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+) -> torch.Tensor:
+  """Prefer the literal zero residual controller for an all-zero event command.
+
+  ``aerial_idle_default_joint_pos_exp`` makes the physical pose near the
+  model's default configuration valuable.  That alone still admits a policy
+  which holds a nearby, visibly asymmetric leg configuration with persistent
+  non-zero actions.  The public all-zero command has an unambiguous desired
+  controller residual: zero position offsets and zero wheel velocity.  This
+  term is active only there, so it neither selects a flip posture nor restricts
+  any active aerial maneuver.
+  """
+  idle = aerial_active(env, command_name) <= 0.5
+  effort = torch.sum(torch.square(env.action_manager.action), dim=1)
+  return idle.to(effort.dtype) * effort
+
+
 def _advance_qualified_aerial_rotation(
   *,
   env: "ManagerBasedRlEnv",
