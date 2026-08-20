@@ -26,7 +26,7 @@ MODE_NAMES = ("front", "back", "left", "right", "yaw")
 TARGET_ANGLE = math.tau
 # Keep validation aligned with the aerial environment's physical compactness
 # termination.  This is a measured quality constraint, not an actor input.
-COMPACT_LEG_DEVIATION_LIMIT = 0.42
+COMPACT_LEG_DEVIATION_LIMIT = 0.32
 MetricDict = dict[str, float | int | str]
 
 
@@ -133,6 +133,11 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     command_cfg.idle_probability = 0.0
     command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
     env_cfg.episode_length_s = cfg.duration_s + 0.5
+    # ``play=True`` correctly removes reward curricula, but the final-task
+    # over-rotation termination is a validity condition rather than a shaping
+    # schedule.  Make it active during every validation rollout so a multi-turn
+    # yaw spin cannot be counted as an acceptable one-turn attempt.
+    env_cfg.terminations["rotation_overrun"].params["activation_step"] = 0
 
     agent_cfg = load_rl_cfg(cfg.task_id)
     base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device)
@@ -170,7 +175,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     takeoff_vertical_speed = torch.zeros(cfg.num_envs, device=base_env.device)
     # This does not prescribe a motion.  It makes the compact-wheel-leg
     # requirement measurable during validation: the task rejects an excursion
-    # above 0.42 rad, so values near that bound show a large leg swing.
+    # above 0.32 rad, so values near that bound show a large leg swing.
     peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
     peak_leg_excess_l2 = torch.zeros(cfg.num_envs, device=base_env.device)
     leg_envelope_violated = torch.zeros_like(trial_open)
