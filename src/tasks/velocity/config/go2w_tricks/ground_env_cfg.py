@@ -372,7 +372,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(play: bool = False) -> ManagerBasedRlE
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
-        "horizontal_gravity_std": 0.45,
+        # This is deliberately broader than the rate gate below.  From the
+        # ordinary normal reset it gives PPO a usable outcome gradient toward
+        # a horizontal two-wheel orbit; spin-rate credit remains strict, so a
+        # merely tilted four-wheel robot cannot satisfy the command.
+        "horizontal_gravity_std": 0.75,
       },
     ),
     "dynamic_spin_rate": RewardTermCfg(
