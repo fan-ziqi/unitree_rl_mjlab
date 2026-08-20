@@ -13,6 +13,7 @@ from tensordict import TensorDict
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from mjlab.utils.lab_api.math import quat_apply
 
 from src.tasks.velocity.mdp.trick_commands import StanceSpinCommandCfg
 
