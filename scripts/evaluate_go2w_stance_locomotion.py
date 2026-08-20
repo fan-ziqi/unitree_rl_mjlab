@@ -10,6 +10,7 @@ import sys
 
 import torch
 import tyro
+from tensordict import TensorDict
 
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
@@ -68,6 +69,22 @@ def _configure_command(cfg, evaluation: EvalConfig) -> None:
   )
 
 
+def _fixed_reset_observation(base_env: ManagerBasedRlEnv) -> TensorDict:
+  """Build the 10-frame initial history after pinning a fixed command.
+
+  Replacing only the most recent reset observation leaves nine random one-hots
+  in the actor input, which makes a per-mode evaluation test the reset sampler
+  rather than the requested command.
+  """
+  base_env.observation_manager._obs_buffer = None
+  observations = None
+  for _ in range(10):
+    observations = base_env.observation_manager.compute(update_history=True)
+  assert observations is not None
+  base_env.obs_buf = observations
+  return TensorDict(observations, batch_size=[base_env.num_envs])
+
+
 def _forward_right_axes(robot, mode: int) -> tuple[torch.Tensor, torch.Tensor]:
   quat = robot.data.root_link_quat_w
   body_x = quat_apply(
@@ -116,7 +133,7 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   target_gravity = torch.tensor(_GRAVITY_TARGETS[cfg.mode], device=env.device)
   target_contacts = torch.tensor(_CONTACT_MASKS[cfg.mode], device=env.device)
   robot = env.scene["robot"]
-  obs, _ = wrapped.reset()
+  wrapped.reset()
   # ``StanceLocomotionCommand`` deliberately samples x-only, yaw-only, and
   # combined training requests.  A fixed-range evaluator must not inherit
   # that *training distribution*: otherwise a nominal ``x=-0.08`` trial
@@ -129,6 +146,7 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   command_buf[:, cfg.mode] = 1.0
   command_buf[:, 3] = cfg.lin_vel_x
   command_buf[:, 4] = cfg.yaw_rate
+  obs = _fixed_reset_observation(env)
   # Every command must begin from the same normal four-wheel idle reset.  Keep
   # this explicit in the report so a visually convincing terminal frame can
   # never be mistaken for a learned normal-to-two-wheel transition.

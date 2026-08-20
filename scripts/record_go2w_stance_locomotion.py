@@ -7,13 +7,19 @@ from pathlib import Path
 
 import torch
 import tyro
+from tensordict import TensorDict
 
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.utils.wrappers import VideoRecorder
 
-from evaluate_go2w_stance_locomotion import EvalConfig, TASK_ID, _configure_command
+from evaluate_go2w_stance_locomotion import (
+  EvalConfig,
+  TASK_ID,
+  _configure_command,
+  _fixed_reset_observation,
+)
 
 
 @dataclass
@@ -111,7 +117,7 @@ def run(cfg: RecordConfig) -> Path:
   runner = runner_cls(env, asdict(agent_cfg), device=cfg.device)
   runner.load(str(cfg.checkpoint_file), load_cfg={"actor": True}, strict=True)
   policy = runner.get_inference_policy(device=cfg.device)
-  obs, _ = env.reset()
+  env.reset()
   # Keep visual rollouts semantically identical to the fixed-command
   # evaluator.  The command term's training sampler otherwise splits active
   # samples into x-only/yaw-only/combined cases, which can silently turn a
@@ -121,10 +127,7 @@ def run(cfg: RecordConfig) -> Path:
   schedule_index = 0
   next_switch_s = schedule[0][1]
   _write_fixed_command(command_buf, schedule[0][0], cfg.lin_vel_x, cfg.yaw_rate)
-  # ``commands`` is the final term in the required 59-D observation layout.
-  # Update the reset observation too, so even the first action sees the first
-  # schedule item rather than the command that happened to be sampled at reset.
-  obs[:, -5:] = command_buf
+  obs = _fixed_reset_observation(base_env)
   with torch.inference_mode():
     for step in range(num_steps):
       elapsed_s = step * base_env.step_dt
@@ -134,7 +137,11 @@ def run(cfg: RecordConfig) -> Path:
         _write_fixed_command(
           command_buf, schedule[schedule_index][0], cfg.lin_vel_x, cfg.yaw_rate
         )
-        obs[:, -5:] = command_buf
+        # Keep the physically meaningful pre-switch history while ensuring the
+        # current observation immediately carries the new one-hot.
+        observations = base_env.observation_manager.compute(update_history=True)
+        base_env.obs_buf = observations
+        obs = TensorDict(observations, batch_size=[base_env.num_envs])
       obs, _, _, _ = env.step(policy(obs))
   env.close()
   video_path = cfg.output_dir / f"{cfg.name}-step-0.mp4"
