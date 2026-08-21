@@ -221,9 +221,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "horizontal_gravity_std": 0.45,
         "sensor_name": wheel_contact_cfg.name,
-        # A rate request is rewarded only when the actual two-wheel support
-        # midpoint is stationary.  This forbids the bicycle-like translation
-        # observed in validation without adding a separate reward objective.
+        # The same rate objective subtracts actual two-wheel support-midpoint
+        # drift.  This makes bicycle-like translation negative while retaining
+        # a continuous discovery gradient toward a true in-place pivot.
         "pivot_speed_std": 0.30,
         "asset_cfg": _SPIN_PIVOT_WHEELS,
       },

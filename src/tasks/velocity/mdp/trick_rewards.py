@@ -1122,8 +1122,8 @@ def stance_spin_rate_exp(
   # until a difficult 90-degree stance transition has already been solved,
   # which is exactly the "stands tall but never turns" local optimum.  The
   # continuous pair score increases through the same observable contact and
-  # attitude outcomes; the separate support-centre term remains strict, so a
-  # translating four-wheel yaw still cannot be accepted as the final pivot.
+  # attitude outcomes, while the rate objective below makes a translating
+  # support pair actively worse than a stationary pivot.
   fixed_contact_match = torch.mean(
     (contacts == contact_masks[fixed_pair_index]).float(), dim=1
   )
@@ -1132,11 +1132,12 @@ def stance_spin_rate_exp(
   support_quality = torch.where(mode == 0, dynamic_dense, fixed_quality)
 
   # A high world-down rate is only the requested contact-pivot motion when
-  # the supporting front/rear pair's *midpoint* stays local.  Multiplying this
-  # directly into the same rate objective removes the reward loophole in
-  # which an upright/tipped bicycle collects turn-rate credit while racing
-  # across the plane.  The midpoint is an observable physical result, not a
-  # target joint configuration or a scripted transition.
+  # the supporting front/rear pair's *midpoint* stays local.  Keep this as a
+  # continuous rate-minus-drift objective instead of a hard multiplicative
+  # gate: an almost-correct two-wheel stance must still receive a direction
+  # toward reducing translation, rather than zero spin signal until a rare
+  # exact pivot has already been found.  The midpoint is an observable
+  # physical result, not a target joint configuration or a scripted route.
   pair_index = torch.where(mode == 0, dynamic_pair, fixed_pair_index)
   pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
   batch = torch.arange(env.num_envs, device=env.device)
@@ -1146,8 +1147,9 @@ def stance_spin_rate_exp(
     + wheel_velocity[batch, pair_sites[pair_index, 1]]
   )
   center_speed = torch.linalg.vector_norm(center_velocity, dim=1)
-  pivot_quality = torch.clamp(1.0 - center_speed / pivot_speed_std, min=0.0, max=1.0)
-  return moving.to(rate_score.dtype) * support_quality * pivot_quality * rate_score
+  drift_cost = torch.clamp(center_speed / pivot_speed_std, min=0.0, max=2.0)
+  pivot_rate_objective = rate_score - 0.5 * drift_cost
+  return moving.to(rate_score.dtype) * support_quality * pivot_rate_objective
 
 
 class StanceSpinSupportCenterStillness:
