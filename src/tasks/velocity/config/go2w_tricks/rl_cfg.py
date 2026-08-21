@@ -106,12 +106,16 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # pressure so PPO can consolidate a discovered landing rather than keep
     # widening every limb action.  This changes no command, reward, contact
     # criterion, or reference trajectory.
-    init_std=0.40,
+    # V95's correct one-shot/safe-landing objective collapsed to std=0.27
+    # before any full turn was sampled, yielding only small safe hops.  The
+    # action clamp still bounds every joint residual; retain a wider Gaussian
+    # long enough for the rare complete ballistic event to be discovered.
+    init_std=0.55,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
     clip_actions=1.0,
     # Keep enough stochasticity for all five one-hots, but not enough to turn
     # a compliant torque actuator into a permanently saturated random kick.
-    entropy_coef=0.0005,
+    entropy_coef=0.002,
   )
