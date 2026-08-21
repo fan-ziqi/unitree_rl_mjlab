@@ -111,13 +111,29 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
 
-  # There is intentionally one event reward.  It is paid once only after the
-  # first landing survives a short all-zero/default-idle interval, so a safe
-  # partial turn supplies an exploration gradient while a rebound cannot
-  # collect from repeated hops.  A strict full-turn four-wheel landing earns
-  # the large bonus inside the same term.  No joint pose, limb timing, or
-  # reference trajectory is named anywhere in this objective.
+  # The objective has just two maneuver outcomes.  A discounted potential
+  # supplies short-horizon credit only when genuine wheel-free height and the
+  # commanded signed rotation improve together; it cancels when that state is
+  # thrown away.  The one-shot result then pays only after the first landing
+  # survives default idle.  Neither names a joint pose, timing, or reference.
   cfg.rewards = {
+    "maneuver_progress": RewardTermCfg(
+      func=trick_rewards.AerialManeuverResultProgress,
+      # This is potential-based feedback, not an additional completed-event
+      # prize.  Its score is removed on a failed touchdown, while the strict
+      # first-landing result below remains the durable task objective.
+      weight=400.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "target_clearance": 0.40,
+        "landing_turn_start": 0.50 * math.tau,
+        "recovery_linear_speed_scale": 5.0,
+        "recovery_angular_speed_scale": 12.0,
+        "potential_discount": 0.997,
+      },
+    ),
     "first_landing_result": RewardTermCfg(
       func=trick_rewards.AerialFirstLandingResult,
       # A strictly completed event is worth 5x a perfect graded partial
@@ -142,7 +158,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "strict_completion_bonus": 4.0,
       },
     ),
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-200.0),
+    # With dt-scaled rewards, -200 is only a -4 event cost and lets a crashing
+    # partial turn outrank the explicit no-body-support validity rule.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-1000.0),
   }
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
