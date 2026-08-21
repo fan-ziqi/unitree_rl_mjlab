@@ -70,9 +70,13 @@ def configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
   articulation = cfg.scene.entities["robot"].articulation
   assert articulation is not None
   gains = {
-    (".*hip_.*",): (120.0, 2.0),
-    (".*thigh_.*",): (110.0, 2.0),
-    (".*calf_.*",): (105.0, 2.0),
+    # The original 105--120 P gains drive the 0.45--0.55 rad aerial action
+    # range into a near bang-bang target controller.  These values retain
+    # takeoff authority below the 90--95 Nm torque limits while leaving room
+    # for continuous hip/knee corrections in flight and at touchdown.
+    (".*hip_.*",): (90.0, 2.0),
+    (".*thigh_.*",): (85.0, 2.0),
+    (".*calf_.*",): (85.0, 2.0),
   }
   effort_limits = {
     (".*hip_.*",): 90.0,
@@ -105,9 +109,13 @@ def configure_ground_support_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
   articulation = cfg.scene.entities["robot"].articulation
   assert articulation is not None
   ground_gains = {
-    (".*hip_.*",): (120.0, 2.0),
-    (".*thigh_.*",): (120.0, 2.0),
-    (".*calf_.*",): (120.0, 2.0),
+    # At P=120 the 0.85-rad leg action range immediately clips at the
+    # imported 23--35 Nm limits, yielding rigid saturated strokes.  P=80
+    # still holds default four-wheel idle in the physics smoke test while
+    # preserving a substantially larger proportional-control region.
+    (".*hip_.*",): (80.0, 2.0),
+    (".*thigh_.*",): (80.0, 2.0),
+    (".*calf_.*",): (80.0, 2.0),
   }
   articulation.actuators = tuple(
     replace(
