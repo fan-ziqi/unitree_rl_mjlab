@@ -200,6 +200,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_root_clearance": 0.35,
+        # Front/rear with a nonzero public spin request must earn the coupled
+        # pivot-rate objective instead of retaining a high static-stance
+        # return while their axle translates across the terrain.
+        "stationary_command_index": 5,
+        "command_deadband": 0.20,
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),

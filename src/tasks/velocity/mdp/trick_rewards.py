@@ -230,6 +230,8 @@ def mode_support_score(
   num_modes: int = 5,
   extra_contact_discount: float = 0.75,
   minimum_root_clearance: float | None = None,
+  stationary_command_index: int | None = None,
+  command_deadband: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """One coupled score for commanded two-wheel attitude and support.
@@ -246,8 +248,19 @@ def mode_support_score(
     raise ValueError("extra_contact_discount must be in [0, 1].")
   if minimum_root_clearance is not None and minimum_root_clearance <= 0.0:
     raise ValueError("minimum_root_clearance must be positive when specified.")
+  if stationary_command_index is not None and command_deadband < 0.0:
+    raise ValueError("command_deadband must be non-negative.")
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  if stationary_command_index is not None:
+    command = _command(env, command_name)
+    if not 0 <= stationary_command_index < command.shape[1]:
+      raise ValueError("stationary_command_index is outside the command tensor.")
+    # A moving command needs the coupled rate-and-pivot result below.  Leaving
+    # this static support value active let V36 collect high return while its
+    # correct wheel pair translated like a bicycle instead of becoming the
+    # required stationary rotation centre.
+    active &= torch.abs(command[:, stationary_command_index]) <= command_deadband
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
   orientation = torch.clamp(
