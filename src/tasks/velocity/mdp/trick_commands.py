@@ -5,9 +5,10 @@ support contacts, gravity directions, and aerial rotation axes remain inside
 the reward functions so that the policy interface stays proprioceptive.
 
 The aerial command is an *event*, not a persistent velocity request: a
-non-zero one-hot is held for one attempt and is cleared automatically only
-after a complete turn and stable landing.  A failed partial hop therefore
-cannot turn itself into an idle command to farm recovery reward.
+non-zero one-hot is held for one attempt and is cleared after its first
+landing decision window, whether that landing succeeds or fails.  A failed
+partial hop therefore cannot retry the maneuver or keep the one-hot alive to
+farm recovery reward.
 """
 
 from __future__ import annotations
