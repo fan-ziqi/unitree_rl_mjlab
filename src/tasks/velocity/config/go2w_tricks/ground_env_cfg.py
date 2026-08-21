@@ -223,25 +223,26 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),
-    "commanded_spin_rate": RewardTermCfg(
-      func=trick_rewards.stance_spin_rate_exp,
+    "commanded_spin_pivot": RewardTermCfg(
+      func=trick_rewards.StanceSpinPivotResult,
       # A moving command must earn more by an actual low-drift pivot than by
       # matching the rate while the contact axle races across the floor.
       weight=14.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
-        # ``stance_spin_rate_exp`` uses this as a broad linear discovery
+        # ``StanceSpinPivotResult`` uses this as a broad linear discovery
         # basin: zero initial turn rate must still be ranked below any motion
         # toward a 2--6 rad/s command, before final support is perfected.
         "std": 6.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "horizontal_gravity_std": 0.45,
         "sensor_name": wheel_contact_cfg.name,
-        # The same rate objective subtracts actual two-wheel support-midpoint
-        # drift.  This makes bicycle-like translation negative while retaining
-        # a continuous discovery gradient toward a true in-place pivot.
-        "pivot_speed_std": 0.30,
+        # First form a broad, physically valid high support.  Its midpoint is
+        # then anchored in world coordinates, so a bicycle-like translation
+        # becomes negative while a local fast pivot remains positive.
+        "anchor_support_threshold": 0.55,
+        "anchor_radius": 0.15,
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),

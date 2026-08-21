@@ -1118,28 +1118,21 @@ def spin_dynamic_rate_exp(
   return spin_stand_mask(env, command_name, speed_deadband) * horizontal * rate_reward
 
 
-def stance_spin_rate_exp(
+def _stance_spin_components(
   env: "ManagerBasedRlEnv",
   command_name: str,
   speed_deadband: float,
   std: float,
   gravity_targets: tuple[tuple[float, float, float], ...],
-  horizontal_gravity_std: float,
   sensor_name: str,
-  pivot_speed_std: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Track world-down rate only from a legal front/rear support pivot.
-
-  The normal one-hot is free to select either transverse pair; explicit front
-  and rear commands select their named pair.  Rate credit is deliberately
-  unavailable to an upright four-wheel yaw or a side-lying two-wheel tumble.
-  """
-  if std <= 0.0 or horizontal_gravity_std <= 0.0 or pivot_speed_std <= 0.0:
-    raise ValueError("spin-rate scales must be positive.")
+) -> tuple[Entity, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+  """Measure one moving stance's rate, support quality, and wheel midpoint."""
+  if std <= 0.0:
+    raise ValueError("std must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
   if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
-    raise ValueError("stance_spin_rate_exp needs FL/FR/RL/RR wheel sites.")
+    raise ValueError("stance-spin components need FL/FR/RL/RR wheel sites.")
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
@@ -1189,15 +1182,33 @@ def stance_spin_rate_exp(
   dynamic_dense, _, dynamic_pair = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
   fixed_quality = fixed_contact_match * fixed_alignment * fixed_clearance
   support_quality = torch.where(mode == 0, dynamic_dense, fixed_quality)
-
-  # A high world-down rate is only the requested contact-pivot motion when
-  # the supporting front/rear pair's *midpoint* stays local.  Keep this as a
-  # continuous rate-minus-drift objective instead of a hard multiplicative
-  # gate: an almost-correct two-wheel stance must still receive a direction
-  # toward reducing translation, rather than zero spin signal until a rare
-  # exact pivot has already been found.  The midpoint is an observable
-  # physical result, not a target joint configuration or a scripted route.
   pair_index = torch.where(mode == 0, dynamic_pair, fixed_pair_index)
+  wheel_position = asset.data.site_pos_w[:, asset_cfg.site_ids, :2]
+  center = 0.5 * (
+    wheel_position[batch, pair_sites[pair_index, 0]]
+    + wheel_position[batch, pair_sites[pair_index, 1]]
+  )
+  return asset, moving, rate_score, support_quality, pair_index, center
+
+
+def stance_spin_rate_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  std: float,
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  horizontal_gravity_std: float,
+  sensor_name: str,
+  pivot_speed_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Legacy instantaneous-speed version of the coupled spin outcome."""
+  if horizontal_gravity_std <= 0.0 or pivot_speed_std <= 0.0:
+    raise ValueError("spin-rate scales must be positive.")
+  asset, moving, rate_score, support_quality, pair_index, _ = _stance_spin_components(
+    env, command_name, speed_deadband, std, gravity_targets, sensor_name, asset_cfg
+  )
+  pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
   batch = torch.arange(env.num_envs, device=env.device)
   wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
   center_velocity = 0.5 * (
@@ -1208,6 +1219,65 @@ def stance_spin_rate_exp(
   drift_cost = torch.clamp(center_speed / pivot_speed_std, min=0.0, max=2.0)
   pivot_rate_objective = rate_score - 0.5 * drift_cost
   return moving.to(rate_score.dtype) * support_quality * pivot_rate_objective
+
+
+class StanceSpinPivotResult:
+  """Couple requested spin rate to a support midpoint anchored after rising.
+
+  The anchor is established only once a broad, legal high support has formed.
+  PPO may freely move the robot to rise onto either transverse wheel pair;
+  once it has chosen that physical pivot, turning while carrying the pair
+  across the floor is explicitly worse than holding it local.  This is one
+  measured result, not a transition script or a joint-space reference.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.anchor = torch.zeros(env.num_envs, 2, 2, device=env.device)
+    self.anchor_valid = torch.zeros(env.num_envs, 2, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.anchor[env_ids] = 0.0
+    self.anchor_valid[env_ids] = False
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    speed_deadband: float,
+    std: float,
+    gravity_targets: tuple[tuple[float, float, float], ...],
+    horizontal_gravity_std: float,
+    sensor_name: str,
+    anchor_support_threshold: float,
+    anchor_radius: float,
+    asset_cfg: SceneEntityCfg,
+  ) -> torch.Tensor:
+    if horizontal_gravity_std <= 0.0 or not 0.0 < anchor_support_threshold <= 1.0 or anchor_radius <= 0.0:
+      raise ValueError("Stance spin pivot parameters are invalid.")
+    _, moving, rate_score, support_quality, pair_index, center = _stance_spin_components(
+      env, command_name, speed_deadband, std, gravity_targets, sensor_name, asset_cfg
+    )
+    batch = torch.arange(env.num_envs, device=env.device)
+    # Command changes are episode resets for this task, but this guard also
+    # makes the state correct for a direct fixed-command evaluator.
+    self.anchor_valid[env.episode_length_buf == 0] = False
+    selected_valid = self.anchor_valid[batch, pair_index]
+    establish = moving & (support_quality >= anchor_support_threshold) & (~selected_valid)
+    if torch.any(establish):
+      establish_ids = batch[establish]
+      establish_pairs = pair_index[establish]
+      self.anchor[establish_ids, establish_pairs] = center[establish]
+      self.anchor_valid[establish_ids, establish_pairs] = True
+    selected_anchor = self.anchor[batch, pair_index]
+    anchored = self.anchor_valid[batch, pair_index]
+    radial_drift = torch.linalg.vector_norm(center - selected_anchor, dim=1)
+    # A support that has not yet risen is not penalized for moving into its
+    # eventual pivot.  After anchoring, a >2-radius bicycle translation is
+    # strictly worse than delivering no spin, whereas a local high-rate pivot
+    # remains positive.
+    drift_cost = torch.clamp(radial_drift / anchor_radius, min=0.0, max=2.0)
+    objective = rate_score - anchored.to(rate_score.dtype) * drift_cost
+    return moving.to(rate_score.dtype) * support_quality * objective
 
 
 class StanceSpinSupportCenterStillness:
