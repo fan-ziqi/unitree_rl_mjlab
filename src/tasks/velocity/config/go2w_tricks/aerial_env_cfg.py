@@ -13,7 +13,6 @@ import math
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
-from mjlab.managers import TerminationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
@@ -63,10 +62,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
-      # Keep the command-completion state machine on exactly the same
-      # one-turn braking window as the terminal guard and landing reward
-      # below.  Otherwise a physically valid late touchdown can be rewarded
-      # while the command silently rejects it as an over-rotation.
+      # Completion remains an exact one-turn event even though a failed
+      # attempt is allowed to use the rest of its three-second episode to
+      # recover instead of being cut off mid-brake.
       target_angle=math.tau,
       max_overrotation=1.25,
       # Require five consecutive 50-Hz control steps: a transient wheel graze
@@ -103,22 +101,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
-
-  cfg.terminations["rotation_overrun"] = TerminationTermCfg(
-    func=trick_rewards.aerial_rotation_overrun,
-    params={
-      "command_name": "trick",
-      "target_angle": math.tau,
-      # At the measured 3--7 rad/s residual rate, the former 0.75-rad
-      # (43-degree) guard ended an otherwise upright maneuver before the
-      # 0.10-s wheel-settle criterion could physically be observed.  This is
-      # still a one-turn task: it only gives the recovery controller a
-      # 72-degree braking window, and the upright recovery potential remains
-      # maximized at exactly one turn.
-      "max_overrotation": 1.25,
-      "activation_step": 0,
-    },
-  )
 
   # There is intentionally one dense result and one success event.  Earlier
   # versions paid separately for height, partial angle, and a loose recovery

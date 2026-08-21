@@ -134,12 +134,6 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     command_cfg.idle_probability = 0.0
     command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
     env_cfg.episode_length_s = cfg.duration_s + 0.5
-    # ``play=True`` correctly removes reward curricula, but the final-task
-    # over-rotation termination is a validity condition rather than a shaping
-    # schedule.  Make it active during every validation rollout so a multi-turn
-    # yaw spin cannot be counted as an acceptable one-turn attempt.
-    env_cfg.terminations["rotation_overrun"].params["activation_step"] = 0
-
     agent_cfg = load_rl_cfg(cfg.task_id)
     base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device)
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)

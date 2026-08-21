@@ -406,35 +406,6 @@ def stance_locomotion_yaw_rate_exp(
   )
 
 
-# ---------------------------------------------------------------------------
-# Five-one-hot aerial-rotation task.
-
-
-def aerial_active(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-  return (torch.sum(_command(env, command_name)[:, :5], dim=1) > 0.5).float()
-
-
-def aerial_rotation_overrun(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  target_angle: float,
-  max_overrotation: float,
-  activation_step: int = 0,
-) -> torch.Tensor:
-  """End an attempt only after its measured ballistic turn has overrun."""
-  if target_angle <= 0.0 or max_overrotation <= 0.0 or activation_step < 0:
-    raise ValueError("invalid aerial overrun parameters.")
-  if env.common_step_counter < activation_step:
-    return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-  command_term = env.command_manager.get_term(command_name)
-  progress = getattr(
-    command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
-  )
-  return aerial_active(env, command_name).bool() & (
-    progress > target_angle + max_overrotation
-  )
-
-
 class AerialManeuverResultProgress:
   """Bounded result potential for a ballistic turn followed by recovery.
 
