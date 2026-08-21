@@ -588,11 +588,29 @@ class AerialManeuverResultProgress:
     # maneuver improves (including recovery after touchdown) and negative
     # when it throws away a one-turn result by over-rotating.  ``peak_clearance``
     # already prevents a correct descending arc from losing its launch value.
+    #
+    # A pure potential difference has one blind spot: after first touching
+    # down in an almost-good result its value is exactly zero on every
+    # subsequent frame.  The event verifier requires five consecutive
+    # 50-Hz frames, yet PPO was paid identically for immediately launching a
+    # second flip and for holding the recovery.  Add a small *same-result*
+    # holding value only for all-four-wheel, near-one-turn landings.  It
+    # contains no time schedule or joint reference; strict completion still
+    # owns the larger one-shot reward and clears the public event command.
+    stable_touchdown = (
+      torch.all(contacts, dim=1).to(score.dtype)
+      * landing_turn
+      * turn
+      * upright
+      * linear_settled
+      * axis_settled
+      * (0.5 + 0.5 * total_angular_settled)
+    )
     previous_score = self.previous_score
     self.previous_score = score
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
-    return (score - previous_score) / env.step_dt
+    return (score - previous_score) / env.step_dt + 0.25 * active.float() * stable_touchdown
 
 
 def _advance_qualified_aerial_rotation(
