@@ -37,6 +37,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   """Train one policy for front, back, left, right, and yaw aerial turns."""
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_compact_aerial_actuators(cfg)
+  # First learn the maneuver on one nominal flat system.  Sensor bias and
+  # broad mass/friction randomization are robustness work for a later stage;
+  # they otherwise dilute the rare early takeoff/turn evidence.
+  cfg.events.pop("encoder_bias", None)
+  cfg.events["foot_friction"].params["ranges"] = (0.7, 1.0)
+  cfg.events["base_com"].params["ranges"] = {
+    0: (-0.01, 0.01),
+    1: (-0.01, 0.01),
+    2: (-0.01, 0.01),
+  }
   cfg.episode_length_s = 3.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": AerialRotationCommandCfg(
