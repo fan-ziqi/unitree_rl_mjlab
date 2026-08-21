@@ -2957,18 +2957,29 @@ class AerialLandingRecoveryProgress:
     # the policy is rewarded for carrying a progressively better recovery
     # state all the way to a complete turn, not for a prescribed instant of
     # touchdown.
+    # V74 reached a full high-clearance turn but kept treating an airborne
+    # near-upright state as almost as good as a wheel-first recovery.  Make
+    # physical wheel return the largest component of this *same* scalar
+    # result.  It still has broad attitude/rate/speed gradients before the
+    # rare fully settled contact event.
     recovery_quality = (
-      0.45 * upright
-      + 0.25 * braking
-      + 0.15 * settling
-      + 0.15 * wheel_fraction
+      0.35 * upright
+      + 0.15 * braking
+      + 0.10 * settling
+      + 0.40 * wheel_fraction
     )
     score = in_window.float() * turn_phase * recovery_quality
     previous_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
+    post_turn = in_window & (progress >= target_angle)
+    # The potential rewards only first improvement.  Completion requires a
+    # 0.10-s dwell, so retain a small ongoing incentive for the same measured
+    # normal-wheel, upright, low-momentum state after the turn—not a target
+    # pose, contact sequence, or reference trajectory.
+    landing_hold = post_turn.float() * wheel_fraction * upright * braking * settling
     # Convert the potential delta into a rate because RewardManager applies
     # dt.  The separate completion event remains the only accepted result.
-    return (self.best_score - previous_best) / env.step_dt
+    return (self.best_score - previous_best) / env.step_dt + 0.75 * landing_hold
 
 
 def aerial_strict_landing_hold(
