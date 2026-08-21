@@ -2732,6 +2732,8 @@ class AerialLandingRecoveryProgress:
     wheel_contact_weight: float,
     max_axis_rate: float,
     max_linear_speed: float,
+    target_axis_rate: float,
+    late_rate_penalty_scale: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
@@ -2742,6 +2744,8 @@ class AerialLandingRecoveryProgress:
       or not 0.0 <= wheel_contact_weight <= 1.0
       or max_axis_rate <= 0.0
       or max_linear_speed <= 0.0
+      or target_axis_rate < 0.0
+      or late_rate_penalty_scale <= 0.0
     ):
       raise ValueError("Aerial recovery progress parameters are invalid.")
 
@@ -2813,9 +2817,20 @@ class AerialLandingRecoveryProgress:
     )
     previous_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
-    # RewardManager integrates over step_dt; this makes the total return the
-    # bounded physical potential increase, independent of control frequency.
-    return (self.best_score - previous_best) / env.step_dt
+    # A max-potential by itself only pays for improvements; after its best
+    # state has been reached it is indifferent to spinning straight through
+    # the landing.  Penalize *only* excess signed-axis momentum in the last
+    # quarter-turn.  This is an outcome measurement, not a timing/pose
+    # reference: PPO may choose any launch, tuck, and braking motion that
+    # brings the measured rate below the completion tolerance.
+    late_axis_excess = torch.clamp(torch.abs(axis_rate) - target_axis_rate, min=0.0)
+    late_rate_penalty = torch.square(late_axis_excess / late_rate_penalty_scale)
+    # RewardManager integrates over step_dt; the potential component is thus
+    # frequency-independent while the rate penalty is a physical time cost.
+    return (
+      (self.best_score - previous_best) / env.step_dt
+      - in_window.float() * late_rate_penalty
+    )
 
 
 def aerial_strict_landing_hold(

@@ -164,6 +164,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "wheel_contact_weight": 0.80,
         "max_axis_rate": 5.0,
         "max_linear_speed": 3.0,
+        # The bounded recovery potential alone cannot become negative once it
+        # has paid out.  Charge residual target-axis momentum during the last
+        # quarter turn, starting above the same 1.5 rad/s rate accepted by
+        # the completed-landing event.  No posture, timing, or trajectory is
+        # prescribed.
+        "target_axis_rate": 1.5,
+        "late_rate_penalty_scale": 3.0,
       },
     ),
     "completed_rotation": RewardTermCfg(
