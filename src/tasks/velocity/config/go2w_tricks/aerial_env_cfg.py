@@ -131,7 +131,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   cfg.rewards = {
     "complete_maneuver_progress": RewardTermCfg(
       func=trick_rewards.AerialManeuverResultProgress,
-      weight=200.0,
+      # A full turn must rank materially above the stable 0.6--0.8-turn hop
+      # observed in V76.  The potential remains bounded; this only restores
+      # a useful return gap between a partial flip and the requested result.
+      weight=500.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -147,7 +150,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      weight=1200.0,
+      weight=2000.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,

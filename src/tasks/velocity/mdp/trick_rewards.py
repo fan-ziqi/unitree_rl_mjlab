@@ -480,7 +480,10 @@ class AerialManeuverResultProgress:
       max=1.0,
     )
     turn = torch.clamp(progress / target_angle, min=0.0, max=1.0)
-    flight = (~torch.any(contacts, dim=1)).float() * torch.sqrt(height * turn)
+    # Preserve the height discovery gradient, but keep angular progress
+    # linear: with sqrt(turn), a 0.7-turn bounce received 84% of the flight
+    # value and V76 stopped improving before one full revolution.
+    flight = (~torch.any(contacts, dim=1)).float() * torch.sqrt(height) * turn
 
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0),
@@ -515,7 +518,7 @@ class AerialManeuverResultProgress:
       * upright
       * settled
     )
-    score = active.float() * (0.60 * flight + 0.40 * landing)
+    score = active.float() * (0.65 * flight + 0.35 * landing)
     old_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
     self.previous_active = active
