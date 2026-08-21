@@ -490,17 +490,19 @@ class AerialManeuverResultProgress:
     self.peak_clearance = torch.maximum(
       self.peak_clearance, airborne.to(height.dtype) * height
     )
-    # A partial turn is worth proportionally less than one turn; an over-turn
-    # is worth progressively less as well.  The old upper clamp plus a
-    # running maximum banked the one-turn return forever, so a policy had no
-    # dense reason to brake at exactly one revolution and converged to 1.2
-    # turns.  This remains an outcome-only angle measurement, not a phase or
-    # reference trajectory.
-    turn = torch.clamp(
-      1.0 - torch.abs(progress - target_angle) / target_angle,
-      min=0.0,
-      max=1.0,
+    # A partial turn is worth proportionally less than one turn.  Past the
+    # target, however, the previous symmetric ramp decayed over another full
+    # revolution, so 1.3--1.6 turns still retained most flight return once the
+    # terminal guard was removed.  Collapse the same result potential within
+    # the final 45-degree braking window instead: it rewards arriving at one
+    # turn with low residual rate, while leaving the remainder of the episode
+    # available for a failed attempt to recover normally.
+    braking_window = target_angle / 8.0
+    turn_before_target = torch.clamp(progress / target_angle, min=0.0, max=1.0)
+    turn_after_target = torch.clamp(
+      1.0 - (progress - target_angle) / braking_window, min=0.0, max=1.0
     )
+    turn = torch.where(progress <= target_angle, turn_before_target, turn_after_target)
     flight = was_airborne.float() * torch.sqrt(self.peak_clearance) * turn
 
     normal_gravity = torch.tensor(
@@ -556,6 +558,7 @@ class AerialManeuverResultProgress:
     landing = (
       was_airborne.float()
       * landing_turn
+      * turn
       * upright
       * linear_settled
       * axis_settled
