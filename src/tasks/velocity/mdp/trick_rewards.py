@@ -1081,6 +1081,7 @@ def stance_spin_rate_exp(
   gravity_targets: tuple[tuple[float, float, float], ...],
   horizontal_gravity_std: float,
   sensor_name: str,
+  pivot_speed_std: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Track world-down rate only from a legal front/rear support pivot.
@@ -1089,9 +1090,11 @@ def stance_spin_rate_exp(
   and rear commands select their named pair.  Rate credit is deliberately
   unavailable to an upright four-wheel yaw or a side-lying two-wheel tumble.
   """
-  if std <= 0.0 or horizontal_gravity_std <= 0.0:
+  if std <= 0.0 or horizontal_gravity_std <= 0.0 or pivot_speed_std <= 0.0:
     raise ValueError("spin-rate scales must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+    raise ValueError("stance_spin_rate_exp needs FL/FR/RL/RR wheel sites.")
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
@@ -1124,10 +1127,27 @@ def stance_spin_rate_exp(
   fixed_contact_match = torch.mean(
     (contacts == contact_masks[fixed_pair_index]).float(), dim=1
   )
-  dynamic_dense, _, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  dynamic_dense, _, dynamic_pair = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
   fixed_quality = fixed_contact_match * fixed_alignment
   support_quality = torch.where(mode == 0, dynamic_dense, fixed_quality)
-  return moving.to(rate_score.dtype) * support_quality * rate_score
+
+  # A high world-down rate is only the requested contact-pivot motion when
+  # the supporting front/rear pair's *midpoint* stays local.  Multiplying this
+  # directly into the same rate objective removes the reward loophole in
+  # which an upright/tipped bicycle collects turn-rate credit while racing
+  # across the plane.  The midpoint is an observable physical result, not a
+  # target joint configuration or a scripted transition.
+  pair_index = torch.where(mode == 0, dynamic_pair, fixed_pair_index)
+  pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
+  batch = torch.arange(env.num_envs, device=env.device)
+  wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
+  center_velocity = 0.5 * (
+    wheel_velocity[batch, pair_sites[pair_index, 0]]
+    + wheel_velocity[batch, pair_sites[pair_index, 1]]
+  )
+  center_speed = torch.linalg.vector_norm(center_velocity, dim=1)
+  pivot_quality = torch.clamp(1.0 - center_speed / pivot_speed_std, min=0.0, max=1.0)
+  return moving.to(rate_score.dtype) * support_quality * pivot_quality * rate_score
 
 
 class StanceSpinSupportCenterStillness:

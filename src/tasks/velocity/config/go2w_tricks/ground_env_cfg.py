@@ -221,20 +221,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "horizontal_gravity_std": 0.45,
         "sensor_name": wheel_contact_cfg.name,
-      },
-    ),
-    # The free legs and trunk intentionally move during the AS2-W pivot, so a
-    # root-velocity penalty mislabels the desired coordination as runaway.
-    # Measure the actual front/rear support midpoint instead.
-    "support_pivot_stillness": RewardTermCfg(
-      func=trick_rewards.StanceSpinSupportCenterStillness,
-      weight=6.0,
-      params={
-        "command_name": "trick",
-        "speed_deadband": 0.20,
-        "sensor_name": wheel_contact_cfg.name,
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "speed_std": 0.30,
+        # A rate request is rewarded only when the actual two-wheel support
+        # midpoint is stationary.  This forbids the bicycle-like translation
+        # observed in validation without adding a separate reward objective.
+        "pivot_speed_std": 0.30,
         "asset_cfg": _SPIN_PIVOT_WHEELS,
       },
     ),
