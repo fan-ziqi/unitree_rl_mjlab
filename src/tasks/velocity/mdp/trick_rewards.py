@@ -2826,17 +2826,21 @@ class AerialLandingRecoveryProgress:
     self.best_score = torch.maximum(self.best_score, score)
     # A max-potential by itself only pays for improvements; after its best
     # state has been reached it is indifferent to spinning straight through
-    # the landing.  Penalize *only* excess signed-axis momentum in the last
-    # quarter-turn.  This is an outcome measurement, not a timing/pose
-    # reference: PPO may choose any launch, tuck, and braking motion that
-    # brings the measured rate below the completion tolerance.
+    # the landing.  Penalize *only* excess signed-axis momentum after a full
+    # measured turn.  Starting this cost at the recovery window (three
+    # quarters of a turn) incorrectly asks the policy to brake while it still
+    # has to cover the final quarter, creating a sub-one-turn local optimum.
+    # This is an outcome measurement, not a timing/pose reference: PPO may
+    # choose any launch, tuck, and braking motion that brings the measured
+    # rate below the completion tolerance.
     late_axis_excess = torch.clamp(torch.abs(axis_rate) - target_axis_rate, min=0.0)
     late_rate_penalty = torch.square(late_axis_excess / late_rate_penalty_scale)
+    post_turn = in_window & (progress >= target_angle)
     # RewardManager integrates over step_dt; the potential component is thus
     # frequency-independent while the rate penalty is a physical time cost.
     return (
       (self.best_score - previous_best) / env.step_dt
-      - in_window.float() * late_rate_penalty
+      - post_turn.float() * late_rate_penalty
     )
 
 
