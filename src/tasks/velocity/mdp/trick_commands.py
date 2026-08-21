@@ -400,7 +400,14 @@ class StanceLocomotionCommandCfg(CommandTermCfg):
 
 
 class AerialRotationCommand(CommandTerm):
-  """Sample one aerial trick one-hot, with the all-zero vector as idle."""
+  """Sample one aerial trick event, with the all-zero vector as idle.
+
+  A nonzero one-hot permits one qualified ballistic interval only.  The first
+  wheel contact after that interval closes the attempt; after a short landing
+  decision window the public command returns to zero whether the landing
+  passed or failed.  This prevents one command from asking the policy to keep
+  launching new flips until it eventually gets a lucky landing.
+  """
 
   cfg: AerialRotationCommandCfg
 
@@ -433,6 +440,7 @@ class AerialRotationCommand(CommandTerm):
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
       or cfg.min_ballistic_time <= 0.0
+      or cfg.post_landing_hold_time <= 0.0
     ):
       raise ValueError("landing limits and min_ballistic_time must be positive.")
 
@@ -456,9 +464,19 @@ class AerialRotationCommand(CommandTerm):
       self.num_envs, dtype=torch.bool, device=self.device
     )
     self._landing_settle_time = torch.zeros(self.num_envs, device=self.device)
+    self._landing_started = torch.zeros(
+      self.num_envs, dtype=torch.bool, device=self.device
+    )
+    self._landing_hold_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
     self._new_skill = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+    # Evaluator-only outcome bit.  It is not part of the actor observation:
+    # command clearing now means an attempt has ended, not necessarily that it
+    # met the strict landing criterion.
+    self._last_attempt_succeeded = torch.zeros(
+      self.num_envs, dtype=torch.bool, device=self.device
+    )
 
   @property
   def command(self) -> torch.Tensor:
@@ -478,9 +496,12 @@ class AerialRotationCommand(CommandTerm):
     self._flight_rotation[env_ids] = 0.0
     self._current_flight_qualified[env_ids] = False
     self._landing_settle_time[env_ids] = 0.0
+    self._landing_started[env_ids] = False
+    self._landing_hold_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
     self._new_skill[env_ids] = False
+    self._last_attempt_succeeded[env_ids] = False
     active = torch.rand(count, device=self.device) > self.cfg.idle_probability
     active_ids = env_ids[active]
     if len(active_ids) == 0:
@@ -492,22 +513,19 @@ class AerialRotationCommand(CommandTerm):
     self._new_skill[active_ids] = True
 
   def _update_command(self) -> None:
-    """Finish a one-shot request after a full turn, landing, and settling.
+    """Finish exactly one aerial attempt, then return to idle.
 
     CommandManager calls this after rewards.  Therefore the terminal landing
     reward still sees the requested one-hot, while the next actor observation
-    correctly returns to the all-zero idle command.
+    correctly returns to the all-zero idle command.  A failed first landing
+    also clears the event after the same short decision window, so one one-hot
+    cannot produce a sequence of independent jumps.
     """
     active = torch.sum(self.command_buf, dim=1) > 0.5
     if not torch.any(active):
-      self.was_airborne[~active] = False
-      self.has_grounded[~active] = False
-      self._airborne_time[~active] = 0.0
-      self._flight_rotation[~active] = 0.0
-      self._current_flight_qualified[~active] = False
-      self._landing_settle_time[~active] = 0.0
-      self._rotation_progress[~active] = 0.0
-      self._new_skill[~active] = False
+      # Preserve the final attempt state until the next resample.  The fixed
+      # evaluator uses the outcome bit to distinguish a failed event from a
+      # real completed maneuver after the public one-hot has gone idle.
       return
 
     asset = self._env.scene[self.cfg.entity_name]
@@ -531,7 +549,9 @@ class AerialRotationCommand(CommandTerm):
     # jump.  A maneuver becomes airborne only after a short *continuous*
     # wheel-free interval; this is a physical validity condition, not a pose
     # or reference-trajectory target.
-    flight_step = active & self.has_grounded & airborne
+    # Once the first post-flight contact has happened, this event is closed:
+    # no later wheel-free gap may be credited as a second jump.
+    flight_step = active & (~self._landing_started) & self.has_grounded & airborne
     self._airborne_time = torch.where(
       flight_step,
       self._airborne_time + self._env.step_dt,
@@ -573,6 +593,19 @@ class AerialRotationCommand(CommandTerm):
       self._rotation_progress + signed_delta, 0.0
     )
 
+    first_landing = (
+      active
+      & self.was_airborne
+      & (~self._landing_started)
+      & torch.any(contacts, dim=1)
+    )
+    self._landing_started |= first_landing
+    self._landing_hold_time = torch.where(
+      active & self._landing_started,
+      self._landing_hold_time + self._env.step_dt,
+      torch.zeros_like(self._landing_hold_time),
+    )
+
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0),
       dtype=asset.data.projected_gravity_b.dtype,
@@ -608,11 +641,13 @@ class AerialRotationCommand(CommandTerm):
       self._landing_settle_time + 0.5 * self._env.step_dt
       >= self.cfg.landing_settle_time
     )
-    finished = stable_landing & complete_turn & (settled_long_enough)
+    succeeded = stable_landing & complete_turn & settled_long_enough
+    landing_window_elapsed = self._landing_hold_time + 0.5 * self._env.step_dt >= (
+      self.cfg.post_landing_hold_time
+    )
+    finished = active & self._landing_started & landing_window_elapsed
+    self._last_attempt_succeeded[finished] = succeeded[finished]
     self.command_buf[finished] = 0.0
-    self.was_airborne[finished] = False
-    self._landing_settle_time[finished] = 0.0
-    self._rotation_progress[finished] = 0.0
 
   def set_curriculum(
     self,
@@ -681,6 +716,10 @@ class AerialRotationCommandCfg(CommandTermCfg):
   idle_probability: float = 0.15
   sensor_name: str = "wheel_ground_contact"
   landing_settle_time: float = 0.10
+  # Retain the public one-hot only long enough to judge the first touchdown.
+  # It is then cleared even for a failed landing, enforcing one jump per
+  # sampled command rather than repeated retries.
+  post_landing_hold_time: float = 0.10
   landing_gravity_error_limit: float = 0.30
   landing_linear_velocity_limit: float = 0.75
   landing_angular_velocity_limit: float = 1.5

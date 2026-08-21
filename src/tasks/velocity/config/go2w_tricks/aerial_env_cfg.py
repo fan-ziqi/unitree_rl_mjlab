@@ -70,6 +70,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Require five consecutive 50-Hz control steps: a transient wheel graze
       # must never count as a completed normal-wheel landing.
       landing_settle_time=0.10,
+      # One event gets one confirmed flight.  After its first return to the
+      # ground, hold the public one-hot only for this brief landing decision
+      # window, then return it to all-zero idle even if the landing failed.
+      post_landing_hold_time=0.10,
       debug_vis=False,
     )
   }

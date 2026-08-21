@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # A training server normally has no X11 display.  Choose MuJoCo's GPU-backed
@@ -14,14 +14,12 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import torch
 import tyro
-from tensordict import TensorDict
-
+from evaluate_go2w_aerial_rotation import MODE_NAMES, TASK_ID, _pin_mode
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.utils.wrappers import VideoRecorder
-
-from evaluate_go2w_aerial_rotation import MODE_NAMES, TASK_ID, _pin_mode
+from tensordict import TensorDict
 
 
 @dataclass
@@ -60,9 +58,12 @@ def _fixed_reset_observation(
     command_term._flight_rotation.zero_()
     command_term._current_flight_qualified.zero_()
     command_term._landing_settle_time.zero_()
+    command_term._landing_started.zero_()
+    command_term._landing_hold_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()
     command_term._new_skill.fill_(False)
+    command_term._last_attempt_succeeded.zero_()
   else:
     _pin_mode(command_term, mode)
   history_length = 10
@@ -75,6 +76,7 @@ def _fixed_reset_observation(
 
 def run(cfg: RecordConfig) -> Path:
   import mjlab.tasks  # noqa: F401
+
   import src.tasks  # noqa: F401
 
   if not cfg.checkpoint_file.is_file():

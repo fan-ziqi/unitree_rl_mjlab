@@ -477,7 +477,12 @@ class AerialManeuverResultProgress:
     new_skill = active & (
       (~self.previous_active) | (mode != self.previous_mode) | reset
     )
-    clear = reset | (~active) | new_skill
+    # Do not erase ``previous_score`` merely because the one-shot command
+    # returned to idle: the first idle reward must settle the final potential
+    # difference of a failed attempt.  Otherwise a bad jump could keep its
+    # pre-landing score for free.  Subsequent idle frames naturally return
+    # zero after this one settlement.
+    clear = reset | new_skill
     self.previous_score[clear] = 0.0
     self.peak_clearance[clear] = 0.0
 
@@ -488,6 +493,9 @@ class AerialManeuverResultProgress:
       torch.zeros(env.num_envs, device=env.device),
     )
     was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
+    landing_started = getattr(
+      command_term, "_landing_started", torch.zeros_like(active)
+    )
     contacts = _wheel_contacts(env, sensor_name)
     default_root_state = asset.data.default_root_state
     assert default_root_state is not None
@@ -518,7 +526,15 @@ class AerialManeuverResultProgress:
       1.0 - (progress - target_angle) / braking_window, min=0.0, max=1.0
     )
     turn = torch.where(progress <= target_angle, turn_before_target, turn_after_target)
-    flight = was_airborne.float() * torch.sqrt(self.peak_clearance) * turn
+    # After the first touchdown this event is closed.  Do not let a later
+    # bounce receive the original flight score as though it were another
+    # commanded maneuver.
+    flight = (
+      was_airborne.float()
+      * (~landing_started).to(height.dtype)
+      * torch.sqrt(self.peak_clearance)
+      * turn
+    )
 
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0),
@@ -602,10 +618,9 @@ class AerialManeuverResultProgress:
     # down in an almost-good result its value is exactly zero on every
     # subsequent frame.  The event verifier requires five consecutive
     # 50-Hz frames, yet PPO was paid identically for immediately launching a
-    # second flip and for holding the recovery.  Add a small *same-result*
-    # holding value only for all-four-wheel, near-one-turn landings.  It
-    # contains no time schedule or joint reference; strict completion still
-    # owns the larger one-shot reward and clears the public event command.
+    # second flip and for holding the recovery.  The command term now closes
+    # the event at the first landing, so this same-result holding value is
+    # available only during that one short landing decision window.
     stable_touchdown = (
       torch.all(contacts, dim=1).to(score.dtype)
       * landing_turn
@@ -760,7 +775,7 @@ class AerialRotationCompletion:
       increment,
     ) = _advance_qualified_aerial_rotation(
       env=env,
-      active=active,
+      active=active & (~getattr(command_term, "_landing_started", torch.zeros_like(active))),
       contacts=contacts,
       axis_rate=axis_rate,
       has_grounded=self.has_grounded,

@@ -64,11 +64,14 @@ def _pin_modes(command_term, modes: torch.Tensor) -> None:
     command_term._flight_rotation.zero_()
     command_term._current_flight_qualified.zero_()
     command_term._landing_settle_time.zero_()
+    command_term._landing_started.zero_()
+    command_term._landing_hold_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()
     # The command term captures the launch axis from the normal reset attitude
     # on its first control step, just as it does during training.
     command_term._new_skill.fill_(True)
+    command_term._last_attempt_succeeded.zero_()
 
 
 def _pin_mode(command_term, mode: int) -> None:
@@ -167,6 +170,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     airborne_time = torch.zeros(cfg.num_envs, device=base_env.device)
     peak_airborne_time = torch.zeros(cfg.num_envs, device=base_env.device)
     completed = torch.zeros_like(trial_open)
+    attempt_failed = torch.zeros_like(trial_open)
     failed = torch.zeros_like(trial_open)
     peak_progress = torch.zeros(cfg.num_envs, device=base_env.device)
     peak_height_delta = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -333,10 +337,15 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 peak_command_landing_settle_time,
                 command_term._landing_settle_time,
             )
-            # AerialRotationCommand clears a nonzero one-hot only after it has
-            # observed the requested full turn, four-wheel contact, normal gravity,
-            # velocity limits, and the configured settle interval.
-            completed_now = trial_open & pre_active & ~post_active & ~dones.bool()
+            # A one-hot now clears when its single attempt ends, successful or
+            # failed.  Use the command term's explicit strict outcome bit so a
+            # return to idle is never reported as a completed aerial maneuver.
+            attempt_finished_now = trial_open & pre_active & ~post_active
+            completed_now = (
+                attempt_finished_now
+                & command_term._last_attempt_succeeded
+                & ~dones.bool()
+            )
             if torch.any(completed_now):
                 gravity_error = torch.sum(
                     torch.square(robot.data.projected_gravity_b - normal_gravity), dim=1
@@ -356,8 +365,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 termination_by_term[name] |= (
                     trial_open & dones.bool() & term_done
                 )
+            attempt_failed |= trial_open & attempt_finished_now & ~completed_now
             failed |= trial_open & dones.bool() & ~completed_now
-            trial_open &= ~(completed_now | dones.bool())
+            trial_open &= ~(attempt_finished_now | dones.bool())
 
     peak_progress = torch.maximum(peak_progress, command_term._rotation_progress)
 
@@ -377,6 +387,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             .mean()
             .item(),
             "completion_rate": completed[mask].float().mean().item(),
+            "attempt_failure_rate": attempt_failed[mask].float().mean().item(),
             "illegal_reset_rate": failed[mask].float().mean().item(),
             "unfinished_rate": trial_open[mask].float().mean().item(),
             "mean_peak_rotation_rad": peak_progress[mask].mean().item(),
