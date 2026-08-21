@@ -1170,7 +1170,7 @@ class StanceSpinSupportCenterStillness:
     mode = torch.argmax(command[:, :5], dim=1)
     moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
     contacts = _wheel_contacts(env, sensor_name)
-    _, dynamic_exact, dynamic_pair = _dynamic_tall_pair_scores(
+    dynamic_dense, _, dynamic_pair = _dynamic_tall_pair_scores(
       env, sensor_name, asset_cfg
     )
     fixed_pair = torch.clamp(mode - 1, 0, 1)
@@ -1181,14 +1181,22 @@ class StanceSpinSupportCenterStillness:
       dtype=torch.bool,
       device=env.device,
     )
-    fixed_exact = torch.all(contacts == pair_masks[fixed_pair], dim=1).float()
     gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
     targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
     fixed_alignment = torch.clamp(
       0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
     )
-    fixed_quality = fixed_exact * fixed_alignment.pow(4.0)
-    support_quality = torch.where(mode == 0, dynamic_exact, fixed_quality)
+    # The pivot centre must be local throughout the approach to a valid
+    # two-wheel stance, not only after an exact four-bit contact match has
+    # happened.  Otherwise a bicycle-like rollout can avoid its own
+    # translation cost simply by retaining one extra or missing contact.
+    # Use the same continuous contact-and-attitude scores as the discovery
+    # reward; strict contact is reserved for evaluation and completion.
+    fixed_contact_match = torch.mean(
+      (contacts == pair_masks[fixed_pair]).float(), dim=1
+    )
+    fixed_quality = fixed_contact_match * fixed_alignment
+    support_quality = torch.where(mode == 0, dynamic_dense, fixed_quality)
 
     pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
     wheel_xy = asset.data.site_pos_w[:, asset_cfg.site_ids, :2]
