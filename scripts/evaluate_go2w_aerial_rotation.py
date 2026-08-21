@@ -207,6 +207,13 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     peak_command_landing_settle_time = torch.zeros(
         cfg.num_envs, device=base_env.device
     )
+    # A non-zero command is one event, not permission to keep hopping until a
+    # lucky landing.  Keep observing after that event closes so evaluation can
+    # reject a policy that physically launches a second qualified flight while
+    # the public command is already idle.
+    event_closed = torch.zeros_like(trial_open)
+    post_event_airborne_time = torch.zeros(cfg.num_envs, device=base_env.device)
+    post_event_relaunch = torch.zeros_like(trial_open)
     # Keep the physical failure modes separate.  A single ``illegal_reset``
     # number tells us that an attempt failed but cannot distinguish a trunk
     # collision from a compactness violation or a deliberate over-rotation
@@ -234,6 +241,16 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             obs, _, dones, _ = env.step(policy(obs))
             contacts = _wheel_contacts(wheel_sensor)
             airborne = ~torch.any(contacts, dim=1)
+            post_event_airborne_time = torch.where(
+                event_closed & ~dones.bool() & airborne,
+                post_event_airborne_time + base_env.step_dt,
+                torch.zeros_like(post_event_airborne_time),
+            )
+            post_event_relaunch |= (
+                event_closed
+                & ~dones.bool()
+                & (post_event_airborne_time >= min_ballistic_time)
+            )
             has_grounded |= trial_open & torch.all(contacts, dim=1)
             airborne_time = torch.where(
                 trial_open & has_grounded & airborne,
@@ -367,6 +384,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 )
             attempt_failed |= trial_open & attempt_finished_now & ~completed_now
             failed |= trial_open & dones.bool() & ~completed_now
+            event_closed |= attempt_finished_now
             trial_open &= ~(attempt_finished_now | dones.bool())
 
     peak_progress = torch.maximum(peak_progress, command_term._rotation_progress)
@@ -390,6 +408,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             "attempt_failure_rate": attempt_failed[mask].float().mean().item(),
             "illegal_reset_rate": failed[mask].float().mean().item(),
             "unfinished_rate": trial_open[mask].float().mean().item(),
+            "post_event_relaunch_rate": post_event_relaunch[mask].float()
+            .mean()
+            .item(),
             "mean_peak_rotation_rad": peak_progress[mask].mean().item(),
             "mean_peak_rotation_turns": (peak_progress[mask] / TARGET_ANGLE)
             .mean()
