@@ -63,12 +63,15 @@ def configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
   articulation = cfg.scene.entities["robot"].articulation
   assert articulation is not None
   gains = {
-    # At 45--50 P, ordinary residuals remain in the proportional region
-    # instead of immediately becoming a saturated target strike.  The actor
-    # can still use the full joint range when it is physically worthwhile.
+    # Hip/thigh targets stay compliant.  Aerial telemetry showed the calf
+    # command was limited to 50 * 0.55 = 27.5 Nm, far below its modelled
+    # 45.43-Nm actuator range, so it could only produce a low 1.3--1.5 m/s
+    # hop.  Raising *only* the calf proportional gain lets an ordinary bounded
+    # residual reach the real torque cap; it does not inflate the model's
+    # physical torque authority or prescribe a leg motion.
     (".*hip_.*",): (45.0, 2.0),
     (".*thigh_.*",): (45.0, 2.0),
-    (".*calf_.*",): (50.0, 2.0),
+    (".*calf_.*",): (80.0, 2.0),
   }
   effort_limits = {
     # These are the actual actuator control ranges in ``go2w.xml``.  The

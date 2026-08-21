@@ -129,7 +129,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   cfg.rewards = {
     "takeoff_vertical_speed": RewardTermCfg(
       func=trick_rewards.AerialTakeoffVerticalSpeed,
-      weight=50.0,
+      # A full, recoverable aerial turn needs flight time before it needs a
+      # faster angular impulse.  V72 still chose 1.3--1.5 m/s low hops because
+      # its one-off takeoff result ranked below partial angular progress.
+      # Raise this existing outcome's priority rather than adding a phase,
+      # reference motion, or another shaping term.
+      weight=120.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
