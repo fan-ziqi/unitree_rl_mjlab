@@ -74,7 +74,7 @@ def _pin_modes(
   """Pin one-hot targets, optionally reproducing the training-rate ramp."""
   command_term.command_buf.zero_()
   rates = _mode_rates(modes, spin_rate).to(command_term.command_buf.dtype)
-  active = modes > 0
+  active = rates.abs() > 0.20
   command_term.command_buf[
     torch.arange(command_term.num_envs, device=modes.device)[active], modes[active]
   ] = 1.0
@@ -169,15 +169,16 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       assert found is not None
       contacts = (found.reshape(cfg.num_envs, found.shape[1], -1) > 0).any(dim=-1)
       gravity = torch.nn.functional.normalize(robot.data.projected_gravity_b, dim=1)
-      target_alignment = 0.5 * (1.0 + torch.sum(gravity * targets[modes], dim=1))
-      support_ok = torch.all(contacts == target_contacts[modes], dim=1)
+      effective_modes = torch.where(active_spin, modes, torch.zeros_like(modes))
+      target_alignment = 0.5 * (1.0 + torch.sum(gravity * targets[effective_modes], dim=1))
+      support_ok = torch.all(contacts == target_contacts[effective_modes], dim=1)
       down_rate = torch.sum(robot.data.root_link_ang_vel_b * gravity, dim=1)
       # The rate channel is intentionally ramped in the training command
       # term.  Measure against the actual public command seen by the actor at
       # this frame, not its eventual target, so default validation is not an
       # out-of-distribution 0 -> 8 rad/s step.
       rate_error = torch.abs(down_rate - command_term.command[:, 5])
-      support_pair = support_pairs[modes]
+      support_pair = support_pairs[effective_modes]
       wheel_xy = robot.data.site_pos_w[:, wheel_site_ids, :2]
       batch = torch.arange(cfg.num_envs, device=base_env.device)
       center = 0.5 * (
@@ -234,14 +235,8 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       idle_quiet = (
         torch.linalg.vector_norm(robot.data.root_link_lin_vel_w[:, :2], dim=1) < 0.05
       ) & (torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1) < 0.75)
-      static_support = (modes > 0) & ~active_spin
-      static_quiet = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1) < 0.75
       success = support_ok & rate_ok & pose_ok & pivot_ok & axle_ok & ~nonwheel
-      success = success & torch.where(
-        active_spin,
-        torch.ones_like(success),
-        torch.where(static_support, static_quiet, idle_quiet),
-      )
+      success = success & torch.where(active_spin, torch.ones_like(success), idle_quiet)
 
       sample_count += valid.float()
       alignment_sum += valid.float() * target_alignment

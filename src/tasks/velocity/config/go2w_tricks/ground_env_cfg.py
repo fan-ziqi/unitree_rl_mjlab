@@ -156,13 +156,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
 def unitree_go2w_spin_stance_flat_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Default idle, static two-wheel supports, and front/rear pivots.
+  """Default four-wheel idle plus front/rear coaxial pivots.
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
-  All zero is four-wheel default idle.  Selected one-hots with zero speed are
-  static supports; nonzero speed applies only to front/rear, whose transverse
-  wheel axes can form the horizontal balancing axle required for the video's
-  local high-rate pivot.  Left/right deliberately ignore ``spin_rate``.
+  A zero speed is always four-wheel default idle.  Nonzero front/rear requests
+  must form the horizontal balancing axle required for the video's local
+  high-rate pivot.  Side pairs are not spin commands because, side-down, their
+  wheel axles are vertical and cannot provide that balancing axle.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
@@ -172,16 +172,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # ``normal`` is the all-zero default.  The named supports share one
-      # policy; front/rear get slightly more mass because they additionally
-      # own the dynamic pivot outcome.
-      mode_probabilities=(0.0, 0.30, 0.30, 0.20, 0.20),
-      # A quarter of rollouts retain literal no-speed four-wheel idle.
+      # Front/rear are the only physically feasible high-rate pivots.  The
+      # zero-speed branch below always remains all-zero four-wheel idle.
+      mode_probabilities=(0.0, 0.50, 0.50, 0.0, 0.0),
       spin_idle_probability=0.25,
-      # Front/rear are sometimes held before they are asked to pivot.  Side
-      # supports are always static: their wheel axes are vertical in the
-      # side-down attitude, so a coaxial horizontal ground pivot is impossible.
-      static_mode_probabilities=(1.0, 0.25, 0.25, 1.0, 1.0),
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
       debug_vis=False,
@@ -202,9 +196,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # One outcome term: static named support when rate is zero, or for a
-      # front/rear request, a tall co-linear axle, rate tracking, and a local
-      # pivot centre.
+      # One outcome term: a front/rear request must build a tall collinear
+      # axle, track its rate, and keep that pivot centre local.
       weight=18.0,
       params={
         "command_name": "trick",

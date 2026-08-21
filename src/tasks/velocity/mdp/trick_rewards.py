@@ -163,9 +163,9 @@ def _stance_spin_components(
   sensor_name: str,
   asset_cfg: SceneEntityCfg,
 ) -> tuple[
-  Entity, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+  Entity, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
 ]:
-  """Measure a static support or front/rear coaxial world-down pivot."""
+  """Measure a commanded front/rear coaxial world-down pivot."""
   if rate_std <= 0.0:
     raise ValueError("rate_std must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
@@ -176,8 +176,8 @@ def _stance_spin_components(
   mode = torch.argmax(command[:, :5], dim=1)
   active = (torch.sum(command[:, :5], dim=1) > 0.5) & (mode > 0)
   # Only front/rear supports have a horizontal transverse wheel axle when
-  # their commanded body axis is vertical.  Side supports remain valuable
-  # static two-wheel modes but cannot satisfy the video pivot geometry.
+  # their commanded body axis is vertical.  A zero rate is four-wheel idle,
+  # not a request to hold a two-wheel support.
   moving = (
     active
     & (mode <= 2)
@@ -242,7 +242,7 @@ def _stance_spin_components(
   horizontal_axle = torch.linalg.vector_norm(axle_a[:, :2], dim=1)
   coaxiality = axis_parallel * line_on_axle * horizontal_axle
   # The small nonzero baseline keeps the physical contact/attitude discovery
-  # gradient alive for a side pair before it has achieved exact co-linearity.
+  # gradient alive before the front/rear pair has achieved exact co-linearity.
   # Full rate return nevertheless requires the measured coaxial geometry.
   # V45 demonstrated that a linear attitude factor leaves a lucrative local
   # optimum: the named wheels become coaxial and spin in place while the
@@ -254,19 +254,18 @@ def _stance_spin_components(
   support_quality = (
     contact_score * torch.square(alignment) * height_score * (0.15 + 0.85 * coaxiality)
   )
-  return asset, active, moving, rate_score, support_quality, support_pair
+  return asset, moving, rate_score, support_quality, support_pair
 
 
 class StanceSpinPivotResult:
-  """Reward static supports and high-rate front/rear coaxial pivots.
+  """Reward a high-rate front/rear coaxial pivot.
 
   The supporting wheel centres, rather than root velocity, identify the
   physical pivot.  This is instantaneous measured geometry: no anchor,
   transition clock, reference path, or limb trajectory is retained in state.
-  A bicycle-like support translation is explicitly worse than no spin.  A
-  Static front/rear/left/right one-hots use the same physical support result
-  with an angular-stillness factor.  A front/rear rate request upgrades that
-  outcome into the stationary high-rate pivot seen in the reference video.
+  A bicycle-like support translation is explicitly worse than no spin.  The
+  zero-speed branch is handled by default-idle action gating, so this term is
+  active only for the nonzero front/rear rate request.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -289,7 +288,7 @@ class StanceSpinPivotResult:
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
-    asset, active, moving, rate_score, support_quality, pair = _stance_spin_components(
+    asset, moving, rate_score, support_quality, pair = _stance_spin_components(
       env,
       command_name,
       speed_deadband,
@@ -313,11 +312,7 @@ class StanceSpinPivotResult:
     support_and_rate = support_quality * (0.35 + 0.65 * rate_score)
     translation_penalty = torch.square(support_quality) * translation_cost
     dynamic_result = support_and_rate - translation_penalty
-    static_angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    static_result = support_quality * torch.clamp(
-      1.0 - static_angular_speed / 1.0, min=0.0, max=1.0
-    )
-    return active.to(rate_score.dtype) * torch.where(moving, dynamic_result, static_result)
+    return moving.to(rate_score.dtype) * dynamic_result
 
 
 # ---------------------------------------------------------------------------
