@@ -66,7 +66,7 @@ def mode_support_score(
   sensor_name: str,
   num_modes: int = 5,
   extra_contact_discount: float = 0.75,
-  minimum_root_clearance: float | None = None,
+  minimum_root_clearance: float | tuple[float, ...] | None = None,
   stationary_command_index: int | None = None,
   command_deadband: float = 0.0,
   static_angular_velocity_scale: float | None = None,
@@ -80,8 +80,16 @@ def mode_support_score(
   """
   if not 0.0 <= extra_contact_discount <= 1.0:
     raise ValueError("extra_contact_discount must be in [0, 1].")
-  if minimum_root_clearance is not None and minimum_root_clearance <= 0.0:
-    raise ValueError("minimum_root_clearance must be positive.")
+  if minimum_root_clearance is not None:
+    clearance_values = (
+      (minimum_root_clearance,)
+      if isinstance(minimum_root_clearance, float | int)
+      else minimum_root_clearance
+    )
+    if any(value <= 0.0 for value in clearance_values):
+      raise ValueError("minimum_root_clearance must be positive.")
+  else:
+    clearance_values = ()
   if stationary_command_index is not None and command_deadband < 0.0:
     raise ValueError("command_deadband must be non-negative.")
   if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
@@ -114,8 +122,18 @@ def mode_support_score(
       raise ValueError("root-clearance support score needs four wheel sites.")
     wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
     support_height = (wheel_height * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
+    clearance_target = torch.tensor(
+      clearance_values,
+      dtype=orientation.dtype,
+      device=env.device,
+    )
+    if clearance_target.numel() == 1:
+      clearance_target = clearance_target.expand(len(gravity_targets))
+    if clearance_target.numel() != len(gravity_targets):
+      raise ValueError("minimum_root_clearance must be scalar or cover every mode.")
     clearance = torch.clamp(
-      (asset.data.root_link_pos_w[:, 2] - support_height) / minimum_root_clearance,
+      (asset.data.root_link_pos_w[:, 2] - support_height)
+      / clearance_target[mode],
       min=0.0,
       max=1.0,
     )

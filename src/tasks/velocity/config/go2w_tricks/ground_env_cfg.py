@@ -31,7 +31,7 @@ from .common_env_cfg import (
 )
 
 
-def _spin_pivot_wheels() -> SceneEntityCfg:
+def _support_wheels() -> SceneEntityCfg:
   """Return a fresh mutable wheel selector for one reward-manager term.
 
   ``SceneEntityCfg.resolve`` records resolved ids in-place.  Each reward must
@@ -113,6 +113,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 3,
+        # Normal four-wheel idle has the natural low clearance of the Go2W
+        # default.  A front/rear two-wheel command instead must visibly lift
+        # the trunk above its transverse support axle; without this existing
+        # support-outcome geometry, V1 found a low front crouch with the right
+        # two contacts but not the requested inverted stand.
+        "minimum_root_clearance": (0.18, 0.40, 0.40),
+        "asset_cfg": _support_wheels(),
       },
     ),
     "track_x_and_zero_lateral": RewardTermCfg(
@@ -214,7 +221,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # rear support has the same public meaning.  This broad scale supplies
         # a dense settling gradient without adding another reward term.
         "static_angular_velocity_scale": 1.5,
-        "asset_cfg": _spin_pivot_wheels(),
+        "asset_cfg": _support_wheels(),
       },
     ),
     "commanded_spin_pivot": RewardTermCfg(
@@ -237,7 +244,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # stateful anchor/dwell phase: translating it faster than 0.35 m/s is
         # a negative result, while the trunk and free legs remain unconstrained.
         "pivot_speed_limit": 0.35,
-        "asset_cfg": _spin_pivot_wheels(),
+        "asset_cfg": _support_wheels(),
       },
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
