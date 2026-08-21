@@ -14,12 +14,14 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
   GO2W_LEG_JOINTS,
   GO2W_WHEEL_JOINTS,
 )
 from src.tasks.velocity.mdp import trick_rewards
+from src.tasks.velocity.mdp.terminations import AerialPostLandingRelaunch
 from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
 
 from .common_env_cfg import (
@@ -139,6 +141,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-200.0),
   }
+  # The command becomes all-zero after its first landing.  A later genuine
+  # wheel-free interval is a second attempt, even if it began as a rebound,
+  # and is therefore an event failure rather than a way to continue hopping.
+  cfg.terminations["post_landing_relaunch"] = TerminationTermCfg(
+    func=AerialPostLandingRelaunch,
+    params={
+      "command_name": "trick",
+      "sensor_name": wheel_contact_cfg.name,
+      "min_ballistic_time": 0.08,
+    },
+  )
   # There is deliberately no reward curriculum: every command is one full
   # turn from the first sample and all five events remain equally likely.
   cfg.curriculum = {}

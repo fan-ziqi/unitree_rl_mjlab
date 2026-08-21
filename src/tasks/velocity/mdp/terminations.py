@@ -158,3 +158,51 @@ def command_support_lost(
   desired_present = torch.all(contacts | ~target, dim=1)
   grace_steps = int(round(grace_period_s / env.step_dt))
   return (env.episode_length_buf >= grace_steps) & ~desired_present
+
+
+class AerialPostLandingRelaunch:
+  """Terminate an aerial event that bounces into a second flight.
+
+  ``AerialRotationCommand`` clears its one-hot after the first landing.  This
+  term watches the ensuing public-idle state and rejects another continuous
+  wheel-free interval long enough to be a real ballistic attempt.  A short
+  contact glitch is ignored by the same threshold used for the initial flight.
+  """
+
+  def __init__(self, cfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.airborne_time = torch.zeros(env.num_envs, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.airborne_time[env_ids] = 0.0
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    sensor_name: str,
+    min_ballistic_time: float,
+  ) -> torch.Tensor:
+    if min_ballistic_time <= 0.0:
+      raise ValueError("min_ballistic_time must be positive.")
+    command_term = env.command_manager.get_term(command_name)
+    command = env.command_manager.get_command(command_name)
+    closed = (
+      getattr(
+        command_term,
+        "_landing_started",
+        torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
+      )
+      & (torch.sum(command, dim=1) <= 0.5)
+    )
+    sensor: ContactSensor = env.scene[sensor_name]
+    found = sensor.data.found
+    assert found is not None
+    contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
+    airborne = ~torch.any(contacts, dim=1)
+    self.airborne_time = torch.where(
+      closed & airborne,
+      self.airborne_time + env.step_dt,
+      torch.zeros_like(self.airborne_time),
+    )
+    return closed & (self.airborne_time >= min_ballistic_time)
