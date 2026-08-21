@@ -113,7 +113,7 @@ class DefaultIdleGatedJointVelocityActionCfg(JointVelocityActionCfg):
 
 
 class _DefaultIdleGate:
-  """Lock default control only after an idle request has physically landed."""
+  """Latch literal idle control across a normal-reset / trick-return cycle."""
 
   cfg: DefaultIdleGatedJointPositionActionCfg | DefaultIdleGatedJointVelocityActionCfg
 
@@ -127,6 +127,16 @@ class _DefaultIdleGate:
       self._env.scene[self.cfg.idle_contact_sensor_name]
       if self.cfg.idle_contact_sensor_name
       else None
+    )
+    # An episode always begins in the public idle state: four wheels on the
+    # floor at the model default pose.  This must be a *latched* property,
+    # rather than a contact-sensor predicate evaluated every step.  Contact
+    # reports can briefly be empty immediately after reset, and a stateless
+    # predicate would then expose arbitrary policy residuals during an idle
+    # command.  A triggered command explicitly releases the latch; a return
+    # to idle re-arms it only after the robot has physically recovered.
+    self._idle_latched = torch.ones(
+      self._env.num_envs, dtype=torch.bool, device=self._env.device
     )
 
   def _default_idle_mask(self) -> torch.Tensor:
@@ -165,11 +175,26 @@ class _DefaultIdleGate:
     return four_wheel_support & upright
 
   def _apply_default_idle_target(self) -> None:
-    idle = self._default_idle_mask() & self._physical_idle_mask()
+    requested_idle = self._default_idle_mask()
+    # Any one-hot trick request releases literal default control immediately.
+    # This contains no pose or trajectory information; it only restores the
+    # policy's ordinary actuator authority for the requested skill.
+    self._idle_latched[~requested_idle] = False
+    # After a skill switches back to idle, do not freeze the policy while the
+    # robot is still on a two-wheel stance or in flight.  Once it is upright on
+    # all four wheels, retain the default target even if a later sensor frame
+    # transiently misses a contact.
+    self._idle_latched |= requested_idle & self._physical_idle_mask()
+    idle = requested_idle & self._idle_latched
     if isinstance(self._offset, torch.Tensor):
       self._processed_actions[idle] = self._offset[idle]
     else:
       self._processed_actions[idle] = self._offset
+
+  def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    """Re-arm literal idle as part of every normal four-wheel environment reset."""
+    super().reset(env_ids)
+    self._idle_latched[env_ids] = True
 
 
 class DefaultIdleGatedJointPositionAction(
