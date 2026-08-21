@@ -124,13 +124,6 @@ def mode_support_score(
 # Five-one-hot spin / two-wheel-pivot task.
 
 
-def _spin_moving_normal(
-  env: "ManagerBasedRlEnv", command_name: str, speed_deadband: float
-) -> torch.Tensor:
-  command = _command(env, command_name)
-  return (command[:, 0] > 0.5) & (torch.abs(command[:, 5]) > speed_deadband)
-
-
 def _dynamic_tall_pair_scores(
   env: "ManagerBasedRlEnv",
   sensor_name: str,
@@ -172,20 +165,6 @@ def _dynamic_tall_pair_scores(
   height_score = torch.clamp(root_clearance / 0.35, min=0.0, max=1.0)
   scores = contact_score * alignment * height_score
   return torch.max(scores, dim=1)
-
-
-def spin_dynamic_support_exp(
-  env: "ManagerBasedRlEnv",
-  command_name: str,
-  speed_deadband: float,
-  sensor_name: str,
-  horizontal_gravity_std: float,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Give moving normal commands a broad signal toward either tall axle."""
-  del horizontal_gravity_std  # Kept for the registered task's stable API.
-  score, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
-  return _spin_moving_normal(env, command_name, speed_deadband).to(score.dtype) * score
 
 
 def _stance_spin_components(
@@ -255,7 +234,10 @@ class StanceSpinPivotResult:
   The supporting wheel centres, rather than root velocity, identify the
   physical pivot.  This is instantaneous measured geometry: no anchor,
   transition clock, reference path, or limb trajectory is retained in state.
-  A bicycle-like support translation is explicitly worse than no spin.
+  A bicycle-like support translation is explicitly worse than no spin.  A
+  small support baseline is part of this same result so PPO can discover the
+  handstand from four wheels; it is intentionally much lower than a correct
+  stationary fast pivot.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
@@ -297,11 +279,8 @@ class StanceSpinPivotResult:
     translation_cost = torch.clamp(
       centre_speed / pivot_speed_limit, min=0.0, max=2.0
     )
-    return (
-      moving.to(rate_score.dtype)
-      * support_quality
-      * (rate_score - translation_cost)
-    )
+    pivot_quality = 0.35 + 0.65 * rate_score - translation_cost
+    return moving.to(rate_score.dtype) * support_quality * pivot_quality
 
 
 # ---------------------------------------------------------------------------

@@ -169,7 +169,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # superficially trained while their fixed-command validation remained
       # poor.
       mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
-      spin_idle_probability=0.50,
+      # Left/right are always static; retain enough static front/rear examples
+      # for the public zero-rate command, but expose the pivot result in half
+      # of all rollouts rather than only thirty percent.
+      spin_idle_probability=0.25,
       spin_rate_range=(2.0, 6.0),
       spin_rate_ramp_rate=12.0,
       debug_vis=False,
@@ -210,25 +213,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),
-    # The normal rate command may select either front or rear pair, but it is
-    # not allowed to count a diagonal/side-lying two-wheel fall as a spin.
-    # Tall-pair attitude and contact are one observable support result, not a
-    # leg-pose target or a prescribed path into the handstand.
-    "dynamic_two_wheel_support_pose": RewardTermCfg(
-      func=trick_rewards.spin_dynamic_support_exp,
-      weight=12.0,
-      params={
-        "command_name": "trick",
-        "speed_deadband": 0.20,
-        "sensor_name": wheel_contact_cfg.name,
-        "horizontal_gravity_std": 0.45,
-        "asset_cfg": _spin_pivot_wheels(),
-      },
-    ),
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # A moving command must earn more by an actual low-drift pivot than by
-      # matching the rate while the contact axle races across the floor.
+      # This is the only moving-command reward.  Its broad high-support
+      # baseline permits discovery from a four-wheel reset, while full return
+      # requires rate tracking at a locally stationary support axle.
       weight=14.0,
       params={
         "command_name": "trick",
