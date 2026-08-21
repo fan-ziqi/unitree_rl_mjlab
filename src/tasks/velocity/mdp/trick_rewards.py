@@ -432,13 +432,13 @@ class AerialManeuverResultProgress:
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
-    self.best_score = torch.zeros(env.num_envs, device=env.device)
+    self.previous_score = torch.zeros(env.num_envs, device=env.device)
     self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
-    self.best_score[env_ids] = 0.0
+    self.previous_score[env_ids] = 0.0
     self.peak_clearance[env_ids] = 0.0
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
@@ -471,7 +471,7 @@ class AerialManeuverResultProgress:
     reset = env.episode_length_buf == 0
     new_skill = active & ((~self.previous_active) | (mode != self.previous_mode) | reset)
     clear = reset | (~active) | new_skill
-    self.best_score[clear] = 0.0
+    self.previous_score[clear] = 0.0
     self.peak_clearance[clear] = 0.0
 
     command_term = env.command_manager.get_term(command_name)
@@ -496,7 +496,17 @@ class AerialManeuverResultProgress:
     self.peak_clearance = torch.maximum(
       self.peak_clearance, airborne.to(height.dtype) * height
     )
-    turn = torch.clamp(progress / target_angle, min=0.0, max=1.0)
+    # A partial turn is worth proportionally less than one turn; an over-turn
+    # is worth progressively less as well.  The old upper clamp plus a
+    # running maximum banked the one-turn return forever, so a policy had no
+    # dense reason to brake at exactly one revolution and converged to 1.2
+    # turns.  This remains an outcome-only angle measurement, not a phase or
+    # reference trajectory.
+    turn = torch.clamp(
+      1.0 - torch.abs(progress - target_angle) / target_angle,
+      min=0.0,
+      max=1.0,
+    )
     flight = was_airborne.float() * torch.sqrt(self.peak_clearance) * turn
 
     normal_gravity = torch.tensor(
@@ -544,11 +554,15 @@ class AerialManeuverResultProgress:
     # wheel-free height/turn gets the policy to the landing, and four-wheel
     # upright recovery supplies the larger final return.
     score = active.float() * (0.40 * flight + 0.60 * landing)
-    old_best = self.best_score.clone()
-    self.best_score = torch.maximum(self.best_score, score)
+    # Return the actual potential difference.  It is positive while the
+    # maneuver improves (including recovery after touchdown) and negative
+    # when it throws away a one-turn result by over-rotating.  ``peak_clearance``
+    # already prevents a correct descending arc from losing its launch value.
+    previous_score = self.previous_score
+    self.previous_score = score
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
-    return (self.best_score - old_best) / env.step_dt
+    return (score - previous_score) / env.step_dt
 
 
 def _advance_qualified_aerial_rotation(
