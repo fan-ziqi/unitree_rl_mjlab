@@ -59,29 +59,24 @@ AERIAL_AXES = (
 
 
 def configure_compact_aerial_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
-  """Use responsive, torque-limited legs without turning them into struts.
-
-  The first aerial pass used P gains near the actuator effort saturation point.
-  It could create launch impulse, but it made the learned legs hit a target as
-  a rigid four-bar cylinder.  These gains still support a compact jump while
-  leaving enough compliance for the policy to use small continuous knee/hip
-  adjustments for momentum and landing control.
-  """
+  """Use the Go2W model's physical leg torque range with compliant position control."""
   articulation = cfg.scene.entities["robot"].articulation
   assert articulation is not None
   gains = {
-    # The original 105--120 P gains drive the 0.45--0.55 rad aerial action
-    # range into a near bang-bang target controller.  These values retain
-    # takeoff authority below the 90--95 Nm torque limits while leaving room
-    # for continuous hip/knee corrections in flight and at touchdown.
-    (".*hip_.*",): (90.0, 2.0),
-    (".*thigh_.*",): (85.0, 2.0),
-    (".*calf_.*",): (85.0, 2.0),
+    # At 45--50 P, ordinary residuals remain in the proportional region
+    # instead of immediately becoming a saturated target strike.  The actor
+    # can still use the full joint range when it is physically worthwhile.
+    (".*hip_.*",): (45.0, 2.0),
+    (".*thigh_.*",): (45.0, 2.0),
+    (".*calf_.*",): (50.0, 2.0),
   }
   effort_limits = {
-    (".*hip_.*",): 90.0,
-    (".*thigh_.*",): 90.0,
-    (".*calf_.*",): 95.0,
+    # These are the actual actuator control ranges in ``go2w.xml``.  The
+    # preceding 90/90/95 override made every learned maneuver unrealistically
+    # impulsive and visually rigid.
+    (".*hip_.*",): 23.7,
+    (".*thigh_.*",): 23.7,
+    (".*calf_.*",): 45.43,
   }
   articulation.actuators = tuple(
     replace(
@@ -109,13 +104,13 @@ def configure_ground_support_actuators(cfg: ManagerBasedRlEnvCfg) -> None:
   articulation = cfg.scene.entities["robot"].articulation
   assert articulation is not None
   ground_gains = {
-    # At P=120 the 0.85-rad leg action range immediately clips at the
-    # imported 23--35 Nm limits, yielding rigid saturated strokes.  P=80
-    # still holds default four-wheel idle in the physics smoke test while
-    # preserving a substantially larger proportional-control region.
-    (".*hip_.*",): (80.0, 2.0),
-    (".*thigh_.*",): (80.0, 2.0),
-    (".*calf_.*",): (80.0, 2.0),
+    # P=50 keeps every zero-action four-wheel reset standing in the 128-env,
+    # three-second physics sweep.  It also leaves a much larger useful
+    # proportional region than P=80 before the model's native torque limits
+    # are reached, so a contact pivot need not look like a rigid strut.
+    (".*hip_.*",): (50.0, 2.0),
+    (".*thigh_.*",): (50.0, 2.0),
+    (".*calf_.*",): (50.0, 2.0),
   }
   articulation.actuators = tuple(
     replace(
