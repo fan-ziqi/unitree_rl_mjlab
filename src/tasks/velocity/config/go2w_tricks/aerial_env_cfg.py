@@ -126,7 +126,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # useful return before landing, and never discover the complete maneuver.
   # ``AerialManeuverResultProgress`` is a single bounded potential: flight
   # contributes only when clearance and signed turn coexist; a four-wheel
-  # recovery then adds the remaining value only close to the same full turn.
+  # recovery then adds the larger final value only close to the same full
+  # turn.  Its speed scales are intentionally broad dense shaping; the
+  # following completion event retains the strict physical acceptance test.
   # No term names a joint pose, limb timing, or demonstration trajectory.
   cfg.rewards = {
     "complete_maneuver_progress": RewardTermCfg(
@@ -144,8 +146,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # entirely to PPO.
         "target_clearance": 0.40,
         "landing_turn_start": 0.75 * math.tau,
-        "landing_linear_velocity_limit": 0.75,
-        "landing_angular_velocity_limit": 1.5,
+        "recovery_linear_speed_scale": 5.0,
+        "recovery_angular_speed_scale": 12.0,
       },
     ),
     "completed_rotation": RewardTermCfg(

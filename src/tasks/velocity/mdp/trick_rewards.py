@@ -11,7 +11,6 @@ import math
 from typing import TYPE_CHECKING
 
 import torch
-
 from mjlab.entity import Entity
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
@@ -25,14 +24,14 @@ if TYPE_CHECKING:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
-def _command(env: "ManagerBasedRlEnv", command_name: str) -> torch.Tensor:
+def _command(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   command = env.command_manager.get_command(command_name)
   assert command is not None, f"Command '{command_name}' not found."
   return command
 
 
 def _mode_mask(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   command_name: str,
   modes: tuple[int, ...],
   *,
@@ -47,7 +46,7 @@ def _mode_mask(
   return selected & active, mode
 
 
-def _wheel_contacts(env: "ManagerBasedRlEnv", sensor_name: str) -> torch.Tensor:
+def _wheel_contacts(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   sensor: ContactSensor = env.scene[sensor_name]
   found = sensor.data.found
   assert found is not None
@@ -59,7 +58,7 @@ def _wheel_contacts(env: "ManagerBasedRlEnv", sensor_name: str) -> torch.Tensor:
 
 
 def mode_support_score(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   command_name: str,
   modes: tuple[int, ...],
   gravity_targets: tuple[tuple[float, float, float], ...],
@@ -125,7 +124,7 @@ def mode_support_score(
 
 
 def _dynamic_tall_pair_scores(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   sensor_name: str,
   asset_cfg: SceneEntityCfg,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -168,7 +167,7 @@ def _dynamic_tall_pair_scores(
 
 
 def _stance_spin_components(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   command_name: str,
   speed_deadband: float,
   rate_std: float,
@@ -240,7 +239,7 @@ class StanceSpinPivotResult:
   stationary fast pivot.
   """
 
-  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg, env
 
   def reset(self, env_ids: torch.Tensor) -> None:
@@ -248,7 +247,7 @@ class StanceSpinPivotResult:
 
   def __call__(
     self,
-    env: "ManagerBasedRlEnv",
+    env: ManagerBasedRlEnv,
     command_name: str,
     speed_deadband: float,
     std: float,
@@ -323,7 +322,7 @@ def _stance_locomotion_axes(
 
 
 def _locomotion_alignment(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   asset: Entity,
   mode: torch.Tensor,
   gravity_targets: tuple[tuple[float, float, float], ...] | None,
@@ -346,7 +345,7 @@ def _locomotion_alignment(
 
 
 def stance_locomotion_linear_velocity_exp(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   command_name: str,
   std: float,
   lateral_weight: float = 2.0,
@@ -373,7 +372,7 @@ def stance_locomotion_linear_velocity_exp(
 
 
 def stance_locomotion_yaw_rate_exp(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   command_name: str,
   std: float,
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
@@ -396,12 +395,12 @@ def stance_locomotion_yaw_rate_exp(
 # Five-one-hot aerial-rotation task.
 
 
-def aerial_active(env: "ManagerBasedRlEnv", command_name: str) -> torch.Tensor:
+def aerial_active(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
   return (torch.sum(_command(env, command_name)[:, :5], dim=1) > 0.5).float()
 
 
 def aerial_rotation_overrun(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   command_name: str,
   target_angle: float,
   max_overrotation: float,
@@ -431,7 +430,7 @@ class AerialManeuverResultProgress:
   schedule, and without allowing height or a partial flip to be farmed alone.
   """
 
-  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.best_score = torch.zeros(env.num_envs, device=env.device)
     self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
@@ -446,22 +445,22 @@ class AerialManeuverResultProgress:
 
   def __call__(
     self,
-    env: "ManagerBasedRlEnv",
+    env: ManagerBasedRlEnv,
     command_name: str,
     sensor_name: str,
     target_angle: float,
     target_clearance: float,
     landing_turn_start: float,
-    landing_linear_velocity_limit: float,
-    landing_angular_velocity_limit: float,
+    recovery_linear_speed_scale: float,
+    recovery_angular_speed_scale: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
       target_angle <= 0.0
       or target_clearance <= 0.0
       or not 0.0 <= landing_turn_start < target_angle
-      or landing_linear_velocity_limit <= 0.0
-      or landing_angular_velocity_limit <= 0.0
+      or recovery_linear_speed_scale <= 0.0
+      or recovery_angular_speed_scale <= 0.0
     ):
       raise ValueError("invalid aerial result parameters.")
 
@@ -516,10 +515,17 @@ class AerialManeuverResultProgress:
     )
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    # These are deliberately broader than the completion event below.  The
+    # strict 0.75 m/s and 1.5-rad/s event threshold is an all-or-nothing
+    # verifier; using it here made every first touchdown after a real flip
+    # score exactly zero, leaving PPO no braking gradient.  This *same*
+    # result potential instead ranks progressively quieter recoveries, while
+    # the separate one-shot event still certifies only a quiet four-wheel
+    # landing.
     settled = torch.clamp(
-      1.0 - linear_speed / landing_linear_velocity_limit, min=0.0, max=1.0
+      1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
     ) * torch.clamp(
-      1.0 - angular_speed / landing_angular_velocity_limit, min=0.0, max=1.0
+      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
     )
     landing_turn = torch.clamp(
       (progress - landing_turn_start) / (target_angle - landing_turn_start),
@@ -533,7 +539,11 @@ class AerialManeuverResultProgress:
       * upright
       * settled
     )
-    score = active.float() * (0.65 * flight + 0.35 * landing)
+    # A complete maneuver must rank well above the already-discovered
+    # one-turn crash.  Both components remain inside one bounded potential:
+    # wheel-free height/turn gets the policy to the landing, and four-wheel
+    # upright recovery supplies the larger final return.
+    score = active.float() * (0.40 * flight + 0.60 * landing)
     old_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
     self.previous_active = active
@@ -543,7 +553,7 @@ class AerialManeuverResultProgress:
 
 def _advance_qualified_aerial_rotation(
   *,
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   active: torch.Tensor,
   contacts: torch.Tensor,
   axis_rate: torch.Tensor,
@@ -591,7 +601,7 @@ def _advance_qualified_aerial_rotation(
 class AerialRotationCompletion:
   """One-shot reward for the strict full-turn, four-wheel landing event."""
 
-  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.progress = torch.zeros(env.num_envs, device=env.device)
     self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
@@ -620,7 +630,7 @@ class AerialRotationCompletion:
 
   def __call__(
     self,
-    env: "ManagerBasedRlEnv",
+    env: ManagerBasedRlEnv,
     command_name: str,
     sensor_name: str,
     axes: tuple[tuple[float, float, float], ...],
