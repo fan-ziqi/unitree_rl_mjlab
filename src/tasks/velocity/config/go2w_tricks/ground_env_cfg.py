@@ -431,7 +431,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   # chance to discover their legal support.  V18 opened x/yaw after only 200
   # iterations: front happened to be found, whereas rear was then rewarded for
   # ordinary rolling before it ever found its handstand.  This changes command
-  # sampling only, never the reset state or joint target.
+  # sampling only, never the reset state or joint target.  V22 still had only
+  # transient front support and no rear support at iteration 600, so delay the
+  # first rolling examples until roughly iteration 700.
   cfg.curriculum = {
     "locomotion_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_locomotion_command_stages,
@@ -446,14 +448,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "yaw_rate_range": (-0.30, 0.30),
           },
           {
-            "step": 32_000,
+            "step": 44_800,
             "mode_probabilities": (0.30, 0.35, 0.35),
             "idle_probability": 0.70,
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
           },
           {
-            "step": 48_000,
+            "step": 52_000,
             "mode_probabilities": (0.30, 0.35, 0.35),
             "idle_probability": 0.45,
             "lin_vel_x_range": (-0.20, 0.20),
