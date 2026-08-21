@@ -8,14 +8,12 @@ from pathlib import Path
 
 import torch
 import tyro
-from tensordict import TensorDict
-
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from tensordict import TensorDict
 
 from src.tasks.velocity.mdp.trick_commands import StanceSpinCommandCfg
-
 
 TASK_ID = "Unitree-Go2W-Spin-Stance-Flat"
 MODE_NAMES = ("normal", "front", "rear", "left", "right")
@@ -95,6 +93,7 @@ def _fixed_reset_observation(base_env: ManagerBasedRlEnv) -> TensorDict:
 
 def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   import mjlab.tasks  # noqa: F401
+
   import src.tasks  # noqa: F401
 
   if not cfg.checkpoint_file.is_file():
@@ -202,10 +201,18 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         wheel_xy[batch, tall_pair_sites[support_pair, 0]]
         + wheel_xy[batch, tall_pair_sites[support_pair, 1]]
       )
-      center_speed = torch.linalg.vector_norm(
+      raw_center_speed = torch.linalg.vector_norm(
         (center - previous_center) / base_env.step_dt, dim=1
       )
-      same_pair = support_pair == previous_pair
+      # ``site_pos_w`` includes the tiled world origin of each parallel
+      # environment.  The first sample therefore is not a physical velocity:
+      # compare only after one measured centre has been stored for this
+      # environment.  The PPO reward uses MuJoCo site velocity directly and
+      # was never affected; this fixes validation-only false drift.
+      center_speed = torch.where(
+        center_initialized, raw_center_speed, torch.zeros_like(raw_center_speed)
+      )
+      same_pair = center_initialized & (support_pair == previous_pair)
       previous_center.copy_(center)
       previous_pair.copy_(support_pair)
       center_initialized[:] = True
@@ -219,7 +226,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       pose_ok = torch.where(dynamic, dynamic_alignment >= 0.97, static_alignment >= 0.97)
       pivot_ok = (
         (~(dynamic | fixed_spin))
-        | (center_initialized & same_pair & (center_speed < 0.30))
+        | (same_pair & (center_speed < 0.30))
       )
       success = support_ok & rate_ok & pose_ok & pivot_ok & ~nonwheel
       target_alignment = torch.where(dynamic, dynamic_alignment, static_alignment)
