@@ -950,17 +950,24 @@ class AerialFirstLandingResult:
     angular_settled = torch.clamp(
       1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
     )
-    landing_quality = 0.25 * (
-      contacts.float().mean(dim=1) + upright + linear_settled + angular_settled
-    )
+    # A wheel graze followed by a body impact is not a partial success.  The
+    # graded signal is intentionally available only on simultaneous normal
+    # four-wheel support and a non-terminal physics state; turn/height then
+    # rank *safe* partial landings without rewarding a crash on its first
+    # wheel contact.
+    normal_wheel_support = torch.all(contacts, dim=1)
+    alive = (~env.termination_manager.terminated).to(clearance.dtype)
+    landing_quality = (upright + linear_settled + angular_settled) / 3.0
     graded_result = (
       getattr(command_term, "was_airborne", torch.zeros_like(active)).float()
       * torch.sqrt(self.peak_clearance)
       * turn_quality
       * (0.20 + 0.80 * landing_quality)
+      * normal_wheel_support.to(clearance.dtype)
+      * alive
     )
     stable = (
-      torch.all(contacts, dim=1)
+      normal_wheel_support
       & (gravity_error < landing_gravity_error_limit)
       & (linear_speed < landing_linear_velocity_limit)
       & (angular_speed < landing_angular_velocity_limit)
