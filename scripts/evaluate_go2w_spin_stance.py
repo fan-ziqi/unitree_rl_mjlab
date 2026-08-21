@@ -39,7 +39,10 @@ CONTACT_MASKS = (
 class EvalConfig:
   checkpoint_file: Path
   mode: int = 0
-  spin_rate: float = 8.0
+  # Keep the default benchmark inside the training command range (2--6).
+  # A fast 8-rad/s stress test is useful later, but using it as the default
+  # falsely reports a valid 6-rad/s policy as non-responsive.
+  spin_rate: float = 6.0
   all_modes: bool = False
   num_envs: int = 250
   duration_s: float = 6.0

@@ -158,7 +158,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      mode_probabilities=(0.30, 0.25, 0.25, 0.10, 0.10),
+      # All five public one-hots are equally important to the fused policy.
+      # The previous left/right under-sampling made their static poses look
+      # superficially trained while their fixed-command validation remained
+      # poor.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       spin_idle_probability=0.50,
       spin_rate_range=(2.0, 6.0),
       spin_rate_ramp_rate=12.0,

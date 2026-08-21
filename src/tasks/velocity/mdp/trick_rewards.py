@@ -1114,12 +1114,19 @@ def stance_spin_rate_exp(
     device=env.device,
   )
   fixed_pair_index = torch.clamp(mode - 1, 0, 1)
-  fixed_exact = torch.all(
-    contacts == contact_masks[fixed_pair_index], dim=1
-  ).to(rate_score.dtype)
-  _, dynamic_exact, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
-  fixed_quality = fixed_exact * fixed_alignment.pow(4.0)
-  support_quality = torch.where(mode == 0, dynamic_exact, fixed_quality)
+  # Do not make the *only* turn-rate signal wait for an exact binary contact
+  # mask.  At the normal four-wheel reset that would make its gradient zero
+  # until a difficult 90-degree stance transition has already been solved,
+  # which is exactly the "stands tall but never turns" local optimum.  The
+  # continuous pair score increases through the same observable contact and
+  # attitude outcomes; the separate support-centre term remains strict, so a
+  # translating four-wheel yaw still cannot be accepted as the final pivot.
+  fixed_contact_match = torch.mean(
+    (contacts == contact_masks[fixed_pair_index]).float(), dim=1
+  )
+  dynamic_dense, _, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  fixed_quality = fixed_contact_match * fixed_alignment
+  support_quality = torch.where(mode == 0, dynamic_dense, fixed_quality)
   return moving.to(rate_score.dtype) * support_quality * rate_score
 
 
