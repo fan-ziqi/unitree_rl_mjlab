@@ -31,11 +31,16 @@ from .common_env_cfg import (
 )
 
 
-# Only the in-place-pivot term needs wheel world positions.  Keep its mutable
-# selector private to that one reward-manager term.
-_SPIN_PIVOT_WHEELS = SceneEntityCfg(
-  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
-)
+def _spin_pivot_wheels() -> SceneEntityCfg:
+  """Return a fresh mutable wheel selector for one reward-manager term.
+
+  ``SceneEntityCfg.resolve`` records resolved ids in-place.  Each reward must
+  therefore own its selector; reusing one global instance works in a training
+  process but can fail when a play/evaluation environment resolves it again.
+  """
+  return SceneEntityCfg(
+    "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+  )
 
 
 def _configure_fast_discovery(cfg: ManagerBasedRlEnvCfg) -> None:
@@ -195,7 +200,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_root_clearance": 0.35,
-        "asset_cfg": _SPIN_PIVOT_WHEELS,
+        "asset_cfg": _spin_pivot_wheels(),
       },
     ),
     # The normal rate command may select either front or rear pair, but it is
@@ -210,7 +215,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
         "horizontal_gravity_std": 0.45,
-        "asset_cfg": _SPIN_PIVOT_WHEELS,
+        "asset_cfg": _spin_pivot_wheels(),
       },
     ),
     "commanded_spin_rate": RewardTermCfg(
@@ -232,7 +237,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # drift.  This makes bicycle-like translation negative while retaining
         # a continuous discovery gradient toward a true in-place pivot.
         "pivot_speed_std": 0.30,
-        "asset_cfg": _SPIN_PIVOT_WHEELS,
+        "asset_cfg": _spin_pivot_wheels(),
       },
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
