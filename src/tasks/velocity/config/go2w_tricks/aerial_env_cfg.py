@@ -128,9 +128,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
         "target_clearance": 0.40,
-        "landing_turn_start": 0.50 * math.tau,
+        # At m499 the actor reaches 0.65--0.77 turns but carries 15--20 rad/s
+        # into the final quadrant.  Start valuing an upright, decelerating
+        # outcome early enough for its free PPO control to arrest that motion;
+        # this is an outcome condition, not a prescribed braking phase.
+        "landing_turn_start": 0.35 * math.tau,
         "recovery_linear_speed_scale": 5.0,
-        "recovery_angular_speed_scale": 12.0,
+        # Keep a dense ranking signal through the measured 15--20 rad/s
+        # region.  The strict first-landing verifier below is unchanged at
+        # 1.5 rad/s, so this does not relax what counts as a completed flip.
+        "recovery_angular_speed_scale": 20.0,
         "potential_discount": 0.997,
       },
     ),
@@ -155,7 +162,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # than a profitable second hop.
         "post_idle_settle_time_s": 0.20,
         "recovery_linear_speed_scale": 5.0,
-        "recovery_angular_speed_scale": 12.0,
+        "recovery_angular_speed_scale": 20.0,
         "landing_gravity_error_limit": 0.30,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
