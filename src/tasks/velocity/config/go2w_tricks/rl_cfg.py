@@ -99,12 +99,19 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # This leaves initial exploration inside the physically tested compact
     # position-residual envelope while still exposing coordinated launch
     # pulses in the large parallel batch.
-    init_std=0.55,
+    # V85/V86 both discover full rotations but their scalar Gaussian standard
+    # deviation grows past 1.5 late in training, destroying the short
+    # all-wheel landing window before the completion event can be reinforced.
+    # Start with enough residual exploration to jump, then use a low entropy
+    # pressure so PPO can consolidate a discovered landing rather than keep
+    # widening every limb action.  This changes no command, reward, contact
+    # criterion, or reference trajectory.
+    init_std=0.40,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
     clip_actions=1.0,
     # Keep enough stochasticity for all five one-hots, but not enough to turn
     # a compliant torque actuator into a permanently saturated random kick.
-    entropy_coef=0.003,
+    entropy_coef=0.0005,
   )
