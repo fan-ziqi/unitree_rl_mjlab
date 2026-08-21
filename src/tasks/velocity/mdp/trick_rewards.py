@@ -279,8 +279,13 @@ class StanceSpinPivotResult:
     translation_cost = torch.clamp(
       centre_speed / pivot_speed_limit, min=0.0, max=2.0
     )
-    pivot_quality = 0.35 + 0.65 * rate_score - translation_cost
-    return moving.to(rate_score.dtype) * support_quality * pivot_quality
+    # Before a tall support exists, random wheel velocity is part of finding
+    # the transition and must not overwhelm the small support-improvement
+    # signal.  Once support is high, the squared gate reaches one, so the
+    # identical physical centre-speed penalty rejects bicycle translation.
+    support_and_rate = support_quality * (0.35 + 0.65 * rate_score)
+    translation_penalty = torch.square(support_quality) * translation_cost
+    return moving.to(rate_score.dtype) * (support_and_rate - translation_penalty)
 
 
 # ---------------------------------------------------------------------------
