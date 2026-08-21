@@ -1,9 +1,10 @@
 """Lean flat-ground Go2W trick environments.
 
 These two tasks deliberately reward only public command outcomes.  They do
-not encode leg lengths, root heights, a contact sequence, or an action-space
-posture.  The hard non-wheel collision termination and the default-idle action
-gate define validity; PPO discovers the coordination in between.
+not encode leg lengths, a contact sequence, or an action-space posture.  The
+spin task measures only trunk-to-support-wheel clearance so that a visibly
+upright two-wheel pose cannot be replaced by a low crouch; PPO discovers every
+joint coordination that realizes that physical support geometry.
 """
 
 from __future__ import annotations
@@ -180,37 +181,43 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   _use_history(cfg, "trick")
 
   cfg.rewards = {
-    # Static one-hots have one outcome: their named wheel pair carries the
-    # robot at the named attitude.  There are no leg-extension or root-height
-    # terms, so any legal, expressive coordination is acceptable.
-    "commanded_static_support": RewardTermCfg(
+    # Static one-hots have one coupled outcome: their named wheel pair holds
+    # the requested attitude *and* the trunk is visibly above that pair.  The
+    # clearance is measured support geometry rather than a desired leg pose;
+    # it rules out the low crouch/side-fall local solutions seen in V35.
+    "commanded_static_support_pose": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      weight=8.0,
+      weight=12.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
+        "minimum_root_clearance": 0.35,
+        "asset_cfg": _SPIN_PIVOT_WHEELS,
       },
     ),
     # The normal rate command may select either front or rear pair, but it is
     # not allowed to count a diagonal/side-lying two-wheel fall as a spin.
     # Tall-pair attitude and contact are one observable support result, not a
     # leg-pose target or a prescribed path into the handstand.
-    "dynamic_two_wheel_support": RewardTermCfg(
+    "dynamic_two_wheel_support_pose": RewardTermCfg(
       func=trick_rewards.spin_dynamic_support_exp,
-      weight=6.0,
+      weight=12.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
         "sensor_name": wheel_contact_cfg.name,
         "horizontal_gravity_std": 0.45,
+        "asset_cfg": _SPIN_PIVOT_WHEELS,
       },
     ),
     "commanded_spin_rate": RewardTermCfg(
       func=trick_rewards.stance_spin_rate_exp,
-      weight=4.0,
+      # A moving command must earn more by an actual low-drift pivot than by
+      # matching the rate while the contact axle races across the floor.
+      weight=14.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -228,7 +235,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _SPIN_PIVOT_WHEELS,
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   cfg.curriculum = {}

@@ -228,19 +228,24 @@ def mode_support_score(
   contact_masks: tuple[tuple[float, float, float, float], ...],
   sensor_name: str,
   num_modes: int = 5,
-  orientation_weight: float = 0.5,
+  extra_contact_discount: float = 0.75,
+  minimum_root_clearance: float | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """One dense result score for commanded attitude and wheel support.
+  """One coupled score for commanded two-wheel attitude and support.
 
-  A support trick has exactly two visible outcomes: the body points in the
-  requested gravity direction and the requested wheels, rather than the
-  chassis or legs, carry contact.  Keeping them as one additive score avoids
-  the reward-stack pattern where an exact contact gate suppresses the only
-  useful attitude gradient from the ordinary four-wheel reset.
+  Contact and attitude may provide a broad discovery signal from the ordinary
+  four-wheel reset, but they must not compensate for each other.  An additive
+  half-contact plus half-attitude score was the source of the low crouch and
+  side-fall local optima: neither observation had to be correct in the same
+  state.  This product remains nonzero at reset while ranking the complete
+  physical support outcome highest.  Optional trunk clearance is geometry,
+  not a desired joint configuration.
   """
-  if not 0.0 <= orientation_weight <= 1.0:
-    raise ValueError("orientation_weight must be in [0, 1].")
+  if not 0.0 <= extra_contact_discount <= 1.0:
+    raise ValueError("extra_contact_discount must be in [0, 1].")
+  if minimum_root_clearance is not None and minimum_root_clearance <= 0.0:
+    raise ValueError("minimum_root_clearance must be positive when specified.")
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
@@ -254,10 +259,20 @@ def mode_support_score(
   desired_fraction = (contacts * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
   non_target = 1.0 - target
   extra_fraction = (contacts * non_target).sum(dim=1) / non_target.sum(dim=1).clamp_min(1.0)
-  support = desired_fraction * (1.0 - extra_fraction)
-  return active.to(orientation.dtype) * (
-    orientation_weight * orientation + (1.0 - orientation_weight) * support
-  )
+  # At reset the selected wheels already touch, but the other pair does too.
+  # Leave a small value so exploration can improve by lifting the free pair;
+  # unlike the old additive objective, a poor orientation cannot make this a
+  # rewarding finished stance.
+  support = desired_fraction * (1.0 - extra_contact_discount * extra_fraction)
+  clearance_score = torch.ones_like(orientation)
+  if minimum_root_clearance is not None:
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("mode_support_score clearance needs FL/FR/RL/RR sites.")
+    wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+    support_height = (wheel_height * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
+    root_clearance = asset.data.root_link_pos_w[:, 2] - support_height
+    clearance_score = torch.clamp(root_clearance / minimum_root_clearance, 0.0, 1.0)
+  return active.to(orientation.dtype) * orientation * support * clearance_score
 
 
 def mode_support_wheel_center_height_exp(
@@ -728,12 +743,16 @@ def _dynamic_tall_pair_scores(
     dtype=torch.bool,
     device=env.device,
   )
-  # Matching each of the four physical contact states gives a shaped score
-  # from the ordinary four-wheel reset; the exact copy gates rate/centre
-  # rewards so a three/four-wheel yaw cannot count as the contact pivot.
-  contact_match = torch.mean(
-    (contacts.unsqueeze(1) == pair_contacts.unsqueeze(0)).float(), dim=2
-  )
+  # Keep an improvement path from a four-wheel reset, but require the desired
+  # pair to remain loaded.  Hamming matching alone gives the same credit to a
+  # low crouch/side fall as to a high pivot because its two missing wheels and
+  # two extra wheels can cancel.  This coupled measure instead makes every
+  # release of a non-support wheel increase the same physical support score.
+  pair_float = pair_contacts.float()
+  contacts_float = contacts.float().unsqueeze(1)
+  desired_fraction = (contacts_float * pair_float).sum(dim=2) / 2.0
+  extra_fraction = (contacts_float * (1.0 - pair_float)).sum(dim=2) / 2.0
+  contact_match = desired_fraction * (1.0 - 0.75 * extra_fraction)
   exact_contact = torch.all(
     contacts.unsqueeze(1) == pair_contacts.unsqueeze(0), dim=2
   ).float()
@@ -746,11 +765,24 @@ def _dynamic_tall_pair_scores(
     0.0,
     1.0,
   )
-  dense = contact_match * alignment
+  clearance_score = torch.ones_like(alignment)
+  if not isinstance(asset_cfg.site_ids, slice) and len(asset_cfg.site_ids) == 4:
+    pair_indices = torch.tensor(((0, 1), (2, 3)), device=env.device)
+    wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+    pair_height = 0.5 * (
+      wheel_height[:, pair_indices[:, 0]]
+      + wheel_height[:, pair_indices[:, 1]]
+    )
+    root_clearance = asset.data.root_link_pos_w[:, 2].unsqueeze(1) - pair_height
+    # This measures a visible high support, not a leg angle.  A broad 0.35 m
+    # threshold suppresses the low crouch admitted by the former contact and
+    # attitude-only score while allowing any mechanically valid tall posture.
+    clearance_score = torch.clamp(root_clearance / 0.35, min=0.0, max=1.0)
+  dense = contact_match * alignment * clearance_score
   dense_score, pair_index = torch.max(dense, dim=1)
   exact_score = exact_contact.gather(1, pair_index.unsqueeze(1)).squeeze(1) * alignment.gather(
     1, pair_index.unsqueeze(1)
-  ).squeeze(1).pow(4.0)
+  ).squeeze(1).pow(4.0) * clearance_score.gather(1, pair_index.unsqueeze(1)).squeeze(1)
   return dense_score, exact_score, pair_index
 
 
@@ -1124,11 +1156,25 @@ def stance_spin_rate_exp(
   # continuous pair score increases through the same observable contact and
   # attitude outcomes, while the rate objective below makes a translating
   # support pair actively worse than a stationary pivot.
-  fixed_contact_match = torch.mean(
-    (contacts == contact_masks[fixed_pair_index]).float(), dim=1
+  fixed_target = contact_masks[fixed_pair_index].float()
+  contacts_float = contacts.float()
+  fixed_desired = (contacts_float * fixed_target).sum(dim=1) / 2.0
+  fixed_extra = (contacts_float * (1.0 - fixed_target)).sum(dim=1) / 2.0
+  fixed_contact_match = fixed_desired * (1.0 - 0.75 * fixed_extra)
+  pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
+  batch = torch.arange(env.num_envs, device=env.device)
+  wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+  fixed_height = 0.5 * (
+    wheel_height[batch, pair_sites[fixed_pair_index, 0]]
+    + wheel_height[batch, pair_sites[fixed_pair_index, 1]]
+  )
+  fixed_clearance = torch.clamp(
+    (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.35,
+    min=0.0,
+    max=1.0,
   )
   dynamic_dense, _, dynamic_pair = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
-  fixed_quality = fixed_contact_match * fixed_alignment
+  fixed_quality = fixed_contact_match * fixed_alignment * fixed_clearance
   support_quality = torch.where(mode == 0, dynamic_dense, fixed_quality)
 
   # A high world-down rate is only the requested contact-pivot motion when
@@ -1139,7 +1185,6 @@ def stance_spin_rate_exp(
   # exact pivot has already been found.  The midpoint is an observable
   # physical result, not a target joint configuration or a scripted route.
   pair_index = torch.where(mode == 0, dynamic_pair, fixed_pair_index)
-  pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
   batch = torch.arange(env.num_envs, device=env.device)
   wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
   center_velocity = 0.5 * (
