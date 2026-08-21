@@ -144,6 +144,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
         "max_overrotation": 1.25,
+        # The dense potential above can reveal partial flight, but the durable
+        # landing result must not let a repeatable low hop outrank a nearly
+        # complete maneuver.
+        "turn_exponent": 2.0,
         "target_clearance": 0.40,
         "landing_window_s": 0.10,
         # Verify the result under the all-zero/default idle command before
@@ -159,8 +163,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     ),
     # With dt-scaled rewards, -200 is only a -4 event cost and lets a crashing
-    # partial turn outrank the explicit no-body-support validity rule.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-1000.0),
+    # partial turn outrank the explicit no-body-support validity rule.  The
+    # convex landing result above makes -500 sufficient without freezing
+    # exploration into a no-risk small hop.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-500.0),
   }
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,

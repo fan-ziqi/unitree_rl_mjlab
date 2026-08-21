@@ -872,6 +872,7 @@ class AerialFirstLandingResult:
     sensor_name: str,
     target_angle: float,
     max_overrotation: float,
+    turn_exponent: float,
     target_clearance: float,
     landing_window_s: float,
     post_idle_settle_time_s: float,
@@ -887,6 +888,7 @@ class AerialFirstLandingResult:
     if (
       target_angle <= 0.0
       or max_overrotation <= 0.0
+      or turn_exponent <= 0.0
       or target_clearance <= 0.0
       or landing_window_s <= 0.0
       or post_idle_settle_time_s <= 0.0
@@ -954,9 +956,18 @@ class AerialFirstLandingResult:
     progress = getattr(
       command_term, "_rotation_progress", torch.zeros_like(self.peak_clearance)
     )
-    turn_before_target = torch.clamp(progress / target_angle, min=0.0, max=1.0)
-    turn_after_target = torch.clamp(
-      1.0 - (progress - target_angle) / max_overrotation, min=0.0, max=1.0
+    # A linear partial-turn score makes a repeatable 0.1--0.2-turn hop a
+    # locally attractive solution.  Keep the measured signed turn as the
+    # sole objective but make this terminal result convex: useful return now
+    # appears only when a safe landing approaches the requested full turn.
+    turn_before_target = torch.pow(
+      torch.clamp(progress / target_angle, min=0.0, max=1.0), turn_exponent
+    )
+    turn_after_target = torch.pow(
+      torch.clamp(
+        1.0 - (progress - target_angle) / max_overrotation, min=0.0, max=1.0
+      ),
+      turn_exponent,
     )
     turn_quality = torch.where(progress <= target_angle, turn_before_target, turn_after_target)
     normal_gravity = torch.tensor(
