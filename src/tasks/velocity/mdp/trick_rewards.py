@@ -603,7 +603,17 @@ class AerialManeuverResultProgress:
     # one-turn crash.  Both components remain inside one bounded potential:
     # wheel-free height/turn gets the policy to the landing, and four-wheel
     # upright recovery supplies the larger final return.
-    score = active.float() * (0.40 * flight + 0.60 * landing)
+    # An illegal non-wheel contact is a true terminal state, not a temporary
+    # interruption of the maneuver.  The absorbing terminal state must have
+    # zero potential: otherwise a robot can retain a high airborne-turn
+    # potential by crashing before the next frame gets to settle it.  That
+    # would violate the same discounted-potential argument used below and
+    # makes a fast body-first collision a profitable local optimum.  Time
+    # limits deliberately remain bootstrap-able truncations; only failures
+    # erase the result potential.
+    terminated = env.termination_manager.terminated
+    alive = (~terminated).to(asset.data.root_link_pos_w.dtype)
+    score = active.float() * (0.40 * flight + 0.60 * landing) * alive
     # Use the *discount-correct* potential difference.  PPO discounts returns
     # by ``gamma``: with a plain ``score - previous_score``, a policy can
     # collect the rise to a one-turn airborne score early, then lose it later
