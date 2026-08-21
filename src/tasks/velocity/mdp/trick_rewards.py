@@ -2864,11 +2864,19 @@ class AerialLandingRecoveryProgress:
     late_axis_excess = torch.clamp(torch.abs(axis_rate) - target_axis_rate, min=0.0)
     late_rate_penalty = torch.square(late_axis_excess / late_rate_penalty_scale)
     post_turn = in_window & (progress >= target_angle)
+    # The potential delta guides discovery toward recovery but pays nothing
+    # for *holding* a good post-turn result after its maximum has been seen.
+    # A sustained low-momentum, upright, wheel-first landing is precisely the
+    # physical condition required by the separate completion event, so give it
+    # a small per-time reward inside this same recovery objective.  It does
+    # not prescribe a contact sequence, joint pose, phase, or flight path.
+    landing_hold = post_turn.float() * upright * braking * settling * approach_ground
     # RewardManager integrates over step_dt; the potential component is thus
     # frequency-independent while the rate penalty is a physical time cost.
     return (
       (self.best_score - previous_best) / env.step_dt
       - post_turn.float() * late_rate_penalty
+      + landing_hold
     )
 
 
