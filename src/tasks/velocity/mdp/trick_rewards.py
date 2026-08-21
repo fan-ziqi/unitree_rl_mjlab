@@ -1234,10 +1234,12 @@ class StanceSpinPivotResult:
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     self.anchor = torch.zeros(env.num_envs, 2, 2, device=env.device)
     self.anchor_valid = torch.zeros(env.num_envs, 2, dtype=torch.bool, device=env.device)
+    self.support_time = torch.zeros(env.num_envs, 2, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.anchor[env_ids] = 0.0
     self.anchor_valid[env_ids] = False
+    self.support_time[env_ids] = 0.0
 
   def __call__(
     self,
@@ -1249,10 +1251,16 @@ class StanceSpinPivotResult:
     horizontal_gravity_std: float,
     sensor_name: str,
     anchor_support_threshold: float,
+    anchor_settle_time: float,
     anchor_radius: float,
     asset_cfg: SceneEntityCfg,
   ) -> torch.Tensor:
-    if horizontal_gravity_std <= 0.0 or not 0.0 < anchor_support_threshold <= 1.0 or anchor_radius <= 0.0:
+    if (
+      horizontal_gravity_std <= 0.0
+      or not 0.0 < anchor_support_threshold <= 1.0
+      or anchor_settle_time < 0.0
+      or anchor_radius <= 0.0
+    ):
       raise ValueError("Stance spin pivot parameters are invalid.")
     _, moving, rate_score, support_quality, pair_index, center = _stance_spin_components(
       env, command_name, speed_deadband, std, gravity_targets, sensor_name, asset_cfg
@@ -1260,9 +1268,19 @@ class StanceSpinPivotResult:
     batch = torch.arange(env.num_envs, device=env.device)
     # Command changes are episode resets for this task, but this guard also
     # makes the state correct for a direct fixed-command evaluator.
-    self.anchor_valid[env.episode_length_buf == 0] = False
+    reset = env.episode_length_buf == 0
+    self.anchor_valid[reset] = False
+    self.support_time[reset] = 0.0
     selected_valid = self.anchor_valid[batch, pair_index]
-    establish = moving & (support_quality >= anchor_support_threshold) & (~selected_valid)
+    support_ready = moving & (support_quality >= anchor_support_threshold)
+    previous_support_time = self.support_time[batch, pair_index]
+    updated_support_time = torch.where(
+      support_ready,
+      previous_support_time + env.step_dt,
+      torch.zeros_like(previous_support_time),
+    )
+    self.support_time[batch, pair_index] = updated_support_time
+    establish = support_ready & (updated_support_time >= anchor_settle_time) & (~selected_valid)
     if torch.any(establish):
       establish_ids = batch[establish]
       establish_pairs = pair_index[establish]

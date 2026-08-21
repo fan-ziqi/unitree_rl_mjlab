@@ -237,6 +237,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # then anchored in world coordinates, so a bicycle-like translation
         # becomes negative while a local fast pivot remains positive.
         "anchor_support_threshold": 0.55,
+        # The midpoint is deliberately not fixed during the rise into a
+        # handstand.  Require a visibly settled high support first, then make
+        # its established wheel pair the local rotation centre.
+        "anchor_settle_time": 0.50,
         # Keep the normal/front/rear standing discovery signal active while
         # the policy rises.  The anchor is created only after that support is
         # broad and legal; this 0.25-m basin permits the physical rise and
