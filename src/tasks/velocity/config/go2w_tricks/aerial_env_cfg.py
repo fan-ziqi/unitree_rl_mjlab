@@ -103,15 +103,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     stationary_command_start_index=0,
     command_deadband=0.5,
     idle_contact_sensor_name=wheel_contact_cfg.name,
-    # A one-shot command still owns its *first landing*.  Handing every joint
-    # to the default pose as soon as a single wheel grazes the ground removes
-    # the only control interval in which PPO can absorb impact and arrest the
-    # final angular momentum.  The command is nevertheless cleared after the
-    # same first-landing window and a second ballistic interval terminates, so
-    # this cannot become repeated hops.  Once the public command is zero and
-    # the robot has actually regained upright four-wheel support, the existing
-    # idle gate locks the literal default pose and zero wheel speed.
-    default_after_first_landing=False,
+    # Small exploratory hops still need the literal idle stabilizer at first
+    # contact.  But once a measured turn has passed the same one-third-turn
+    # region in which the landing result becomes meaningful, the policy keeps
+    # its ordinary action authority through first touchdown.  This is the
+    # missing impact-absorption/braking interval; it supplies no pose,
+    # reference timing, or extra observation.  Command closure and the
+    # post-landing-relaunch termination still enforce exactly one jump.
+    default_after_first_landing=True,
+    default_after_first_landing_before_progress=0.35 * math.tau,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"

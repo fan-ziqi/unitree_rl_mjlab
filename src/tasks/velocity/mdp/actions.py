@@ -93,6 +93,10 @@ class DefaultIdleGatedJointPositionActionCfg(JointPositionActionCfg):
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
   default_after_first_landing: bool = False
+  # Optional aerial-only outcome gate.  It changes no action target: an early
+  # partial hop is handed to literal idle, while a sufficiently developed
+  # aerial rotation may retain PPO control through its first touchdown.
+  default_after_first_landing_before_progress: float | None = None
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointPositionAction:
     return DefaultIdleGatedJointPositionAction(self, env)
@@ -109,6 +113,7 @@ class DefaultIdleGatedJointVelocityActionCfg(JointVelocityActionCfg):
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
   default_after_first_landing: bool = False
+  default_after_first_landing_before_progress: float | None = None
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointVelocityAction:
     return DefaultIdleGatedJointVelocityAction(self, env)
@@ -124,6 +129,9 @@ class _DefaultIdleGate:
       raise ValueError("command_deadband must be non-negative.")
     if not 0.0 < self.cfg.idle_gravity_alignment <= 1.0:
       raise ValueError("idle_gravity_alignment must be in (0, 1].")
+    threshold = self.cfg.default_after_first_landing_before_progress
+    if threshold is not None and threshold < 0.0:
+      raise ValueError("first-landing progress threshold must be non-negative.")
     self._idle_command = self._env.command_manager.get_term(self.cfg.command_name)
     self._idle_contact_sensor = (
       self._env.scene[self.cfg.idle_contact_sensor_name]
@@ -189,17 +197,28 @@ class _DefaultIdleGate:
     self._idle_latched |= requested_idle & self._physical_idle_mask()
     idle = requested_idle & self._idle_latched
     if self.cfg.default_after_first_landing:
-      # Aerial commands are one-shot events: the first post-flight wheel
-      # contact ends the maneuver, so its remaining controller state is the
-      # public all-zero/default idle.  Without this hand-off, a low crouch
-      # after touchdown can never meet ``_physical_idle_mask`` and the actor
-      # retains arbitrary residual actions forever.  This supplies only the
-      # literal default idle target, never a takeoff or landing trajectory.
+      # Early random hops need a literal-idle fallback at first contact:
+      # otherwise their untrained residual action turns the landing into a
+      # body collision and erases the only takeoff discovery signal.  Once a
+      # physically measured rotation has passed the optional threshold,
+      # however, the first touchdown is exactly where the policy must retain
+      # authority to absorb impact and brake.  The gate picks neither a joint
+      # pose nor a timing reference; it only selects whether the same default
+      # target is applied.  One-shot command closure and anti-relaunch remain
+      # independent termination rules.
       landed = getattr(
         self._idle_command,
         "_landing_started",
         torch.zeros(self._env.num_envs, dtype=torch.bool, device=self._env.device),
       )
+      threshold = self.cfg.default_after_first_landing_before_progress
+      if threshold is not None:
+        progress = getattr(
+          self._idle_command,
+          "_rotation_progress",
+          torch.zeros(self._env.num_envs, device=self._env.device),
+        )
+        landed &= progress < threshold
       idle |= landed
     if isinstance(self._offset, torch.Tensor):
       self._processed_actions[idle] = self._offset[idle]
