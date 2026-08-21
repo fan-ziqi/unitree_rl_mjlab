@@ -739,11 +739,17 @@ class AerialRotationCompletion:
       self.landing_settle_time + env.step_dt,
       torch.zeros_like(self.landing_settle_time),
     )
+    # Match ``AerialRotationCommand`` exactly: five 20-ms stable control
+    # frames are the requested 0.10 s even when float32 summation represents
+    # their total just below the decimal threshold.
+    settled_long_enough = (
+      self.landing_settle_time + 0.5 * env.step_dt >= landing_settle_time
+    )
     completed = (
       stable_landing
       & (self.progress >= target_angle)
       & (self.progress <= target_angle + max_overrotation)
-      & (self.landing_settle_time >= landing_settle_time)
+      & settled_long_enough
     )
     reward = completed & (~self.awarded)
     self.awarded |= completed

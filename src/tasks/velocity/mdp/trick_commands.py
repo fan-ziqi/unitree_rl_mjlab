@@ -16,7 +16,6 @@ import math
 from dataclasses import dataclass
 
 import torch
-
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
@@ -25,9 +24,9 @@ from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
 class StanceSpinCommand(CommandTerm):
   """Sample ``[stand, front, rear, left, right, spin_rate]`` commands."""
 
-  cfg: "StanceSpinCommandCfg"
+  cfg: StanceSpinCommandCfg
 
-  def __init__(self, cfg: "StanceSpinCommandCfg", env):
+  def __init__(self, cfg: StanceSpinCommandCfg, env):
     super().__init__(cfg, env)
     if len(cfg.mode_probabilities) != 5:
       raise ValueError("mode_probabilities must contain stand/front/rear/left/right.")
@@ -150,9 +149,9 @@ class StanceLocomotionCommand(CommandTerm):
   normal four-wheel pose and both two-wheel upright poses.
   """
 
-  cfg: "StanceLocomotionCommandCfg"
+  cfg: StanceLocomotionCommandCfg
 
-  def __init__(self, cfg: "StanceLocomotionCommandCfg", env):
+  def __init__(self, cfg: StanceLocomotionCommandCfg, env):
     super().__init__(cfg, env)
     if len(cfg.mode_probabilities) != 3:
       raise ValueError("mode_probabilities must contain stand/front/rear.")
@@ -403,9 +402,9 @@ class StanceLocomotionCommandCfg(CommandTermCfg):
 class AerialRotationCommand(CommandTerm):
   """Sample one aerial trick one-hot, with the all-zero vector as idle."""
 
-  cfg: "AerialRotationCommandCfg"
+  cfg: AerialRotationCommandCfg
 
-  def __init__(self, cfg: "AerialRotationCommandCfg", env):
+  def __init__(self, cfg: AerialRotationCommandCfg, env):
     super().__init__(cfg, env)
     if len(cfg.mode_probabilities) != 5:
       raise ValueError("mode_probabilities must contain five aerial tricks.")
@@ -602,8 +601,17 @@ class AerialRotationCommand(CommandTerm):
         <= self.cfg.target_angle + self.cfg.max_overrotation
       )
     )
+    # Five 20-ms float32 additions can be represented as 0.09999999 rather
+    # than 0.10.  Compare at half a control-step precision so the configured
+    # five actual consecutive stable frames complete the one-shot command.
+    # This preserves the physical duration; it only removes a numeric
+    # off-by-one frame that was visible in validation.
+    settled_long_enough = (
+      self._landing_settle_time + 0.5 * self._env.step_dt
+      >= self.cfg.landing_settle_time
+    )
     finished = stable_landing & complete_turn & (
-      self._landing_settle_time >= self.cfg.landing_settle_time
+      settled_long_enough
     )
     self.command_buf[finished] = 0.0
     self.was_airborne[finished] = False
