@@ -101,6 +101,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     stationary_command_start_index=0,
     command_deadband=0.5,
     idle_contact_sensor_name=wheel_contact_cfg.name,
+    # Aerial commands are one-shot: immediately after their first landing,
+    # the specified controller state is four-wheel model-default idle.
+    default_after_first_landing=True,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
