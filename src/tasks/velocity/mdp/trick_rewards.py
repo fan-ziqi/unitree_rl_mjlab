@@ -1001,22 +1001,21 @@ def spin_dynamic_support_exp(
   horizontal_gravity_std: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Softly reward the Thomas-like posture and a two-wheel contact count.
+  """Discover a tall front *or* rear two-wheel pivot for normal spin.
 
-  ``stand + spin_rate`` denotes a dynamic support orbit.  It must not be
-  reduced to a permanently reared rear-wheel pose: the valid contact pair can
-  change as the policy moves through the orbit.  The two components are added,
-  rather than multiplied, so PPO can improve either one from the normal reset.
+  The AS2-W reference does not spin from an arbitrary two-wheel fall.  It
+  rises onto one transverse wheel pair, with the trunk axis approximately
+  vertical, then turns about that pair's local midpoint.  A contact count and
+  ``gravity_z == 0`` alone accidentally rewarded diagonal and side-lying
+  states.  This score names only the observable support outcome; it leaves the
+  choice of front versus rear pair and all leg coordination to PPO.
+
+  ``horizontal_gravity_std`` remains an API argument for compatibility with
+  prior configs, but tall-pair alignment is the physically meaningful signal.
   """
-  asset: Entity = env.scene[asset_cfg.name]
-  contacts = _wheel_contacts(env, sensor_name)
-  contact_count = torch.sum(contacts.float(), dim=1)
-  contact_score = torch.exp(-torch.square(contact_count - 2.0) / 1.0**2)
-  gravity_z = asset.data.projected_gravity_b[:, 2]
-  horizontal = torch.exp(-torch.square(gravity_z) / horizontal_gravity_std**2)
-  return spin_stand_mask(env, command_name, speed_deadband) * 0.5 * (
-    contact_score + horizontal
-  )
+  del horizontal_gravity_std
+  dense_score, _, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  return spin_stand_mask(env, command_name, speed_deadband) * dense_score
 
 
 def spin_dynamic_horizontal_precision_exp(
@@ -1081,15 +1080,14 @@ def stance_spin_rate_exp(
   std: float,
   gravity_targets: tuple[tuple[float, float, float], ...],
   horizontal_gravity_std: float,
+  sensor_name: str,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Track world-down spin after the command's support attitude is emerging.
+  """Track world-down rate only from a legal front/rear support pivot.
 
-  The normal moving command intentionally leaves the transverse support pair
-  free, so it only asks for a horizontal two-wheel balance.  Explicit front
-  and rear commands retain their corresponding gravity direction.  This is
-  one rate outcome shared by all rotating commands, rather than separate
-  fixed-pair and dynamic-pair reward stacks.
+  The normal one-hot is free to select either transverse pair; explicit front
+  and rear commands select their named pair.  Rate credit is deliberately
+  unavailable to an upright four-wheel yaw or a side-lying two-wheel tumble.
   """
   if std <= 0.0 or horizontal_gravity_std <= 0.0:
     raise ValueError("spin-rate scales must be positive.")
@@ -1099,16 +1097,115 @@ def stance_spin_rate_exp(
   moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
   down = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
-  rate_score = torch.exp(-torch.square(command[:, 5] - actual_rate) / std**2)
+  # A clipped linear basin supplies a ranking while the commanded speed is
+  # still several rad/s away.  A narrow Gaussian is effectively flat there
+  # and was one cause of the previous no-turn local optimum.
+  rate_score = torch.clamp(
+    1.0 - torch.abs(command[:, 5] - actual_rate) / std, min=0.0, max=1.0
+  )
   targets = torch.tensor(gravity_targets, dtype=down.dtype, device=env.device)
   fixed_alignment = torch.clamp(
     0.5 * (1.0 + torch.sum(down * targets[mode], dim=1)), 0.0, 1.0
   )
-  horizontal_alignment = torch.exp(
-    -torch.square(down[:, 2]) / horizontal_gravity_std**2
+  contacts = _wheel_contacts(env, sensor_name)
+  contact_masks = torch.tensor(
+    ((True, True, False, False), (False, False, True, True)),
+    dtype=torch.bool,
+    device=env.device,
   )
-  posture = torch.where(mode == 0, horizontal_alignment, fixed_alignment)
-  return moving.to(rate_score.dtype) * posture * rate_score
+  fixed_pair_index = torch.clamp(mode - 1, 0, 1)
+  fixed_exact = torch.all(
+    contacts == contact_masks[fixed_pair_index], dim=1
+  ).to(rate_score.dtype)
+  _, dynamic_exact, _ = _dynamic_tall_pair_scores(env, sensor_name, asset_cfg)
+  fixed_quality = fixed_exact * fixed_alignment.pow(4.0)
+  support_quality = torch.where(mode == 0, dynamic_exact, fixed_quality)
+  return moving.to(rate_score.dtype) * support_quality * rate_score
+
+
+class StanceSpinSupportCenterStillness:
+  """Keep the actual spinning wheel-pair midpoint local.
+
+  A reference-like contact pivot moves the trunk and the free legs a great
+  deal, so root linear velocity is the wrong definition of an in-place turn.
+  This term measures the supporting-wheel midpoint instead.  It handles the
+  free front/rear choice of normal spin and the explicit front/rear modes in
+  one stateful result reward.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
+    self.previous_center = torch.zeros(env.num_envs, 2, device=env.device)
+    self.previous_pair = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
+    self.initialized = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.previous_center[env_ids] = 0.0
+    self.previous_pair[env_ids] = -1
+    self.initialized[env_ids] = False
+
+  def __call__(
+    self,
+    env: "ManagerBasedRlEnv",
+    command_name: str,
+    speed_deadband: float,
+    sensor_name: str,
+    gravity_targets: tuple[tuple[float, float, float], ...],
+    speed_std: float,
+    asset_cfg: SceneEntityCfg,
+  ) -> torch.Tensor:
+    if speed_std <= 0.0:
+      raise ValueError("speed_std must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("StanceSpinSupportCenterStillness needs FL/FR/RL/RR sites.")
+
+    command = _command(env, command_name)
+    mode = torch.argmax(command[:, :5], dim=1)
+    moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
+    contacts = _wheel_contacts(env, sensor_name)
+    _, dynamic_exact, dynamic_pair = _dynamic_tall_pair_scores(
+      env, sensor_name, asset_cfg
+    )
+    fixed_pair = torch.clamp(mode - 1, 0, 1)
+    pair_index = torch.where(mode == 0, dynamic_pair, fixed_pair)
+
+    pair_masks = torch.tensor(
+      ((True, True, False, False), (False, False, True, True)),
+      dtype=torch.bool,
+      device=env.device,
+    )
+    fixed_exact = torch.all(contacts == pair_masks[fixed_pair], dim=1).float()
+    gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+    targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
+    fixed_alignment = torch.clamp(
+      0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+    )
+    fixed_quality = fixed_exact * fixed_alignment.pow(4.0)
+    support_quality = torch.where(mode == 0, dynamic_exact, fixed_quality)
+
+    pair_sites = torch.tensor(((0, 1), (2, 3)), device=env.device)
+    wheel_xy = asset.data.site_pos_w[:, asset_cfg.site_ids, :2]
+    batch = torch.arange(env.num_envs, device=env.device)
+    center = 0.5 * (
+      wheel_xy[batch, pair_sites[pair_index, 0]]
+      + wheel_xy[batch, pair_sites[pair_index, 1]]
+    )
+    initialized = self.initialized.clone()
+    center_speed = torch.linalg.vector_norm(
+      (center - self.previous_center) / env.step_dt, dim=1
+    )
+    unchanged_pair = pair_index == self.previous_pair
+    self.previous_center.copy_(center)
+    self.previous_pair.copy_(pair_index)
+    self.initialized[:] = True
+    stillness = torch.clamp(1.0 - center_speed / speed_std, min=-2.0, max=1.0)
+    return (
+      moving.to(stillness.dtype)
+      * initialized.to(stillness.dtype)
+      * unchanged_pair.to(stillness.dtype)
+      * support_quality
+      * stillness
+    )
 
 
 def fixed_pair_spin_rate_exp(

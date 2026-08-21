@@ -11,6 +11,7 @@ from __future__ import annotations
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from src.tasks.velocity.mdp import trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
@@ -26,6 +27,13 @@ from .common_env_cfg import (
   configure_default_idle_actions,
   configure_ground_support_actuators,
   make_base_go2w_trick_cfg,
+)
+
+
+# Only the in-place-pivot term needs wheel world positions.  Keep its mutable
+# selector private to that one reward-manager term.
+_SPIN_PIVOT_WHEELS = SceneEntityCfg(
+  "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
 )
 
 
@@ -138,8 +146,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
 
   ``[normal, front, rear, left, right, spin_rate]`` retains the compact public
   command.  Front/rear can spin; left/right are static supports.  A moving
-  normal command is free to choose a front or rear two-wheel balance pair,
-  matching the reference's continuously reconfigured local pivot.
+  normal command privately chooses a tall front or rear support axle.  Its
+  measured wheel-pair midpoint, rather than the root, defines an in-place
+  reference-like pivot.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
@@ -181,9 +190,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
       },
     ),
-    # The rate-bearing normal one-hot must leave four-wheel upright yaw.  It
-    # asks only for a horizontal two-wheel balance, not a fixed pair, body
-    # height, support-centre path, or a leg pose.
+    # The normal rate command may select either front or rear pair, but it is
+    # not allowed to count a diagonal/side-lying two-wheel fall as a spin.
+    # Tall-pair attitude and contact are one observable support result, not a
+    # leg-pose target or a prescribed path into the handstand.
     "dynamic_two_wheel_support": RewardTermCfg(
       func=trick_rewards.spin_dynamic_support_exp,
       weight=6.0,
@@ -200,17 +210,29 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
-        "std": 3.0,
+        # ``stance_spin_rate_exp`` uses this as a broad linear discovery
+        # basin: zero initial turn rate must still be ranked below any motion
+        # toward a 2--6 rad/s command, before final support is perfected.
+        "std": 6.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "horizontal_gravity_std": 0.45,
+        "sensor_name": wheel_contact_cfg.name,
       },
     ),
-    # A pivot may shift its legs and instantaneous support geometry.  This
-    # broad cost rejects only sustained bicycle-like translation above 0.5 m/s.
-    "planar_runaway": RewardTermCfg(
-      func=trick_rewards.spin_planar_speed_l2,
-      weight=-2.0,
-      params={"command_name": "trick", "speed_deadband": 0.20},
+    # The free legs and trunk intentionally move during the AS2-W pivot, so a
+    # root-velocity penalty mislabels the desired coordination as runaway.
+    # Measure the actual front/rear support midpoint instead.
+    "support_pivot_stillness": RewardTermCfg(
+      func=trick_rewards.StanceSpinSupportCenterStillness,
+      weight=6.0,
+      params={
+        "command_name": "trick",
+        "speed_deadband": 0.20,
+        "sensor_name": wheel_contact_cfg.name,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "speed_std": 0.30,
+        "asset_cfg": _SPIN_PIVOT_WHEELS,
+      },
     ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),

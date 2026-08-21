@@ -148,7 +148,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "landing_recovery_progress": RewardTermCfg(
       func=trick_rewards.AerialLandingRecoveryProgress,
-      weight=60.0,
+      # A high-speed one-turn overrun previously earned clearance + rotation
+      # progress and only a small failure cost.  Make the one late result
+      # potential decisive, with its brake component becoming useful only
+      # below 5 rad/s.  This still leaves the launch and all joint motion
+      # completely free to PPO.
+      weight=120.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -157,13 +162,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_overrotation": 1.25,
         "descent_distance": 0.35,
         "wheel_contact_weight": 0.80,
-        "max_axis_rate": 12.0,
+        "max_axis_rate": 5.0,
         "max_linear_speed": 3.0,
       },
     ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      weight=600.0,
+      weight=800.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -176,7 +181,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
+    # A ballistic over-rotation must rank below controlled recovery.  At the
+    # former -50, clearance and one-turn progress made an uncontrolled flip a
+    # positive-return local optimum even though it never landed.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-150.0),
   }
   # There is deliberately no reward curriculum: every command is one full
   # turn from the first sample and all five events remain equally likely.
