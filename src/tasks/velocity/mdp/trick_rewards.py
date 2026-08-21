@@ -434,11 +434,13 @@ class AerialManeuverResultProgress:
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     del cfg
     self.best_score = torch.zeros(env.num_envs, device=env.device)
+    self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_mode = torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.best_score[env_ids] = 0.0
+    self.peak_clearance[env_ids] = 0.0
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
 
@@ -469,7 +471,9 @@ class AerialManeuverResultProgress:
     mode = torch.argmax(command[:, :5], dim=1)
     reset = env.episode_length_buf == 0
     new_skill = active & ((~self.previous_active) | (mode != self.previous_mode) | reset)
-    self.best_score[reset | (~active) | new_skill] = 0.0
+    clear = reset | (~active) | new_skill
+    self.best_score[clear] = 0.0
+    self.peak_clearance[clear] = 0.0
 
     command_term = env.command_manager.get_term(command_name)
     progress = getattr(
@@ -484,11 +488,17 @@ class AerialManeuverResultProgress:
       min=0.0,
       max=1.0,
     )
+    airborne = ~torch.any(contacts, dim=1)
+    # A full turn normally finishes while descending.  V77 used the current
+    # height, so correct late angular progress could lower the potential after
+    # apex and earn no return.  Keep the best wheel-free clearance achieved in
+    # this attempt: high launch remains necessary, while later radians keep
+    # improving the same physical result.
+    self.peak_clearance = torch.maximum(
+      self.peak_clearance, airborne.to(height.dtype) * height
+    )
     turn = torch.clamp(progress / target_angle, min=0.0, max=1.0)
-    # Preserve the height discovery gradient, but keep angular progress
-    # linear: with sqrt(turn), a 0.7-turn bounce received 84% of the flight
-    # value and V76 stopped improving before one full revolution.
-    flight = (~torch.any(contacts, dim=1)).float() * torch.sqrt(height) * turn
+    flight = was_airborne.float() * torch.sqrt(self.peak_clearance) * turn
 
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0),
