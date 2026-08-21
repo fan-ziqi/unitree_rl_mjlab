@@ -456,6 +456,7 @@ class AerialManeuverResultProgress:
     landing_turn_start: float,
     recovery_linear_speed_scale: float,
     recovery_angular_speed_scale: float,
+    potential_discount: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
@@ -464,6 +465,7 @@ class AerialManeuverResultProgress:
       or not 0.0 <= landing_turn_start < target_angle
       or recovery_linear_speed_scale <= 0.0
       or recovery_angular_speed_scale <= 0.0
+      or not 0.0 < potential_discount <= 1.0
     ):
       raise ValueError("invalid aerial result parameters.")
 
@@ -586,10 +588,15 @@ class AerialManeuverResultProgress:
     # wheel-free height/turn gets the policy to the landing, and four-wheel
     # upright recovery supplies the larger final return.
     score = active.float() * (0.40 * flight + 0.60 * landing)
-    # Return the actual potential difference.  It is positive while the
-    # maneuver improves (including recovery after touchdown) and negative
-    # when it throws away a one-turn result by over-rotating.  ``peak_clearance``
-    # already prevents a correct descending arc from losing its launch value.
+    # Use the *discount-correct* potential difference.  PPO discounts returns
+    # by ``gamma``: with a plain ``score - previous_score``, a policy can
+    # collect the rise to a one-turn airborne score early, then lose it later
+    # while over-rotating, yet retain a positive discounted return.  That was
+    # exactly the high-rate crash local optimum in V85--V87.  The shaping
+    # theorem instead requires ``gamma * Phi(next) - Phi(current)``.  This
+    # keeps every dense physical discovery signal but makes an unlanded
+    # intermediate result cancel out under the same PPO discount, leaving the
+    # strict landing event as the only durable outcome advantage.
     #
     # A pure potential difference has one blind spot: after first touching
     # down in an almost-good result its value is exactly zero on every
@@ -612,7 +619,9 @@ class AerialManeuverResultProgress:
     self.previous_score = score
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
-    return (score - previous_score) / env.step_dt + 0.25 * active.float() * stable_touchdown
+    return (
+      potential_discount * score - previous_score
+    ) / env.step_dt + 0.25 * active.float() * stable_touchdown
 
 
 def _advance_qualified_aerial_rotation(

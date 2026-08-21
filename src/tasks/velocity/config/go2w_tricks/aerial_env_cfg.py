@@ -130,6 +130,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_turn_start": 0.75 * math.tau,
         "recovery_linear_speed_scale": 5.0,
         "recovery_angular_speed_scale": 12.0,
+        # Must equal the aerial PPO gamma: this makes the sole dense result
+        # term a correct discounted potential instead of rewarding a turn
+        # that is later thrown away in a crash.
+        "potential_discount": 0.997,
       },
     ),
     "completed_rotation": RewardTermCfg(
