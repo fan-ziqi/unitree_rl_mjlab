@@ -59,9 +59,9 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Normal is four-wheel idle; every named two-wheel mode can pivot."""
+  """Normal is idle; only front/rear have a feasible dynamic pivot."""
   rates = torch.zeros_like(modes, dtype=torch.float32)
-  rates[modes > 0] = spin_rate
+  rates[(modes == 1) | (modes == 2)] = spin_rate
   return rates
 
 
@@ -74,7 +74,7 @@ def _pin_modes(
   """Pin one-hot targets, optionally reproducing the training-rate ramp."""
   command_term.command_buf.zero_()
   rates = _mode_rates(modes, spin_rate).to(command_term.command_buf.dtype)
-  active = rates.abs() > 0.20
+  active = modes > 0
   command_term.command_buf[
     torch.arange(command_term.num_envs, device=modes.device)[active], modes[active]
   ] = 1.0
@@ -221,9 +221,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         * torch.abs(torch.sum(centre_line * axle_a, dim=1))
         * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
       )
-      rate_ok = torch.where(
-        active_spin, rate_error < 0.75, torch.ones_like(active_spin)
-      )
+      rate_ok = torch.where(active_spin, rate_error < 0.75, torch.ones_like(active_spin))
       pose_ok = target_alignment >= 0.97
       pivot_ok = torch.where(
         active_spin,
@@ -236,8 +234,14 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       idle_quiet = (
         torch.linalg.vector_norm(robot.data.root_link_lin_vel_w[:, :2], dim=1) < 0.05
       ) & (torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1) < 0.75)
+      static_support = (modes > 0) & ~active_spin
+      static_quiet = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1) < 0.75
       success = support_ok & rate_ok & pose_ok & pivot_ok & axle_ok & ~nonwheel
-      success = success & torch.where(active_spin, torch.ones_like(success), idle_quiet)
+      success = success & torch.where(
+        active_spin,
+        torch.ones_like(success),
+        torch.where(static_support, static_quiet, idle_quiet),
+      )
 
       sample_count += valid.float()
       alignment_sum += valid.float() * target_alignment

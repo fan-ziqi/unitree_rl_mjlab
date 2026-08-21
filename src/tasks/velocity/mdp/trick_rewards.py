@@ -162,8 +162,10 @@ def _stance_spin_components(
   contact_masks: tuple[tuple[float, float, float, float], ...],
   sensor_name: str,
   asset_cfg: SceneEntityCfg,
-) -> tuple[Entity, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-  """Measure a named, coaxial two-wheel axle and world-down pivot rate."""
+) -> tuple[
+  Entity, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+]:
+  """Measure a static support or front/rear coaxial world-down pivot."""
   if rate_std <= 0.0:
     raise ValueError("rate_std must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
@@ -172,9 +174,13 @@ def _stance_spin_components(
 
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
+  active = (torch.sum(command[:, :5], dim=1) > 0.5) & (mode > 0)
+  # Only front/rear supports have a horizontal transverse wheel axle when
+  # their commanded body axis is vertical.  Side supports remain valuable
+  # static two-wheel modes but cannot satisfy the video pivot geometry.
   moving = (
-    (torch.sum(command[:, :5], dim=1) > 0.5)
-    & (mode > 0)
+    active
+    & (mode <= 2)
     & (torch.abs(command[:, 5]) > speed_deadband)
   )
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
@@ -241,19 +247,19 @@ def _stance_spin_components(
   support_quality = (
     contact_score * alignment * height_score * (0.15 + 0.85 * coaxiality)
   )
-  return asset, moving, rate_score, support_quality, support_pair
+  return asset, active, moving, rate_score, support_quality, support_pair
 
 
 class StanceSpinPivotResult:
-  """Reward high-rate rotation of a coaxial support whose centre stays local.
+  """Reward static supports and high-rate front/rear coaxial pivots.
 
   The supporting wheel centres, rather than root velocity, identify the
   physical pivot.  This is instantaneous measured geometry: no anchor,
   transition clock, reference path, or limb trajectory is retained in state.
   A bicycle-like support translation is explicitly worse than no spin.  A
-  small support baseline is part of this same result so PPO can discover the
-  handstand from four wheels; it is intentionally much lower than a correct
-  stationary fast pivot.
+  Static front/rear/left/right one-hots use the same physical support result
+  with an angular-stillness factor.  A front/rear rate request upgrades that
+  outcome into the stationary high-rate pivot seen in the reference video.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -276,7 +282,7 @@ class StanceSpinPivotResult:
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
-    asset, moving, rate_score, support_quality, pair = _stance_spin_components(
+    asset, active, moving, rate_score, support_quality, pair = _stance_spin_components(
       env,
       command_name,
       speed_deadband,
@@ -299,7 +305,12 @@ class StanceSpinPivotResult:
     # identical physical centre-speed penalty rejects bicycle translation.
     support_and_rate = support_quality * (0.35 + 0.65 * rate_score)
     translation_penalty = torch.square(support_quality) * translation_cost
-    return moving.to(rate_score.dtype) * (support_and_rate - translation_penalty)
+    dynamic_result = support_and_rate - translation_penalty
+    static_angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    static_result = support_quality * torch.clamp(
+      1.0 - static_angular_speed / 1.0, min=0.0, max=1.0
+    )
+    return active.to(rate_score.dtype) * torch.where(moving, dynamic_result, static_result)
 
 
 # ---------------------------------------------------------------------------

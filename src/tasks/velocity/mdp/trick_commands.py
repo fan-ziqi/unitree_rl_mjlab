@@ -22,12 +22,14 @@ from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
 
 
 class StanceSpinCommand(CommandTerm):
-  """Sample idle or ``[front, rear, left, right, signed_spin_rate]``.
+  """Sample a default idle, static support, or a front/rear axle pivot.
 
-  The all-zero command is the literal four-wheel idle.  A nonzero rate is a
-  request to form one named two-wheel balancing axle and pivot about it.
-  ``normal`` is retained in the public one-hot layout as the idle state, but
-  never becomes a second moving two-wheel skill.
+  The public layout is ``[normal, front, rear, left, right, spin_rate]``.
+  All zero is the literal default four-wheel idle.  A selected front/rear
+  support may be static or receive a signed pivot rate.  Left/right supports
+  are deliberately static: with the trunk side-down their wheel axes point
+  vertically, so asking them to be both a two-wheel ground support and a
+  horizontal coaxial pivot is physically contradictory.
   """
 
   cfg: StanceSpinCommandCfg
@@ -42,6 +44,10 @@ class StanceSpinCommand(CommandTerm):
       raise ValueError("mode_probabilities must have positive total mass.")
     if not 0.0 <= cfg.spin_idle_probability <= 1.0:
       raise ValueError("spin_idle_probability must be in [0, 1].")
+    if len(cfg.static_mode_probabilities) != 5:
+      raise ValueError("static_mode_probabilities must contain stand/front/rear/left/right.")
+    if any(not 0.0 <= probability <= 1.0 for probability in cfg.static_mode_probabilities):
+      raise ValueError("static_mode_probabilities must lie in [0, 1].")
     if cfg.spin_rate_range[0] <= 0.0 or cfg.spin_rate_range[0] > cfg.spin_rate_range[1]:
       raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
     if cfg.spin_rate_ramp_rate <= 0.0:
@@ -51,6 +57,9 @@ class StanceSpinCommand(CommandTerm):
     self._target_spin_rate = torch.zeros(self.num_envs, device=self.device)
     self._mode_probabilities = torch.tensor(
       cfg.mode_probabilities, dtype=torch.float32, device=self.device
+    )
+    self._static_mode_probabilities = torch.tensor(
+      cfg.static_mode_probabilities, dtype=torch.float32, device=self.device
     )
 
   @property
@@ -70,17 +79,21 @@ class StanceSpinCommand(CommandTerm):
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
-    # Zero rate is deliberately the public all-zero four-wheel idle, even if
-    # the sampler first drew a stance label.  Only front/rear/left/right with
-    # a nonzero rate release the policy from default control.  In particular,
-    # mode zero must never silently turn into the front/rear balancing pose.
-    candidates = modes > 0
-    moving = torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
-    active = candidates & moving
-    moving_ids = env_ids[active]
+    # The default idle has no one-hot and no wheel rate.  A selected one-hot
+    # always releases the idle gate, including a deliberately static support.
+    # Only the transverse front/rear axles can pivot around world-down; a
+    # side support is sampled static irrespective of its rate channel.
+    selected = (torch.rand(count, device=self.device) > self.cfg.spin_idle_probability) & (modes > 0)
+    selected_ids = env_ids[selected]
+    if len(selected_ids) == 0:
+      return
+    self.command_buf[selected_ids, modes[selected]] = 1.0
+    static = torch.rand(count, device=self.device) < self._static_mode_probabilities[modes]
+    moving = selected & (~static) & (modes <= 2)
+    moving_ids = env_ids[moving]
     if len(moving_ids) == 0:
       return
-    self.command_buf[moving_ids, modes[active]] = 1.0
+    self.command_buf[moving_ids, modes[moving]] = 1.0
     magnitude = torch.empty(len(moving_ids), device=self.device).uniform_(
       *self.cfg.spin_rate_range
     )
@@ -103,6 +116,7 @@ class StanceSpinCommand(CommandTerm):
     *,
     mode_probabilities: tuple[float, float, float, float, float] | None = None,
     spin_idle_probability: float | None = None,
+    static_mode_probabilities: tuple[float, float, float, float, float] | None = None,
     spin_rate_range: tuple[float, float] | None = None,
   ) -> None:
     """Update sampling difficulty without changing the actor command layout."""
@@ -119,6 +133,15 @@ class StanceSpinCommand(CommandTerm):
       if not 0.0 <= spin_idle_probability <= 1.0:
         raise ValueError("spin_idle_probability must be in [0, 1].")
       self.cfg.spin_idle_probability = spin_idle_probability
+    if static_mode_probabilities is not None:
+      if len(static_mode_probabilities) != 5 or any(
+        not 0.0 <= probability <= 1.0 for probability in static_mode_probabilities
+      ):
+        raise ValueError("static_mode_probabilities must contain five values in [0, 1].")
+      self.cfg.static_mode_probabilities = static_mode_probabilities
+      self._static_mode_probabilities = torch.tensor(
+        static_mode_probabilities, dtype=torch.float32, device=self.device
+      )
     if spin_rate_range is not None:
       if spin_rate_range[0] <= 0.0 or spin_rate_range[0] > spin_rate_range[1]:
         raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
@@ -138,6 +161,16 @@ class StanceSpinCommandCfg(CommandTermCfg):
     0.125,
   )
   spin_idle_probability: float = 0.55
+  # A selected support can be held without rotation.  Side supports are
+  # always static because their wheel axles cannot make a horizontal
+  # balancing axle in the requested side-down attitude.
+  static_mode_probabilities: tuple[float, float, float, float, float] = (
+    1.0,
+    0.25,
+    0.25,
+    1.0,
+    1.0,
+  )
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0
 
