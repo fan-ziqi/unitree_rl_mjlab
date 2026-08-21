@@ -127,22 +127,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # which is the opposite of the quick, responsive leg coordination needed
   # for a compact aerial maneuver.
   cfg.rewards = {
-    "takeoff_vertical_speed": RewardTermCfg(
-      func=trick_rewards.AerialTakeoffVerticalSpeed,
-      # A full, recoverable aerial turn needs flight time before it needs a
-      # faster angular impulse.  V72 still chose 1.3--1.5 m/s low hops because
-      # its one-off takeoff result ranked below partial angular progress.
-      # Raise this existing outcome's priority rather than adding a phase,
-      # reference motion, or another shaping term.
+    "takeoff_clearance": RewardTermCfg(
+      func=trick_rewards.AerialClearanceProgress,
+      # The V73 velocity event was easy to collect at initial liftoff while
+      # still producing a 0.22--0.28 m low hop.  The physical quantity needed
+      # to finish and brake a turn is the resulting ballistic clearance, so
+      # reward one-time improvement in measured apex instead.  This adds no
+      # phase, trajectory, or posture target.
       weight=120.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        # The previous clearance-only target accepted a 0.24--0.28 m hop:
-        # roughly 0.3 s of flight at the measured 9--11 rad/s, which leaves
-        # no physical time to finish and brake a full turn.  This is a single
-        # measured launch impulse, not a desired pose or timing trajectory.
-        "target_speed": 2.0,
+        # A 0.40-m clearance is deliberately above every V71--V73 low-hop
+        # local solution.  It leaves enough physical air time for a one-turn
+        # maneuver without prescribing how any leg must create the impulse.
+        "min_clearance": 0.40,
       },
     ),
     "rotation_progress": RewardTermCfg(
