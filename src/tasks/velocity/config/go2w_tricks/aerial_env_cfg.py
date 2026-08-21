@@ -103,15 +103,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     stationary_command_start_index=0,
     command_deadband=0.5,
     idle_contact_sensor_name=wheel_contact_cfg.name,
-    # Small exploratory hops still need the literal idle stabilizer at first
-    # contact.  But once a measured turn has passed the same one-third-turn
-    # region in which the landing result becomes meaningful, the policy keeps
-    # its ordinary action authority through first touchdown.  This is the
-    # missing impact-absorption/braking interval; it supplies no pose,
-    # reference timing, or extra observation.  Command closure and the
+    # Small and medium exploratory hops still need the literal idle stabilizer
+    # at first contact.  V103 showed that handing a one-third turn to an
+    # untrained landing policy corrupts the already useful takeoff discovery
+    # signal.  Only after three quarters of the measured full turn does PPO
+    # retain action authority through first touchdown, which is exactly the
+    # late impact-absorption/braking interval we need to improve.  This adds
+    # no pose, reference timing, or extra observation; command closure and the
     # post-landing-relaunch termination still enforce exactly one jump.
     default_after_first_landing=True,
-    default_after_first_landing_before_progress=0.35 * math.tau,
+    default_after_first_landing_before_progress=0.75 * math.tau,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
