@@ -131,7 +131,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # rules out a wheel-pivot/low-hop exploit but leaves the jump geometry
         # entirely to PPO.
         "target_clearance": 0.40,
-        "landing_turn_start": 0.75 * math.tau,
+        # The strict one-turn event remains the only completion criterion.
+        # Begin the same contact-and-braking result gradient after 0.4 turns,
+        # however: V90 reached repeatable 0.6-turn ballistic yaw hops, but
+        # with the former 0.75-turn gate it received no durable signal to
+        # arrest them on four wheels.  This is an outcome-only bridge from a
+        # real partial turn to the full-turn event, not a phase or pose target.
+        "landing_turn_start": 0.40 * math.tau,
         "recovery_linear_speed_scale": 5.0,
         "recovery_angular_speed_scale": 12.0,
         # Must equal the aerial PPO gamma: this makes the sole dense result
