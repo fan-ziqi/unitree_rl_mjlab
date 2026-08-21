@@ -110,12 +110,16 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # before any full turn was sampled, yielding only small safe hops.  The
     # action clamp still bounds every joint residual; retain a wider Gaussian
     # long enough for the rare complete ballistic event to be discovered.
-    init_std=0.55,
+    init_std=0.45,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
-    clip_actions=1.0,
+    # The actuator torque limits remain the physical limit.  A 1.5 residual
+    # range merely lets the position servo sustain that limit through the
+    # launch, whereas +/- 1.0 repeatedly plateaued at safe 0.2--0.5-turn
+    # hops before a full ballistic turn was ever sampled.
+    clip_actions=1.5,
     # Keep enough stochasticity for all five one-hots, but not enough to turn
     # a compliant torque actuator into a permanently saturated random kick.
-    entropy_coef=0.002,
+    entropy_coef=0.001,
   )
