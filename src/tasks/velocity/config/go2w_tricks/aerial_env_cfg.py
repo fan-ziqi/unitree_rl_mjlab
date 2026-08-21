@@ -111,12 +111,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
 
-  # There is intentionally one event reward.  It is paid once at the end of
-  # the first post-flight landing window, so a safe partial turn supplies an
-  # exploration gradient while a command can never collect from repeated
-  # hops.  A strict full-turn four-wheel landing earns the large bonus inside
-  # the same term.  No joint pose, limb timing, or reference trajectory is
-  # named anywhere in this objective.
+  # There is intentionally one event reward.  It is paid once only after the
+  # first landing survives a short all-zero/default-idle interval, so a safe
+  # partial turn supplies an exploration gradient while a rebound cannot
+  # collect from repeated hops.  A strict full-turn four-wheel landing earns
+  # the large bonus inside the same term.  No joint pose, limb timing, or
+  # reference trajectory is named anywhere in this objective.
   cfg.rewards = {
     "first_landing_result": RewardTermCfg(
       func=trick_rewards.AerialFirstLandingResult,
@@ -130,9 +130,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_overrotation": 1.25,
         "target_clearance": 0.40,
         "landing_window_s": 0.10,
+        # Verify the result under the all-zero/default idle command before
+        # paying it.  This turns any immediate rebound into a failure rather
+        # than a profitable second hop.
+        "post_idle_settle_time_s": 0.20,
         "recovery_linear_speed_scale": 5.0,
         "recovery_angular_speed_scale": 12.0,
-        "landing_settle_time": 0.10,
         "landing_gravity_error_limit": 0.30,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,

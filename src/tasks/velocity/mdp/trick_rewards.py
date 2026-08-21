@@ -851,10 +851,18 @@ class AerialFirstLandingResult:
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
+    # A landing has been observed and its command was closed, but its outcome
+    # has not yet been paid.  Holding the reward through a brief public-idle
+    # interval makes a bounce, body impact, or deliberate relaunch fail
+    # before it can collect the first-landing score.
+    self.pending = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.idle_settle_time = torch.zeros(env.num_envs, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.peak_clearance[env_ids] = 0.0
+    self.pending[env_ids] = False
+    self.idle_settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
 
   def __call__(
@@ -866,25 +874,25 @@ class AerialFirstLandingResult:
     max_overrotation: float,
     target_clearance: float,
     landing_window_s: float,
+    post_idle_settle_time_s: float,
     recovery_linear_speed_scale: float,
     recovery_angular_speed_scale: float,
     landing_gravity_error_limit: float,
-    landing_settle_time: float,
     landing_linear_velocity_limit: float,
     landing_angular_velocity_limit: float,
     strict_completion_bonus: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    """Return an event reward at the end of the first landing window."""
+    """Return one verified outcome after a first landing and idle hold."""
     if (
       target_angle <= 0.0
       or max_overrotation <= 0.0
       or target_clearance <= 0.0
       or landing_window_s <= 0.0
+      or post_idle_settle_time_s <= 0.0
       or recovery_linear_speed_scale <= 0.0
       or recovery_angular_speed_scale <= 0.0
       or landing_gravity_error_limit <= 0.0
-      or landing_settle_time <= 0.0
       or landing_linear_velocity_limit <= 0.0
       or landing_angular_velocity_limit <= 0.0
       or strict_completion_bonus < 0.0
@@ -914,16 +922,34 @@ class AerialFirstLandingResult:
     )
 
     # RewardManager evaluates before CommandManager advances this control
-    # step.  Include that pending step so this fires on the same frame on
-    # which the command state machine clears the one-hot.
+    # step.  Include that pending step so this marks the same frame on which
+    # the command state machine will clear the one-hot.
     landing_hold_time = getattr(
       command_term, "_landing_hold_time", torch.zeros_like(self.peak_clearance)
     )
     closing = active & landing_started & (
       landing_hold_time + 1.5 * env.step_dt >= landing_window_s
     )
-    award = closing & ~self.awarded
-    self.awarded |= closing
+    self.pending |= closing & ~self.awarded
+
+    # The literal all-zero command is the normal four-wheel idle controller.
+    # Do not reward a landing until it has survived under that controller.  In
+    # particular, a rebound becomes ``post_landing_relaunch`` and an illegal
+    # non-wheel contact becomes terminal before the event gets any payoff.
+    idle_after_event = self.pending & (~active) & landing_started
+    alive_now = ~env.termination_manager.terminated
+    self.idle_settle_time = torch.where(
+      idle_after_event & alive_now,
+      self.idle_settle_time + env.step_dt,
+      torch.zeros_like(self.idle_settle_time),
+    )
+    award = (
+      self.pending
+      & (~active)
+      & (self.idle_settle_time + 0.5 * env.step_dt >= post_idle_settle_time_s)
+      & (~self.awarded)
+    )
+    self.awarded |= award
 
     progress = getattr(
       command_term, "_rotation_progress", torch.zeros_like(self.peak_clearance)
@@ -972,12 +998,16 @@ class AerialFirstLandingResult:
       & (linear_speed < landing_linear_velocity_limit)
       & (angular_speed < landing_angular_velocity_limit)
     )
-    settle_time = getattr(
-      command_term, "_landing_settle_time", torch.zeros_like(self.peak_clearance)
+    # ``_last_attempt_succeeded`` is latched at command closure, before the
+    # public one-hot is cleared.  It carries the strict first-landing verdict
+    # into the idle verification interval without exposing any extra actor
+    # observation.
+    strict_first_landing = getattr(
+      command_term, "_last_attempt_succeeded", torch.zeros_like(active)
     )
     strict_completion = (
       stable
-      & (settle_time + 1.5 * env.step_dt >= landing_settle_time)
+      & strict_first_landing
       & (progress >= target_angle)
       & (progress <= target_angle + max_overrotation)
     )
