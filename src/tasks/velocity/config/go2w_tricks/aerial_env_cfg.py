@@ -109,64 +109,35 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
 
-  # There is intentionally one dense result and one success event.  Earlier
-  # versions paid separately for height, partial angle, and a loose recovery
-  # score.  A policy could therefore make a high rigid bounce, collect all
-  # useful return before landing, and never discover the complete maneuver.
-  # ``AerialManeuverResultProgress`` is a single bounded potential: flight
-  # contributes only when clearance and signed turn coexist; a four-wheel
-  # recovery then adds the larger final value only close to the same full
-  # turn.  Its speed scales are intentionally broad dense shaping; the
-  # following completion event retains the strict physical acceptance test.
-  # No term names a joint pose, limb timing, or demonstration trajectory.
+  # There is intentionally one event reward.  It is paid once at the end of
+  # the first post-flight landing window, so a safe partial turn supplies an
+  # exploration gradient while a command can never collect from repeated
+  # hops.  A strict full-turn four-wheel landing earns the large bonus inside
+  # the same term.  No joint pose, limb timing, or reference trajectory is
+  # named anywhere in this objective.
   cfg.rewards = {
-    "complete_maneuver_progress": RewardTermCfg(
-      func=trick_rewards.AerialManeuverResultProgress,
-      # A full turn must rank materially above the stable 0.6--0.8-turn hop
-      # observed in V76.  The potential remains bounded; this only restores
-      # a useful return gap between a partial flip and the requested result.
-      weight=500.0,
+    "first_landing_result": RewardTermCfg(
+      func=trick_rewards.AerialFirstLandingResult,
+      # A strictly completed event is worth 5x a perfect graded partial
+      # landing, while any body contact loses more than a mediocre result.
+      weight=700.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        # Measured root clearance above the literal four-wheel default.  It
-        # rules out a wheel-pivot/low-hop exploit but leaves the jump geometry
-        # entirely to PPO.
+        "max_overrotation": 1.25,
         "target_clearance": 0.40,
-        # The strict one-turn event remains the only completion criterion.
-        # Begin the same contact-and-braking result gradient after 0.4 turns,
-        # however: V90 reached repeatable 0.6-turn ballistic yaw hops, but
-        # with the former 0.75-turn gate it received no durable signal to
-        # arrest them on four wheels.  This is an outcome-only bridge from a
-        # real partial turn to the full-turn event, not a phase or pose target.
-        "landing_turn_start": 0.40 * math.tau,
+        "landing_window_s": 0.10,
         "recovery_linear_speed_scale": 5.0,
         "recovery_angular_speed_scale": 12.0,
-        # Must equal the aerial PPO gamma: this makes the sole dense result
-        # term a correct discounted potential instead of rewarding a turn
-        # that is later thrown away in a crash.
-        "potential_discount": 0.997,
-      },
-    ),
-    "completed_rotation": RewardTermCfg(
-      func=trick_rewards.AerialRotationCompletion,
-      weight=2000.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "axes": AERIAL_AXES,
-        "target_angle": math.tau,
         "landing_settle_time": 0.10,
+        "landing_gravity_error_limit": 0.30,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
-        "max_overrotation": 1.25,
+        "strict_completion_bonus": 4.0,
       },
     ),
-    # A ballistic over-rotation must rank below controlled recovery.  At the
-    # former -50, clearance and one-turn progress made an uncontrolled flip a
-    # positive-return local optimum even though it never landed.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-150.0),
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-200.0),
   }
   # There is deliberately no reward curriculum: every command is one full
   # turn from the first sample and all five events remain equally likely.

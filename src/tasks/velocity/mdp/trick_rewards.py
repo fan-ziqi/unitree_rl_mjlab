@@ -837,3 +837,142 @@ class AerialRotationCompletion:
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return reward.float() / env.step_dt
+
+
+class AerialFirstLandingResult:
+  """Score exactly one physical result after an aerial command.
+
+  This deliberately evaluates only the first post-flight landing window.  It
+  gives PPO a graded outcome for a safe partial turn, but no reward for a
+  second hop: the command term closes the event immediately afterwards.  No
+  joint posture, phase, or demonstration reference is involved.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
+    self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_clearance[env_ids] = 0.0
+    self.awarded[env_ids] = False
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    sensor_name: str,
+    target_angle: float,
+    max_overrotation: float,
+    target_clearance: float,
+    landing_window_s: float,
+    recovery_linear_speed_scale: float,
+    recovery_angular_speed_scale: float,
+    landing_gravity_error_limit: float,
+    landing_settle_time: float,
+    landing_linear_velocity_limit: float,
+    landing_angular_velocity_limit: float,
+    strict_completion_bonus: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    """Return an event reward at the end of the first landing window."""
+    if (
+      target_angle <= 0.0
+      or max_overrotation <= 0.0
+      or target_clearance <= 0.0
+      or landing_window_s <= 0.0
+      or recovery_linear_speed_scale <= 0.0
+      or recovery_angular_speed_scale <= 0.0
+      or landing_gravity_error_limit <= 0.0
+      or landing_settle_time <= 0.0
+      or landing_linear_velocity_limit <= 0.0
+      or landing_angular_velocity_limit <= 0.0
+      or strict_completion_bonus < 0.0
+    ):
+      raise ValueError("invalid aerial first-landing result parameters.")
+
+    asset: Entity = env.scene[asset_cfg.name]
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    command_term = env.command_manager.get_term(command_name)
+    contacts = _wheel_contacts(env, sensor_name)
+    airborne = ~torch.any(contacts, dim=1)
+    default_root_state = asset.data.default_root_state
+    assert default_root_state is not None
+    clearance = torch.clamp(
+      (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
+      / target_clearance,
+      min=0.0,
+      max=1.0,
+    )
+    landing_started = getattr(
+      command_term, "_landing_started", torch.zeros_like(active)
+    )
+    self.peak_clearance = torch.maximum(
+      self.peak_clearance,
+      active.to(clearance.dtype) * (~landing_started).to(clearance.dtype) * airborne.to(clearance.dtype) * clearance,
+    )
+
+    # RewardManager evaluates before CommandManager advances this control
+    # step.  Include that pending step so this fires on the same frame on
+    # which the command state machine clears the one-hot.
+    landing_hold_time = getattr(
+      command_term, "_landing_hold_time", torch.zeros_like(self.peak_clearance)
+    )
+    closing = active & landing_started & (
+      landing_hold_time + 1.5 * env.step_dt >= landing_window_s
+    )
+    award = closing & ~self.awarded
+    self.awarded |= closing
+
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros_like(self.peak_clearance)
+    )
+    turn_before_target = torch.clamp(progress / target_angle, min=0.0, max=1.0)
+    turn_after_target = torch.clamp(
+      1.0 - (progress - target_angle) / max_overrotation, min=0.0, max=1.0
+    )
+    turn_quality = torch.where(progress <= target_angle, turn_before_target, turn_after_target)
+    normal_gravity = torch.tensor(
+      (0.0, 0.0, -1.0),
+      dtype=asset.data.projected_gravity_b.dtype,
+      device=env.device,
+    )
+    gravity_error = torch.sum(
+      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+    )
+    upright = torch.clamp(1.0 - torch.sqrt(gravity_error) / 2.0, min=0.0, max=1.0)
+    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
+    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    linear_settled = torch.clamp(
+      1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
+    )
+    angular_settled = torch.clamp(
+      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
+    )
+    landing_quality = 0.25 * (
+      contacts.float().mean(dim=1) + upright + linear_settled + angular_settled
+    )
+    graded_result = (
+      getattr(command_term, "was_airborne", torch.zeros_like(active)).float()
+      * torch.sqrt(self.peak_clearance)
+      * turn_quality
+      * (0.20 + 0.80 * landing_quality)
+    )
+    stable = (
+      torch.all(contacts, dim=1)
+      & (gravity_error < landing_gravity_error_limit)
+      & (linear_speed < landing_linear_velocity_limit)
+      & (angular_speed < landing_angular_velocity_limit)
+    )
+    settle_time = getattr(
+      command_term, "_landing_settle_time", torch.zeros_like(self.peak_clearance)
+    )
+    strict_completion = (
+      stable
+      & (settle_time + 1.5 * env.step_dt >= landing_settle_time)
+      & (progress >= target_angle)
+      & (progress <= target_angle + max_overrotation)
+    )
+    result = graded_result + strict_completion.float() * strict_completion_bonus
+    return award.to(result.dtype) * result / env.step_dt
