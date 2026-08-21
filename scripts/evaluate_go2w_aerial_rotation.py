@@ -24,9 +24,6 @@ from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
 TASK_ID = "Unitree-Go2W-Aerial-Rotation-Flat"
 MODE_NAMES = ("front", "back", "left", "right", "yaw")
 TARGET_ANGLE = math.tau
-# Keep validation aligned with the aerial environment's physical compactness
-# termination.  This is a measured quality constraint, not an actor input.
-COMPACT_LEG_DEVIATION_LIMIT = 0.55
 MetricDict = dict[str, float | int | str]
 
 
@@ -181,12 +178,10 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     peak_height_delta = torch.zeros(cfg.num_envs, device=base_env.device)
     peak_axis_rate = torch.zeros(cfg.num_envs, device=base_env.device)
     takeoff_vertical_speed = torch.zeros(cfg.num_envs, device=base_env.device)
-    # This does not prescribe a motion.  It makes the compact-wheel-leg
-    # requirement measurable during validation: the task rejects an excursion
-    # above 0.32 rad, so values near that bound show a large leg swing.
+    # Report joint excursion descriptively for video/data review.  It is not a
+    # success criterion: expressive legs are legal as long as no non-wheel
+    # geometry supports on the ground.
     peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
-    peak_leg_excess_l2 = torch.zeros(cfg.num_envs, device=base_env.device)
-    leg_envelope_violated = torch.zeros_like(trial_open)
     completion_gravity_error = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_linear_speed = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_angular_speed = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -283,22 +278,6 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     torch.zeros_like(peak_leg_deviation),
                 ),
             )
-            leg_excess_l2 = torch.sum(
-                torch.square(torch.relu(leg_deviation - 0.12)), dim=1
-            )
-            peak_leg_excess_l2 = torch.maximum(
-                peak_leg_excess_l2,
-                torch.where(
-                    trial_open, leg_excess_l2, torch.zeros_like(peak_leg_excess_l2)
-                ),
-            )
-            # Keep this separate from the generic failure rate.  The environment
-            # ends these episodes immediately, but the terminal state is still the
-            # clearest validation evidence that a policy tried to use a large swing.
-            leg_envelope_violated |= trial_open & torch.any(
-                leg_deviation > COMPACT_LEG_DEVIATION_LIMIT, dim=1
-            )
-
             post_active = torch.sum(command_term.command, dim=1) > 0.5
             full_turn_seen |= trial_open & (
                 command_term._rotation_progress >= TARGET_ANGLE
@@ -421,11 +400,6 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 peak_leg_deviation[mask], 0.95
             ).item(),
             "max_peak_leg_deviation_rad": peak_leg_deviation[mask].max().item(),
-            "mean_peak_leg_excess_l2": peak_leg_excess_l2[mask].mean().item(),
-            "leg_envelope_violation_rate": leg_envelope_violated[mask]
-            .float()
-            .mean()
-            .item(),
             "completion_four_wheel_contact_rate": completion_all_wheels[completed_mask]
             .float()
             .sum()

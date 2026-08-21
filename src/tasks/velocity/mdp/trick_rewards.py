@@ -220,6 +220,46 @@ def mode_contact_match(
   return active.to(contacts.dtype) * score
 
 
+def mode_support_score(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  modes: tuple[int, ...],
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  contact_masks: tuple[tuple[float, float, float, float], ...],
+  sensor_name: str,
+  num_modes: int = 5,
+  orientation_weight: float = 0.5,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """One dense result score for commanded attitude and wheel support.
+
+  A support trick has exactly two visible outcomes: the body points in the
+  requested gravity direction and the requested wheels, rather than the
+  chassis or legs, carry contact.  Keeping them as one additive score avoids
+  the reward-stack pattern where an exact contact gate suppresses the only
+  useful attitude gradient from the ordinary four-wheel reset.
+  """
+  if not 0.0 <= orientation_weight <= 1.0:
+    raise ValueError("orientation_weight must be in [0, 1].")
+  asset: Entity = env.scene[asset_cfg.name]
+  active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
+  orientation = torch.clamp(
+    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+  )
+  contacts = _wheel_contacts(env, sensor_name).float()
+  masks = torch.tensor(contact_masks, dtype=contacts.dtype, device=env.device)
+  target = masks[mode]
+  desired_fraction = (contacts * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
+  non_target = 1.0 - target
+  extra_fraction = (contacts * non_target).sum(dim=1) / non_target.sum(dim=1).clamp_min(1.0)
+  support = desired_fraction * (1.0 - extra_fraction)
+  return active.to(orientation.dtype) * (
+    orientation_weight * orientation + (1.0 - orientation_weight) * support
+  )
+
+
 def mode_support_wheel_center_height_exp(
   env: "ManagerBasedRlEnv",
   command_name: str,
@@ -1032,6 +1072,43 @@ def spin_dynamic_rate_exp(
   rate_reward = torch.exp(-torch.square(command[:, 5] - actual_rate) / std**2)
   horizontal = torch.exp(-torch.square(down[:, 2]) / horizontal_gravity_std**2)
   return spin_stand_mask(env, command_name, speed_deadband) * horizontal * rate_reward
+
+
+def stance_spin_rate_exp(
+  env: "ManagerBasedRlEnv",
+  command_name: str,
+  speed_deadband: float,
+  std: float,
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  horizontal_gravity_std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Track world-down spin after the command's support attitude is emerging.
+
+  The normal moving command intentionally leaves the transverse support pair
+  free, so it only asks for a horizontal two-wheel balance.  Explicit front
+  and rear commands retain their corresponding gravity direction.  This is
+  one rate outcome shared by all rotating commands, rather than separate
+  fixed-pair and dynamic-pair reward stacks.
+  """
+  if std <= 0.0 or horizontal_gravity_std <= 0.0:
+    raise ValueError("spin-rate scales must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  mode = torch.argmax(command[:, :5], dim=1)
+  moving = (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
+  down = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  actual_rate = torch.sum(asset.data.root_link_ang_vel_b * down, dim=1)
+  rate_score = torch.exp(-torch.square(command[:, 5] - actual_rate) / std**2)
+  targets = torch.tensor(gravity_targets, dtype=down.dtype, device=env.device)
+  fixed_alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(down * targets[mode], dim=1)), 0.0, 1.0
+  )
+  horizontal_alignment = torch.exp(
+    -torch.square(down[:, 2]) / horizontal_gravity_std**2
+  )
+  posture = torch.where(mode == 0, horizontal_alignment, fixed_alignment)
+  return moving.to(rate_score.dtype) * posture * rate_score
 
 
 def fixed_pair_spin_rate_exp(
@@ -2533,30 +2610,18 @@ class AerialPostTurnLandingProgress:
 class AerialLandingRecoveryProgress:
   """Pay only new progress toward a physical, normal-wheel recovery.
 
-  A completed aerial turn has a deliberately broad recovery basin: measured
-  angular progress approaches one full turn, the body returns toward normal
-  gravity, its launch-axis momentum and whole-body speed reduce, and its root
-  descends toward wheel contact.  All quantities are measured state, and the
-  return is a bounded potential improvement, so remaining in a favourable
-  state cannot be rewarded repeatedly.  This supplies a usable ranking while
-  early exploration still has large residual spin; narrow touchdown Gaussians
-  are numerically zero in that regime.
-
-  The term contains no pose target, phase clock, contact order, or prescribed
-  trajectory.  It simply ranks physically better final states after the
-  requested signed rotation has nearly been earned.
+  It is deliberately additive, rather than a product of several narrow
+  landing gates: after three quarters of a measured turn, uprightness,
+  braking, slowing, descent/contact, and turn progress each independently
+  make an attempt better.  The only exact requirement remains the separate
+  completed-landing event.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
     self.best_score = torch.zeros(env.num_envs, device=env.device)
-    # The command itself requires consecutive strict normal-wheel contact to
-    # complete.  Track the same measured dwell here so the one recovery
-    # potential can rank "kept the landing" above a single lucky touchdown.
-    self.landing_dwell_time = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.best_score[env_ids] = 0.0
-    self.landing_dwell_time[env_ids] = 0.0
 
   def __call__(
     self,
@@ -2588,7 +2653,6 @@ class AerialLandingRecoveryProgress:
     active = aerial_active(env, command_name) > 0.5
     reset = (env.episode_length_buf == 0) | (~active)
     self.best_score[reset] = 0.0
-    self.landing_dwell_time[reset] = 0.0
 
     was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
     progress = getattr(
@@ -2643,42 +2707,13 @@ class AerialLandingRecoveryProgress:
       + wheel_contact_weight * wheel_fraction
     )
 
-    base_score = (
-      in_window.float()
-      * turn_alignment
-      * upright
-      * braking
-      * settling
-      * approach_ground
+    score = in_window.float() * (
+      0.25 * turn_alignment
+      + 0.25 * upright
+      + 0.20 * braking
+      + 0.15 * settling
+      + 0.15 * approach_ground
     )
-    # ``base_score`` correctly ranks a first wheel touchdown, but its
-    # best-so-far potential would otherwise saturate there.  The terminal
-    # command asks for a *continuous* normal four-wheel landing.  Measure
-    # exactly that same result-space condition and make every additional
-    # stable control step improve the existing potential up to one.  This is
-    # not a reference phase or posture: it only distinguishes a real held
-    # landing from an isolated contact-sensor hit.
-    strict_landing = (
-      in_window
-      & torch.all(_wheel_contacts(env, sensor_name), dim=1)
-      & (gravity_error < command_term.cfg.landing_gravity_error_limit)
-      & (linear_speed < command_term.cfg.landing_linear_velocity_limit)
-      & (
-        torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-        < command_term.cfg.landing_angular_velocity_limit
-      )
-    )
-    self.landing_dwell_time = torch.where(
-      strict_landing,
-      self.landing_dwell_time + env.step_dt,
-      torch.zeros_like(self.landing_dwell_time),
-    )
-    dwell_fraction = torch.clamp(
-      self.landing_dwell_time / command_term.cfg.landing_settle_time,
-      min=0.0,
-      max=1.0,
-    )
-    score = base_score + (1.0 - base_score) * strict_landing.float() * dwell_fraction
     previous_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
     # RewardManager integrates over step_dt; this makes the total return the
