@@ -2742,13 +2742,14 @@ class AerialPostTurnLandingProgress:
 
 
 class AerialLandingRecoveryProgress:
-  """Pay only new progress toward a physical, normal-wheel recovery.
+  """Pay new improvement in one phase-weighted physical recovery state.
 
-  It is deliberately additive, rather than a product of several narrow
-  landing gates: after three quarters of a measured turn, uprightness,
-  braking, slowing, descent/contact, and turn progress each independently
-  make an attempt better.  The only exact requirement remains the separate
-  completed-landing event.
+  Aerial discovery needs a signal before the rare held landing event, but it
+  must not let independently good fragments (for example, a high-speed turn
+  and a separate upright bounce) add up to a fake success.  This is one
+  scalar potential: after three quarters of a measured turn, advancement
+  toward one turn is valuable only together with a more upright, slower,
+  wheel-returning state.  It specifies neither a joint pose nor a trajectory.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: "ManagerBasedRlEnv"):
@@ -2765,24 +2766,16 @@ class AerialLandingRecoveryProgress:
     recovery_start_angle: float,
     target_angle: float,
     max_overrotation: float,
-    descent_distance: float,
-    wheel_contact_weight: float,
     max_axis_rate: float,
     max_linear_speed: float,
-    target_axis_rate: float,
-    late_rate_penalty_scale: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
       recovery_start_angle < 0.0
       or target_angle <= recovery_start_angle
       or max_overrotation <= 0.0
-      or descent_distance <= 0.0
-      or not 0.0 <= wheel_contact_weight <= 1.0
       or max_axis_rate <= 0.0
       or max_linear_speed <= 0.0
-      or target_axis_rate < 0.0
-      or late_rate_penalty_scale <= 0.0
     ):
       raise ValueError("Aerial recovery progress parameters are invalid.")
 
@@ -2805,7 +2798,7 @@ class AerialLandingRecoveryProgress:
       & (progress >= recovery_start_angle)
       & (progress <= target_angle + max_overrotation)
     )
-    turn_alignment = torch.clamp(
+    turn_phase = torch.clamp(
       (progress - recovery_start_angle) / (target_angle - recovery_start_angle),
       min=0.0,
       max=1.0,
@@ -2830,56 +2823,24 @@ class AerialLandingRecoveryProgress:
     settling = torch.clamp(
       1.0 - linear_speed / max_linear_speed, min=0.0, max=1.0
     )
-
-    default_root_state = asset.data.default_root_state
-    assert default_root_state is not None
-    clearance = asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]
-    descent = torch.clamp(1.0 - clearance / descent_distance, min=0.0, max=1.0)
     wheel_fraction = _wheel_contacts(env, sensor_name).float().mean(dim=1)
-    # Descent alone is only a bridge: the real target is wheel-first support.
-    # V54 weighted these equally and therefore learned a clean-looking but
-    # contact-free fall.  Keep a small pre-contact gradient while ensuring a
-    # measured wheel return dominates every recovery improvement.
-    approach_ground = (
-      (1.0 - wheel_contact_weight) * descent
-      + wheel_contact_weight * wheel_fraction
-    )
-
-    score = in_window.float() * (
-      0.25 * turn_alignment
-      + 0.25 * upright
-      + 0.20 * braking
+    # Keep the components broad.  The phase multiplication, rather than a
+    # hard product of contact gates, supplies the needed discovery gradient:
+    # the policy is rewarded for carrying a progressively better recovery
+    # state all the way to a complete turn, not for a prescribed instant of
+    # touchdown.
+    recovery_quality = (
+      0.45 * upright
+      + 0.25 * braking
       + 0.15 * settling
-      + 0.15 * approach_ground
+      + 0.15 * wheel_fraction
     )
+    score = in_window.float() * turn_phase * recovery_quality
     previous_best = self.best_score.clone()
     self.best_score = torch.maximum(self.best_score, score)
-    # A max-potential by itself only pays for improvements; after its best
-    # state has been reached it is indifferent to spinning straight through
-    # the landing.  Penalize *only* excess signed-axis momentum after a full
-    # measured turn.  Starting this cost at the recovery window (three
-    # quarters of a turn) incorrectly asks the policy to brake while it still
-    # has to cover the final quarter, creating a sub-one-turn local optimum.
-    # This is an outcome measurement, not a timing/pose reference: PPO may
-    # choose any launch, tuck, and braking motion that brings the measured
-    # rate below the completion tolerance.
-    late_axis_excess = torch.clamp(torch.abs(axis_rate) - target_axis_rate, min=0.0)
-    late_rate_penalty = torch.square(late_axis_excess / late_rate_penalty_scale)
-    post_turn = in_window & (progress >= target_angle)
-    # The potential delta guides discovery toward recovery but pays nothing
-    # for *holding* a good post-turn result after its maximum has been seen.
-    # A sustained low-momentum, upright, wheel-first landing is precisely the
-    # physical condition required by the separate completion event, so give it
-    # a small per-time reward inside this same recovery objective.  It does
-    # not prescribe a contact sequence, joint pose, phase, or flight path.
-    landing_hold = post_turn.float() * upright * braking * settling * approach_ground
-    # RewardManager integrates over step_dt; the potential component is thus
-    # frequency-independent while the rate penalty is a physical time cost.
-    return (
-      (self.best_score - previous_best) / env.step_dt
-      - post_turn.float() * late_rate_penalty
-      + landing_hold
-    )
+    # Convert the potential delta into a rate because RewardManager applies
+    # dt.  The separate completion event remains the only accepted result.
+    return (self.best_score - previous_best) / env.step_dt
 
 
 def aerial_strict_landing_hold(

@@ -120,23 +120,29 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     },
   )
 
-  # Four outcome rewards only: clear the floor, turn in the commanded signed
-  # direction, improve the final measured recovery, and complete a held
-  # four-wheel landing.  Idle is an actuator invariant, so it receives no
-  # reward; leg strokes are unconstrained except for non-wheel ground contact.
+  # Four outcome rewards only: make one genuinely ballistic launch, turn in
+  # the commanded signed direction, improve the measured recovery as the
+  # turn closes, and complete a held four-wheel landing.  In particular there
+  # is no action-rate cost: that cost rewards keeping a saturated pose fixed,
+  # which is the opposite of the quick, responsive leg coordination needed
+  # for a compact aerial maneuver.
   cfg.rewards = {
-    "takeoff_clearance": RewardTermCfg(
-      func=trick_rewards.AerialClearanceProgress,
-      weight=20.0,
+    "takeoff_vertical_speed": RewardTermCfg(
+      func=trick_rewards.AerialTakeoffVerticalSpeed,
+      weight=50.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        "min_clearance": 0.28,
+        # The previous clearance-only target accepted a 0.24--0.28 m hop:
+        # roughly 0.3 s of flight at the measured 9--11 rad/s, which leaves
+        # no physical time to finish and brake a full turn.  This is a single
+        # measured launch impulse, not a desired pose or timing trajectory.
+        "target_speed": 2.0,
       },
     ),
     "rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialRotationProgress,
-      weight=30.0,
+      weight=45.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -148,29 +154,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "landing_recovery_progress": RewardTermCfg(
       func=trick_rewards.AerialLandingRecoveryProgress,
-      # A high-speed one-turn overrun previously earned clearance + rotation
-      # progress and only a small failure cost.  Make the one late result
-      # potential decisive, with its brake component becoming useful only
-      # below 5 rad/s.  This still leaves the launch and all joint motion
-      # completely free to PPO.
-      weight=120.0,
+      # One scalar, phase-weighted potential.  The former term separately
+      # accumulated turn, posture, braking, speed and contact maxima; that
+      # made a rigid bounce look valuable even when those outcomes never
+      # coincided.  This value rises only when *the same physical state*
+      # becomes more recoverable while its measured turn closes.
+      weight=180.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "recovery_start_angle": 0.75 * math.tau,
         "target_angle": math.tau,
         "max_overrotation": 1.25,
-        "descent_distance": 0.35,
-        "wheel_contact_weight": 0.80,
-        "max_axis_rate": 5.0,
+        "max_axis_rate": 8.0,
         "max_linear_speed": 3.0,
-        # The bounded recovery potential alone cannot become negative once it
-        # has paid out.  Charge residual target-axis momentum during the last
-        # quarter turn, starting above the same 1.5 rad/s rate accepted by
-        # the completed-landing event.  No posture, timing, or trajectory is
-        # prescribed.
-        "target_axis_rate": 1.5,
-        "late_rate_penalty_scale": 3.0,
       },
     ),
     "completed_rotation": RewardTermCfg(
@@ -187,7 +184,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_overrotation": 1.25,
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     # A ballistic over-rotation must rank below controlled recovery.  At the
     # former -50, clearance and one-turn progress made an uncontrolled flip a
     # positive-return local optimum even though it never landed.
