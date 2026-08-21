@@ -425,15 +425,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
-  # Stationary normal is held by the command-interface idle gate, so PPO can
-  # explore the actual front/rear rise from the four-wheel reset immediately.
-  # Keep all requested modes static until both directions have a realistic
-  # chance to discover their legal support.  V18 opened x/yaw after only 200
-  # iterations: front happened to be found, whereas rear was then rewarded for
-  # ordinary rolling before it ever found its handstand.  This changes command
-  # sampling only, never the reset state or joint target.  V22 still had only
-  # transient front support and no rear support at iteration 600, so delay the
-  # first rolling examples until roughly iteration 700.
+  # All-zero normal commands remain hard-gated four-wheel default idle.
+  # Start normal x/yaw examples immediately, while front/rear stay static
+  # until they have found legal two-wheel support.  This is still one fused
+  # one-hot-conditioned policy; it merely avoids training it for 700 updates
+  # without ever showing the ordinary rolling task.
   cfg.curriculum = {
     "locomotion_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_locomotion_command_stages,
@@ -443,21 +439,21 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
           {
             "step": 0,
             "mode_probabilities": (0.30, 0.35, 0.35),
-            "idle_probability": 1.0,
+            "mode_idle_probabilities": (0.35, 1.0, 1.0),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
           },
           {
             "step": 44_800,
             "mode_probabilities": (0.30, 0.35, 0.35),
-            "idle_probability": 0.70,
+            "mode_idle_probabilities": (0.25, 0.75, 0.75),
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
           },
           {
             "step": 52_000,
             "mode_probabilities": (0.30, 0.35, 0.35),
-            "idle_probability": 0.45,
+            "mode_idle_probabilities": (0.15, 0.45, 0.45),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
           },

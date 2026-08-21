@@ -162,6 +162,8 @@ class StanceLocomotionCommand(CommandTerm):
       raise ValueError("mode_probabilities must have positive total mass.")
     if not 0.0 <= cfg.idle_probability <= 1.0:
       raise ValueError("idle_probability must be in [0, 1].")
+    if cfg.mode_idle_probabilities is not None:
+      self._validate_mode_idle_probabilities(cfg.mode_idle_probabilities)
     self._validate_range("lin_vel_x_range", cfg.lin_vel_x_range)
     self._validate_range("yaw_rate_range", cfg.yaw_rate_range)
 
@@ -169,11 +171,28 @@ class StanceLocomotionCommand(CommandTerm):
     self._mode_probabilities = torch.tensor(
       cfg.mode_probabilities, dtype=torch.float32, device=self.device
     )
+    self._mode_idle_probabilities = self._make_mode_idle_probabilities(
+      cfg.mode_idle_probabilities
+    )
 
   @staticmethod
   def _validate_range(name: str, value: tuple[float, float]) -> None:
     if value[0] > value[1]:
       raise ValueError(f"{name} must be ordered.")
+
+  @staticmethod
+  def _validate_mode_idle_probabilities(value: tuple[float, float, float]) -> None:
+    if len(value) != 3 or any(not 0.0 <= probability <= 1.0 for probability in value):
+      raise ValueError(
+        "mode_idle_probabilities must contain three values in [0, 1]."
+      )
+
+  def _make_mode_idle_probabilities(
+    self, value: tuple[float, float, float] | None
+  ) -> torch.Tensor:
+    if value is None:
+      value = (self.cfg.idle_probability,) * 3
+    return torch.tensor(value, dtype=torch.float32, device=self.device)
 
   @property
   def command(self) -> torch.Tensor:
@@ -230,7 +249,12 @@ class StanceLocomotionCommand(CommandTerm):
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
     self.command_buf[env_ids] = 0.0
     self.command_buf[env_ids, modes] = 1.0
-    idle = torch.rand(count, device=self.device) < self.cfg.idle_probability
+    # The fused actor needs normal rolling examples from its first update, but
+    # front/rear commands first need to discover legal static two-wheel
+    # balance.  Sampling that distinction here changes neither the command
+    # layout nor the policy target: it only avoids withholding normal motion
+    # until after the stance curriculum has already consumed most training.
+    idle = torch.rand(count, device=self.device) < self._mode_idle_probabilities[modes]
     # A plain uniform draw made the actor see x and yaw together almost all
     # the time, while the deadband erased many individual axes.  It could
     # therefore learn a coupled wheel motion without learning either control
@@ -316,6 +340,7 @@ class StanceLocomotionCommand(CommandTerm):
     *,
     mode_probabilities: tuple[float, float, float] | None = None,
     idle_probability: float | None = None,
+    mode_idle_probabilities: tuple[float, float, float] | None = None,
     lin_vel_x_range: tuple[float, float] | None = None,
     yaw_rate_range: tuple[float, float] | None = None,
   ) -> None:
@@ -332,6 +357,15 @@ class StanceLocomotionCommand(CommandTerm):
       if not 0.0 <= idle_probability <= 1.0:
         raise ValueError("idle_probability must be in [0, 1].")
       self.cfg.idle_probability = idle_probability
+      if mode_idle_probabilities is None:
+        self.cfg.mode_idle_probabilities = None
+        self._mode_idle_probabilities = self._make_mode_idle_probabilities(None)
+    if mode_idle_probabilities is not None:
+      self._validate_mode_idle_probabilities(mode_idle_probabilities)
+      self.cfg.mode_idle_probabilities = mode_idle_probabilities
+      self._mode_idle_probabilities = self._make_mode_idle_probabilities(
+        mode_idle_probabilities
+      )
     if lin_vel_x_range is not None:
       self._validate_range("lin_vel_x_range", lin_vel_x_range)
       self.cfg.lin_vel_x_range = lin_vel_x_range
@@ -347,6 +381,9 @@ class StanceLocomotionCommandCfg(CommandTermCfg):
   entity_name: str
   mode_probabilities: tuple[float, float, float] = (0.40, 0.30, 0.30)
   idle_probability: float = 0.20
+  # ``None`` preserves the scalar idle probability for callers that do not
+  # need a curriculum distinction between normal, front, and rear commands.
+  mode_idle_probabilities: tuple[float, float, float] | None = None
   lin_vel_x_range: tuple[float, float] = (-0.4, 0.4)
   yaw_rate_range: tuple[float, float] = (-0.4, 0.4)
   command_deadband: float = 0.05

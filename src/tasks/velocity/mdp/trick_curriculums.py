@@ -61,6 +61,7 @@ def stance_locomotion_command_stages(
   command.set_curriculum(
     mode_probabilities=stage.get("mode_probabilities"),
     idle_probability=stage.get("idle_probability"),
+    mode_idle_probabilities=stage.get("mode_idle_probabilities"),
     lin_vel_x_range=stage.get("lin_vel_x_range"),
     yaw_rate_range=stage.get("yaw_rate_range"),
   )
