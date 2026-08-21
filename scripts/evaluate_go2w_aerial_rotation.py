@@ -38,6 +38,7 @@ class EvalConfig:
     device: str = "cuda:0"
     seed: int = 42
     emit_metrics: bool = False
+    output_path: Path | None = None
     quiet: bool = False
 
 
@@ -510,6 +511,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
 def main() -> None:
     cfg = tyro.cli(EvalConfig)
     metrics = run(cfg)
+    if cfg.output_path is not None:
+        cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg.output_path.write_text(json.dumps(metrics, sort_keys=True) + "\n")
     if cfg.emit_metrics:
         print(json.dumps(metrics, sort_keys=True))
     elif not cfg.quiet:
