@@ -120,63 +120,34 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     },
   )
 
-  # Four outcome rewards only: make one genuinely ballistic launch, turn in
-  # the commanded signed direction, improve the measured recovery as the
-  # turn closes, and complete a held four-wheel landing.  In particular there
-  # is no action-rate cost: that cost rewards keeping a saturated pose fixed,
-  # which is the opposite of the quick, responsive leg coordination needed
-  # for a compact aerial maneuver.
+  # There is intentionally one dense result and one success event.  Earlier
+  # versions paid separately for height, partial angle, and a loose recovery
+  # score.  A policy could therefore make a high rigid bounce, collect all
+  # useful return before landing, and never discover the complete maneuver.
+  # ``AerialManeuverResultProgress`` is a single bounded potential: flight
+  # contributes only when clearance and signed turn coexist; a four-wheel
+  # recovery then adds the remaining value only close to the same full turn.
+  # No term names a joint pose, limb timing, or demonstration trajectory.
   cfg.rewards = {
-    "takeoff_clearance": RewardTermCfg(
-      func=trick_rewards.AerialClearanceProgress,
-      # The V73 velocity event was easy to collect at initial liftoff while
-      # still producing a 0.22--0.28 m low hop.  The physical quantity needed
-      # to finish and brake a turn is the resulting ballistic clearance, so
-      # reward one-time improvement in measured apex instead.  This adds no
-      # phase, trajectory, or posture target.
-      weight=120.0,
+    "complete_maneuver_progress": RewardTermCfg(
+      func=trick_rewards.AerialManeuverResultProgress,
+      weight=200.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
-        # A 0.40-m clearance is deliberately above every V71--V73 low-hop
-        # local solution.  It leaves enough physical air time for a one-turn
-        # maneuver without prescribing how any leg must create the impulse.
-        "min_clearance": 0.40,
-      },
-    ),
-    "rotation_progress": RewardTermCfg(
-      func=trick_rewards.AerialRotationProgress,
-      weight=45.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "axes": AERIAL_AXES,
         "target_angle": math.tau,
-        "clearance_start": 0.06,
-        "clearance_full": 0.18,
-      },
-    ),
-    "landing_recovery_progress": RewardTermCfg(
-      func=trick_rewards.AerialLandingRecoveryProgress,
-      # One scalar, phase-weighted potential.  The former term separately
-      # accumulated turn, posture, braking, speed and contact maxima; that
-      # made a rigid bounce look valuable even when those outcomes never
-      # coincided.  This value rises only when *the same physical state*
-      # becomes more recoverable while its measured turn closes.
-      weight=180.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "recovery_start_angle": 0.75 * math.tau,
-        "target_angle": math.tau,
-        "max_overrotation": 1.25,
-        "max_axis_rate": 8.0,
-        "max_linear_speed": 3.0,
+        # Measured root clearance above the literal four-wheel default.  It
+        # rules out a wheel-pivot/low-hop exploit but leaves the jump geometry
+        # entirely to PPO.
+        "target_clearance": 0.40,
+        "landing_turn_start": 0.75 * math.tau,
+        "landing_linear_velocity_limit": 0.75,
+        "landing_angular_velocity_limit": 1.5,
       },
     ),
     "completed_rotation": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      weight=800.0,
+      weight=1200.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,

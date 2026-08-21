@@ -200,6 +200,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "minimum_root_clearance": 0.35,
+        # A front/rear command with a nonzero spin request is a different
+        # outcome from static support.  Paying this term during motion was
+        # the direct incentive for the rigid, non-rotating handstand seen in
+        # the recordings: it could collect almost the same return as a true
+        # pivot.  Left/right have no spin request and remain static.
+        "stationary_command_index": 5,
+        "command_deadband": 0.20,
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),
@@ -231,22 +238,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # toward a 2--6 rad/s command, before final support is perfected.
         "std": 6.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "horizontal_gravity_std": 0.45,
         "sensor_name": wheel_contact_cfg.name,
-        # First form a broad, physically valid high support.  Its midpoint is
-        # then anchored in world coordinates, so a bicycle-like translation
-        # becomes negative while a local fast pivot remains positive.
-        "anchor_support_threshold": 0.55,
-        # The midpoint is deliberately not fixed during the rise into a
-        # handstand.  Require a visibly settled high support first, then make
-        # its established wheel pair the local rotation centre.
-        "anchor_settle_time": 0.50,
-        # Keep the normal/front/rear standing discovery signal active while
-        # the policy rises.  The anchor is created only after that support is
-        # broad and legal; this 0.25-m basin permits the physical rise and
-        # handoff, then rejects the multi-metre bicycle translations measured
-        # in V36 without suppressing the stance before it exists.
-        "anchor_radius": 0.25,
+        # The target video pivots around a local support axle.  Measure that
+        # axle's instantaneous world speed directly instead of adding a
+        # stateful anchor/dwell phase: translating it faster than 0.35 m/s is
+        # a negative result, while the trunk and free legs remain unconstrained.
+        "pivot_speed_limit": 0.35,
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),
