@@ -69,6 +69,7 @@ def mode_support_score(
   minimum_root_clearance: float | None = None,
   stationary_command_index: int | None = None,
   command_deadband: float = 0.0,
+  static_angular_velocity_scale: float | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Measure the commanded contact pair, attitude, and optional height.
@@ -83,6 +84,8 @@ def mode_support_score(
     raise ValueError("minimum_root_clearance must be positive.")
   if stationary_command_index is not None and command_deadband < 0.0:
     raise ValueError("command_deadband must be non-negative.")
+  if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
+    raise ValueError("static_angular_velocity_scale must be positive.")
 
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
@@ -116,7 +119,19 @@ def mode_support_score(
       min=0.0,
       max=1.0,
     )
-  return active.to(orientation.dtype) * orientation * support * clearance
+  # Static one-hots (including left/right dual-wheel support) mean a held
+  # support, not an unspecified spin.  Keep this inside the existing support
+  # outcome rather than adding a separate regularizer.  Moving spin commands
+  # are already excluded by ``stationary_command_index`` before this factor.
+  stillness = torch.ones_like(orientation)
+  if static_angular_velocity_scale is not None:
+    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    stillness = torch.clamp(
+      1.0 - angular_speed / static_angular_velocity_scale,
+      min=0.0,
+      max=1.0,
+    )
+  return active.to(orientation.dtype) * orientation * support * clearance * stillness
 
 
 # ---------------------------------------------------------------------------

@@ -210,6 +210,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # pivot.  Left/right have no spin request and remain static.
         "stationary_command_index": 5,
         "command_deadband": 0.20,
+        # Side supports never receive a spin command; a stationary front or
+        # rear support has the same public meaning.  This broad scale supplies
+        # a dense settling gradient without adding another reward term.
+        "static_angular_velocity_scale": 1.5,
         "asset_cfg": _spin_pivot_wheels(),
       },
     ),
