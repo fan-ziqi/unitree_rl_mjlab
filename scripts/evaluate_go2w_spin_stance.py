@@ -11,6 +11,7 @@ import tyro
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from mjlab.utils.lab_api.math import quat_apply
 from tensordict import TensorDict
 
 from src.tasks.velocity.mdp.trick_commands import StanceSpinCommandCfg
@@ -58,9 +59,9 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Only normal/front/rear issue a spin command; side supports are static."""
+  """Normal is four-wheel idle; every named two-wheel mode can pivot."""
   rates = torch.zeros_like(modes, dtype=torch.float32)
-  rates[modes <= 2] = spin_rate
+  rates[modes > 0] = spin_rate
   return rates
 
 
@@ -72,10 +73,11 @@ def _pin_modes(
 ) -> None:
   """Pin one-hot targets, optionally reproducing the training-rate ramp."""
   command_term.command_buf.zero_()
-  command_term.command_buf[
-    torch.arange(command_term.num_envs, device=modes.device), modes
-  ] = 1.0
   rates = _mode_rates(modes, spin_rate).to(command_term.command_buf.dtype)
+  active = rates.abs() > 0.20
+  command_term.command_buf[
+    torch.arange(command_term.num_envs, device=modes.device)[active], modes[active]
+  ] = 1.0
   if not ramp_spin_rate:
     command_term.command_buf[:, 5] = rates
   command_term._target_spin_rate.copy_(rates)
@@ -132,33 +134,31 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   robot = base_env.scene["robot"]
   wheel_sensor = base_env.scene["wheel_ground_contact"]
   nonwheel_sensor = base_env.scene["nonwheel_ground_contact"]
-  wheel_site_ids, _ = robot.find_sites(
-    ("FL", "FR", "RL", "RR"), preserve_order=True
-  )
+  wheel_site_ids, _ = robot.find_sites(("FL", "FR", "RL", "RR"), preserve_order=True)
   targets = torch.tensor(GRAVITY_TARGETS, device=base_env.device)
-  target_contacts = torch.tensor(CONTACT_MASKS, device=base_env.device, dtype=torch.bool)
-  tall_pair_targets = targets[1:3]
-  tall_pair_contacts = target_contacts[1:3]
-  tall_pair_sites = torch.tensor(((0, 1), (2, 3)), device=base_env.device)
+  target_contacts = torch.tensor(
+    CONTACT_MASKS, device=base_env.device, dtype=torch.bool
+  )
+  support_pairs = torch.tensor(
+    ((0, 1), (0, 1), (2, 3), (0, 2), (1, 3)), device=base_env.device
+  )
   rates = _mode_rates(modes, cfg.spin_rate).to(base_env.device)
-  dynamic = (modes == 0) & (rates.abs() > 0.20)
-  fixed_spin = ((modes == 1) | (modes == 2)) & (rates.abs() > 0.20)
+  active_spin = rates.abs() > 0.20
   trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
   failed = torch.zeros_like(trial_open)
   sample_count = torch.zeros(cfg.num_envs, device=base_env.device)
   alignment_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_sum = torch.zeros(cfg.num_envs, device=base_env.device)
-  tall_pair_alignment_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  axle_coaxiality_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   nonwheel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_count = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_success = torch.zeros(cfg.num_envs, device=base_env.device)
   previous_center = torch.zeros(cfg.num_envs, 2, device=base_env.device)
-  previous_pair = torch.full(
-    (cfg.num_envs,), -1, dtype=torch.long, device=base_env.device
+  center_initialized = torch.zeros(
+    cfg.num_envs, dtype=torch.bool, device=base_env.device
   )
-  center_initialized = torch.zeros(cfg.num_envs, dtype=torch.bool, device=base_env.device)
 
   num_steps = round(cfg.duration_s / base_env.step_dt)
   with torch.inference_mode():
@@ -169,37 +169,19 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       assert found is not None
       contacts = (found.reshape(cfg.num_envs, found.shape[1], -1) > 0).any(dim=-1)
       gravity = torch.nn.functional.normalize(robot.data.projected_gravity_b, dim=1)
-      static_alignment = 0.5 * (1.0 + torch.sum(gravity * targets[modes], dim=1))
-      static_contact = torch.all(contacts == target_contacts[modes], dim=1)
-      # Normal-rate spin is free to choose *front or rear*, but not an
-      # arbitrary diagonal/side-lying two-wheel fall.  This matches the
-      # tall, transverse contact pivot visible in the AS2-W reference.
-      tall_pair_alignment = 0.5 * (
-        1.0 + torch.sum(gravity.unsqueeze(1) * tall_pair_targets, dim=2)
-      )
-      tall_pair_contact = torch.all(
-        contacts.unsqueeze(1) == tall_pair_contacts.unsqueeze(0), dim=2
-      )
-      dynamic_pair = torch.argmax(tall_pair_alignment, dim=1)
-      dynamic_alignment = tall_pair_alignment.gather(
-        1, dynamic_pair.unsqueeze(1)
-      ).squeeze(1)
-      dynamic_contact = tall_pair_contact.gather(
-        1, dynamic_pair.unsqueeze(1)
-      ).squeeze(1)
+      target_alignment = 0.5 * (1.0 + torch.sum(gravity * targets[modes], dim=1))
+      support_ok = torch.all(contacts == target_contacts[modes], dim=1)
       down_rate = torch.sum(robot.data.root_link_ang_vel_b * gravity, dim=1)
       # The rate channel is intentionally ramped in the training command
       # term.  Measure against the actual public command seen by the actor at
       # this frame, not its eventual target, so default validation is not an
       # out-of-distribution 0 -> 8 rad/s step.
       rate_error = torch.abs(down_rate - command_term.command[:, 5])
-      fixed_pair = torch.clamp(modes - 1, 0, 1)
-      support_pair = torch.where(dynamic, dynamic_pair, fixed_pair)
+      support_pair = support_pairs[modes]
       wheel_xy = robot.data.site_pos_w[:, wheel_site_ids, :2]
       batch = torch.arange(cfg.num_envs, device=base_env.device)
       center = 0.5 * (
-        wheel_xy[batch, tall_pair_sites[support_pair, 0]]
-        + wheel_xy[batch, tall_pair_sites[support_pair, 1]]
+        wheel_xy[batch, support_pair[:, 0]] + wheel_xy[batch, support_pair[:, 1]]
       )
       raw_center_speed = torch.linalg.vector_norm(
         (center - previous_center) / base_env.step_dt, dim=1
@@ -212,32 +194,57 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       center_speed = torch.where(
         center_initialized, raw_center_speed, torch.zeros_like(raw_center_speed)
       )
-      same_pair = center_initialized & (support_pair == previous_pair)
+      same_pair = center_initialized
       previous_center.copy_(center)
-      previous_pair.copy_(support_pair)
       center_initialized[:] = True
       nonwheel_found = nonwheel_sensor.data.found
       assert nonwheel_found is not None
       nonwheel = (
         nonwheel_found.reshape(cfg.num_envs, nonwheel_found.shape[1], -1) > 0
       ).any(dim=(1, 2))
-      support_ok = torch.where(dynamic, dynamic_contact, static_contact)
-      rate_ok = torch.where(dynamic | fixed_spin, rate_error < 0.75, torch.ones_like(dynamic))
-      pose_ok = torch.where(dynamic, dynamic_alignment >= 0.97, static_alignment >= 0.97)
-      pivot_ok = (
-        (~(dynamic | fixed_spin))
-        | (same_pair & (center_speed < 0.30))
+
+      wheel_quat = robot.data.site_quat_w[:, wheel_site_ids].reshape(-1, 4)
+      local_axle = torch.tensor(
+        (0.0, 1.0, 0.0), dtype=wheel_quat.dtype, device=base_env.device
+      ).expand(wheel_quat.shape[0], -1)
+      wheel_axles = quat_apply(wheel_quat, local_axle).reshape(cfg.num_envs, 4, 3)
+      axle_a = wheel_axles[batch, support_pair[:, 0]]
+      axle_b = wheel_axles[batch, support_pair[:, 1]]
+      wheel_positions = robot.data.site_pos_w[:, wheel_site_ids]
+      centre_line = torch.nn.functional.normalize(
+        wheel_positions[batch, support_pair[:, 1]]
+        - wheel_positions[batch, support_pair[:, 0]],
+        dim=1,
       )
-      success = support_ok & rate_ok & pose_ok & pivot_ok & ~nonwheel
-      target_alignment = torch.where(dynamic, dynamic_alignment, static_alignment)
+      coaxiality = (
+        torch.abs(torch.sum(axle_a * axle_b, dim=1))
+        * torch.abs(torch.sum(centre_line * axle_a, dim=1))
+        * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
+      )
+      rate_ok = torch.where(
+        active_spin, rate_error < 0.75, torch.ones_like(active_spin)
+      )
+      pose_ok = target_alignment >= 0.97
+      pivot_ok = torch.where(
+        active_spin,
+        same_pair & (center_speed < 0.12),
+        torch.ones_like(active_spin),
+      )
+      axle_ok = torch.where(
+        active_spin, coaxiality >= 0.90, torch.ones_like(active_spin)
+      )
+      idle_quiet = (
+        torch.linalg.vector_norm(robot.data.root_link_lin_vel_w[:, :2], dim=1) < 0.05
+      ) & (torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1) < 0.75)
+      success = support_ok & rate_ok & pose_ok & pivot_ok & axle_ok & ~nonwheel
+      success = success & torch.where(active_spin, torch.ones_like(success), idle_quiet)
 
       sample_count += valid.float()
       alignment_sum += valid.float() * target_alignment
       support_sum += valid.float() * support_ok.float()
-      tall_pair_alignment_sum += valid.float() * dynamic.float() * dynamic_alignment
+      axle_coaxiality_sum += valid.float() * active_spin.float() * coaxiality
       rate_error_sum += valid.float() * rate_error
-      moving_pair = (dynamic | fixed_spin).float()
-      support_center_speed_sum += valid.float() * moving_pair * center_speed
+      support_center_speed_sum += valid.float() * active_spin.float() * center_speed
       nonwheel_sum += valid.float() * nonwheel.float()
       if (step + 1) * base_env.step_dt >= cfg.settle_s:
         steady_count += valid.float()
@@ -258,20 +265,20 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       ).item(),
       "mean_gravity_alignment": (alignment_sum[mask] / denom).mean().item(),
       "mean_support_match_rate": (support_sum[mask] / denom).mean().item(),
-      "mean_tall_pair_alignment": (
-        tall_pair_alignment_sum[mask] / denom
-      ).mean().item(),
+      "mean_axle_coaxiality": (axle_coaxiality_sum[mask] / denom).mean().item(),
       "mean_spin_rate_abs_error": (rate_error_sum[mask] / denom).mean().item(),
-      "mean_support_center_speed_m_s": (
-        support_center_speed_sum[mask] / denom
-      ).mean().item(),
+      "mean_support_center_speed_m_s": (support_center_speed_sum[mask] / denom)
+      .mean()
+      .item(),
       "mean_nonwheel_contact_rate": (nonwheel_sum[mask] / denom).mean().item(),
       "steady_success_rate": (steady_success[mask] / steady_denom).mean().item(),
       "failed_rate": failed[mask].float().mean().item(),
       "unfinished_rate": trial_open[mask].float().mean().item(),
     }
 
-  metrics = [summarize(mode) for mode in range(5)] if cfg.all_modes else summarize(cfg.mode)
+  metrics = (
+    [summarize(mode) for mode in range(5)] if cfg.all_modes else summarize(cfg.mode)
+  )
   env.close()
   return metrics
 

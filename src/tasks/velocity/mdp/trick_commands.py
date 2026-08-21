@@ -22,7 +22,13 @@ from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
 
 
 class StanceSpinCommand(CommandTerm):
-  """Sample ``[stand, front, rear, left, right, spin_rate]`` commands."""
+  """Sample idle or ``[front, rear, left, right, signed_spin_rate]``.
+
+  The all-zero command is the literal four-wheel idle.  A nonzero rate is a
+  request to form one named two-wheel balancing axle and pivot about it.
+  ``normal`` is retained in the public one-hot layout as the idle state, but
+  never becomes a second moving two-wheel skill.
+  """
 
   cfg: StanceSpinCommandCfg
 
@@ -64,19 +70,17 @@ class StanceSpinCommand(CommandTerm):
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
-    self.command_buf[env_ids, modes] = 1.0
-
-    # The 50-fps AS2-W reference shows the high-speed contact spin on a
-    # front/rear wheel pair: the pair is already a two-wheel balancing axle.
-    # Left/right pairs remain static side supports; inventing a side-pair
-    # spin would train toward a motion absent from the target footage.
-    spin_ids = env_ids[modes <= 2]
-    if len(spin_ids) == 0:
-      return
-    moving = torch.rand(len(spin_ids), device=self.device) > self.cfg.spin_idle_probability
-    moving_ids = spin_ids[moving]
+    # Zero rate is deliberately the public all-zero four-wheel idle, even if
+    # the sampler first drew a stance label.  Only front/rear/left/right with
+    # a nonzero rate release the policy from default control.  In particular,
+    # mode zero must never silently turn into the front/rear balancing pose.
+    candidates = modes > 0
+    moving = torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
+    active = candidates & moving
+    moving_ids = env_ids[active]
     if len(moving_ids) == 0:
       return
+    self.command_buf[moving_ids, modes[active]] = 1.0
     magnitude = torch.empty(len(moving_ids), device=self.device).uniform_(
       *self.cfg.spin_rate_range
     )
@@ -182,9 +186,7 @@ class StanceLocomotionCommand(CommandTerm):
   @staticmethod
   def _validate_mode_idle_probabilities(value: tuple[float, float, float]) -> None:
     if len(value) != 3 or any(not 0.0 <= probability <= 1.0 for probability in value):
-      raise ValueError(
-        "mode_idle_probabilities must contain three values in [0, 1]."
-      )
+      raise ValueError("mode_idle_probabilities must contain three values in [0, 1].")
 
   def _make_mode_idle_probabilities(
     self, value: tuple[float, float, float] | None
@@ -331,6 +333,7 @@ class StanceLocomotionCommand(CommandTerm):
       torch.zeros(len(stance_ids), 6, device=self.device, dtype=pose.dtype),
       env_ids=stance_ids,
     )
+
   def _update_command(self) -> None:
     pass
 
@@ -417,15 +420,18 @@ class AerialRotationCommand(CommandTerm):
     if len(cfg.axes) != 5:
       raise ValueError("axes must contain front/back/left/right/yaw directions.")
     if cfg.target_angle <= 0.0 or cfg.max_overrotation < 0.0:
-      raise ValueError("target_angle must be positive and max_overrotation non-negative.")
+      raise ValueError(
+        "target_angle must be positive and max_overrotation non-negative."
+      )
     if (
       cfg.rotation_progress_clearance_start < 0.0
-      or cfg.rotation_progress_clearance_full
-      <= cfg.rotation_progress_clearance_start
+      or cfg.rotation_progress_clearance_full <= cfg.rotation_progress_clearance_start
       or cfg.rotation_rate_clearance_start < 0.0
       or cfg.rotation_rate_clearance_full <= cfg.rotation_rate_clearance_start
     ):
-      raise ValueError("Aerial rotation clearance gates must be ordered positive ranges.")
+      raise ValueError(
+        "Aerial rotation clearance gates must be ordered positive ranges."
+      )
     if (
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
@@ -482,7 +488,9 @@ class AerialRotationCommand(CommandTerm):
     active_ids = env_ids[active]
     if len(active_ids) == 0:
       return
-    modes = torch.multinomial(self._mode_probabilities, len(active_ids), replacement=True)
+    modes = torch.multinomial(
+      self._mode_probabilities, len(active_ids), replacement=True
+    )
     self.command_buf[active_ids, modes] = 1.0
     self._new_skill[active_ids] = True
 
@@ -533,9 +541,7 @@ class AerialRotationCommand(CommandTerm):
       torch.zeros_like(self._airborne_time),
     )
 
-    axis_rate = torch.sum(
-      asset.data.root_link_ang_vel_w * self._launch_axis_w, dim=1
-    )
+    axis_rate = torch.sum(asset.data.root_link_ang_vel_w * self._launch_axis_w, dim=1)
     raw_flight_delta = flight_step.to(axis_rate.dtype) * axis_rate * self._env.step_dt
     self._flight_rotation = torch.where(
       flight_step,
@@ -549,9 +555,8 @@ class AerialRotationCommand(CommandTerm):
     )
     self._current_flight_qualified = torch.where(
       flight_step,
-      self._current_flight_qualified | (
-        self._airborne_time >= self.cfg.min_ballistic_time
-      ),
+      self._current_flight_qualified
+      | (self._airborne_time >= self.cfg.min_ballistic_time),
       torch.zeros_like(self._current_flight_qualified),
     )
     self.was_airborne |= self._current_flight_qualified
@@ -594,12 +599,8 @@ class AerialRotationCommand(CommandTerm):
       self._landing_settle_time + self._env.step_dt,
       torch.zeros_like(self._landing_settle_time),
     )
-    complete_turn = (
-      (self._rotation_progress >= self.cfg.target_angle)
-      & (
-        self._rotation_progress
-        <= self.cfg.target_angle + self.cfg.max_overrotation
-      )
+    complete_turn = (self._rotation_progress >= self.cfg.target_angle) & (
+      self._rotation_progress <= self.cfg.target_angle + self.cfg.max_overrotation
     )
     # Five 20-ms float32 additions can be represented as 0.09999999 rather
     # than 0.10.  Compare at half a control-step precision so the configured
@@ -610,9 +611,7 @@ class AerialRotationCommand(CommandTerm):
       self._landing_settle_time + 0.5 * self._env.step_dt
       >= self.cfg.landing_settle_time
     )
-    finished = stable_landing & complete_turn & (
-      settled_long_enough
-    )
+    finished = stable_landing & complete_turn & (settled_long_enough)
     self.command_buf[finished] = 0.0
     self.was_airborne[finished] = False
     self._landing_settle_time[finished] = 0.0
@@ -642,7 +641,10 @@ class AerialRotationCommand(CommandTerm):
       self._mode_probabilities = torch.tensor(
         mode_probabilities, dtype=torch.float32, device=self.device
       )
-    progress_pair = (rotation_progress_clearance_start, rotation_progress_clearance_full)
+    progress_pair = (
+      rotation_progress_clearance_start,
+      rotation_progress_clearance_full,
+    )
     rate_pair = (rotation_rate_clearance_start, rotation_rate_clearance_full)
     if (progress_pair[0] is None) != (progress_pair[1] is None):
       raise ValueError("Rotation-progress clearance limits must be updated together.")

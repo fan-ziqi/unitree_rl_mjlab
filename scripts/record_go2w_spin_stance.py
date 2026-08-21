@@ -10,12 +10,6 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import torch
 import tyro
-
-from mjlab.envs import ManagerBasedRlEnv
-from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
-from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
-from mjlab.utils.wrappers import VideoRecorder
-
 from evaluate_go2w_spin_stance import (
   MODE_NAMES,
   TASK_ID,
@@ -23,6 +17,10 @@ from evaluate_go2w_spin_stance import (
   _fixed_reset_observation,
   _pin_modes,
 )
+from mjlab.envs import ManagerBasedRlEnv
+from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
+from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from mjlab.utils.wrappers import VideoRecorder
 
 
 @dataclass
@@ -43,6 +41,7 @@ class RecordConfig:
 
 def run(cfg: RecordConfig) -> Path:
   import mjlab.tasks  # noqa: F401
+
   import src.tasks  # noqa: F401
 
   if not cfg.checkpoint_file.is_file():
