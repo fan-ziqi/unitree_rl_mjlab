@@ -135,14 +135,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # higher measured jump; it leaves takeoff posture and timing entirely
         # to PPO and is shared by all five one-hot modes.
         "target_clearance": 0.55,
-        # V112/V114 plateaus revealed the converse failure: pitch/roll modes
-        # were already valuing the low-rate recovery component around
-        # 0.5--0.8 turns, then touched down short of a full revolution.  Keep
-        # the same result measurement, but make full-turn discovery dominant
-        # until the final third of the turn.  This supplies no timing, pose,
-        # or trajectory target; it only says a partial turn is not yet a
-        # landing-quality outcome.
-        "landing_turn_start": 0.70 * math.tau,
+        # At 0.35 turns the recovery component begins too early and pitch/roll
+        # modes commonly settle at 0.5--0.8 turns; moving it all the way to
+        # 0.70 removed too much time to decelerate and weakened takeoff.  Use
+        # the measured midpoint: it keeps the first half purely focused on a
+        # full ballistic turn while retaining the final 45% for the policy to
+        # discover a physical landing.  This supplies no timing, pose, or
+        # trajectory target.
+        "landing_turn_start": 0.55 * math.tau,
         "recovery_linear_speed_scale": 5.0,
         # Keep a dense ranking signal through the measured 15--20 rad/s
         # region.  The strict first-landing verifier below is unchanged at
