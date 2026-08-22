@@ -59,9 +59,9 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Normal is idle; only front/rear have a feasible dynamic pivot."""
+  """Every one-hot uses the same signed world-down rotation rate."""
   rates = torch.zeros_like(modes, dtype=torch.float32)
-  rates[(modes == 1) | (modes == 2)] = spin_rate
+  rates[:] = spin_rate
   return rates
 
 
@@ -169,7 +169,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       assert found is not None
       contacts = (found.reshape(cfg.num_envs, found.shape[1], -1) > 0).any(dim=-1)
       gravity = torch.nn.functional.normalize(robot.data.projected_gravity_b, dim=1)
-      effective_modes = torch.where(active_spin, modes, torch.zeros_like(modes))
+      effective_modes = modes
       target_alignment = 0.5 * (1.0 + torch.sum(gravity * targets[effective_modes], dim=1))
       support_ok = torch.all(contacts == target_contacts[effective_modes], dim=1)
       down_rate = torch.sum(robot.data.root_link_ang_vel_b * gravity, dim=1)
@@ -181,8 +181,11 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       support_pair = support_pairs[effective_modes]
       wheel_xy = robot.data.site_pos_w[:, wheel_site_ids, :2]
       batch = torch.arange(cfg.num_envs, device=base_env.device)
-      center = 0.5 * (
+      pair_center = 0.5 * (
         wheel_xy[batch, support_pair[:, 0]] + wheel_xy[batch, support_pair[:, 1]]
+      )
+      center = torch.where(
+        (modes == 0).unsqueeze(1), wheel_xy.mean(dim=1), pair_center
       )
       raw_center_speed = torch.linalg.vector_norm(
         (center - previous_center) / base_env.step_dt, dim=1
@@ -221,6 +224,12 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         torch.abs(torch.sum(axle_a * axle_b, dim=1))
         * torch.abs(torch.sum(centre_line * axle_a, dim=1))
         * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
+      )
+      coaxiality = torch.where(
+        modes <= 2, coaxiality, torch.ones_like(coaxiality)
+      )
+      coaxiality = torch.where(
+        modes == 0, torch.ones_like(coaxiality), coaxiality
       )
       rate_ok = torch.where(active_spin, rate_error < 0.75, torch.ones_like(active_spin))
       pose_ok = target_alignment >= 0.97

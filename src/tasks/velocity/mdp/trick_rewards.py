@@ -163,9 +163,14 @@ def _stance_spin_components(
   sensor_name: str,
   asset_cfg: SceneEntityCfg,
 ) -> tuple[
-  Entity, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
+  Entity,
+  torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
 ]:
-  """Measure a commanded front/rear coaxial world-down pivot."""
+  """Measure a commanded five-mode world-down rotation."""
   if rate_std <= 0.0:
     raise ValueError("rate_std must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
@@ -174,15 +179,10 @@ def _stance_spin_components(
 
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
-  active = (torch.sum(command[:, :5], dim=1) > 0.5) & (mode > 0)
-  # Only front/rear supports have a horizontal transverse wheel axle when
-  # their commanded body axis is vertical.  A zero rate is four-wheel idle,
-  # not a request to hold a two-wheel support.
-  moving = (
-    active
-    & (mode <= 2)
-    & (torch.abs(command[:, 5]) > speed_deadband)
-  )
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  # Every non-idle one-hot tracks the same world-down rate.  Normal uses all
+  # four wheels, while front/rear/left/right use their named support pair.
+  moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
   rate_score = torch.clamp(
@@ -198,8 +198,11 @@ def _stance_spin_components(
     device=env.device,
   )
   target = masks[mode]
-  desired = (contacts * target).sum(dim=1) / 2.0
-  extra = (contacts * (1.0 - target)).sum(dim=1) / 2.0
+  target_count = target.sum(dim=1).clamp_min(1.0)
+  desired = (contacts * target).sum(dim=1) / target_count
+  non_target_count = (1.0 - target).sum(dim=1)
+  extra = (contacts * (1.0 - target)).sum(dim=1) / non_target_count.clamp_min(1.0)
+  extra = torch.where(non_target_count > 0.0, extra, torch.zeros_like(extra))
   contact_score = desired * (1.0 - 0.75 * extra)
   targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
   alignment = torch.clamp(
@@ -216,6 +219,13 @@ def _stance_spin_components(
     (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.35,
     min=0.0,
     max=1.0,
+  )
+  # A normal four-wheel yaw spin and a side support have no tall-trunk
+  # requirement.  Height remains only the existing physical anti-crouch
+  # outcome for front/rear upright pivots.
+  upright_pivot = (mode == 1) | (mode == 2)
+  height_score = torch.where(
+    upright_pivot, height_score, torch.ones_like(height_score)
   )
 
   # Wheel-joint local Y is the cylinder axle.  Wheel spin itself is a
@@ -241,6 +251,10 @@ def _stance_spin_components(
   line_on_axle = torch.abs(torch.sum(centre_line * axle_a, dim=1))
   horizontal_axle = torch.linalg.vector_norm(axle_a[:, :2], dim=1)
   coaxiality = axis_parallel * line_on_axle * horizontal_axle
+  # Four wheel differential steering is not a single coaxial pair, and a
+  # side-down pair has vertical wheel axes by construction.  The collinearity
+  # test belongs only to the front/rear upright pivots.
+  coaxiality = torch.where(upright_pivot, coaxiality, torch.ones_like(coaxiality))
   # The small nonzero baseline keeps the physical contact/attitude discovery
   # gradient alive before the front/rear pair has achieved exact co-linearity.
   # Full rate return nevertheless requires the measured coaxial geometry.
@@ -256,18 +270,18 @@ def _stance_spin_components(
   support_quality = (
     contact_score * torch.pow(alignment, 8) * height_score * (0.15 + 0.85 * coaxiality)
   )
-  return asset, moving, rate_score, support_quality, support_pair
+  return asset, moving, rate_score, support_quality, support_pair, mode
 
 
 class StanceSpinPivotResult:
-  """Reward a high-rate front/rear coaxial pivot.
+  """Reward a high-rate five-mode local rotation.
 
   The supporting wheel centres, rather than root velocity, identify the
   physical pivot.  This is instantaneous measured geometry: no anchor,
   transition clock, reference path, or limb trajectory is retained in state.
   A bicycle-like support translation is explicitly worse than no spin.  The
   zero-speed branch is handled by default-idle action gating, so this term is
-  active only for the nonzero front/rear rate request.
+  active only for a nonzero commanded rate.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -290,7 +304,7 @@ class StanceSpinPivotResult:
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
-    asset, moving, rate_score, support_quality, pair = _stance_spin_components(
+    asset, moving, rate_score, support_quality, pair, mode = _stance_spin_components(
       env,
       command_name,
       speed_deadband,
@@ -302,8 +316,12 @@ class StanceSpinPivotResult:
     )
     batch = torch.arange(env.num_envs, device=env.device)
     wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
-    centre_velocity = 0.5 * (
+    pair_centre_velocity = 0.5 * (
       wheel_velocity[batch, pair[:, 0]] + wheel_velocity[batch, pair[:, 1]]
+    )
+    all_wheel_centre_velocity = wheel_velocity.mean(dim=1)
+    centre_velocity = torch.where(
+      (mode == 0).unsqueeze(1), all_wheel_centre_velocity, pair_centre_velocity
     )
     centre_speed = torch.linalg.vector_norm(centre_velocity, dim=1)
     translation_cost = torch.clamp(centre_speed / pivot_speed_limit, min=0.0, max=2.0)
@@ -442,7 +460,7 @@ def normal_leg_default_pose_exp(
   normal = torch.argmax(command[:, :3], dim=1) == 0
   joint_ids = asset_cfg.joint_ids
   if isinstance(joint_ids, slice):
-    raise ValueError("normal default-pose reward needs explicit leg joints.")
+    raise TypeError("normal default-pose reward needs explicit leg joints.")
   deviation = asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[
     :, joint_ids
   ]

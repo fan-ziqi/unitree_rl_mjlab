@@ -23,14 +23,15 @@ from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
 
 
 class StanceSpinCommand(CommandTerm):
-  """Sample either four-wheel idle or a front/rear coaxial axle pivot.
+  """Sample the complete five-one-hot continuous-contact trick command.
 
   The public layout is ``[normal, front, rear, left, right, spin_rate]``.
-  A zero rate is always the literal default four-wheel idle.  A nonzero rate
-  selects a signed front/rear pivot request: the policy must first bring that
-  wheel pair onto one horizontal, collinear axle and then spin around its
-  world-down axis.  Left/right cannot realize that geometry, so they are not
-  sampled by this task.
+  Its literal all-zero value is the normal four-wheel idle.  A nonzero rate
+  requests a local world-down rotation in one of the five contact modes.
+  ``normal`` is the four-wheel in-place yaw spin; front/rear are the upright
+  two-wheel pivots; left/right are the corresponding side supports.  Only the
+  upright front/rear pivots require a collinear horizontal wheel axle.  No
+  command carries a pose, phase, or limb target.
   """
 
   cfg: StanceSpinCommandCfg
@@ -73,18 +74,20 @@ class StanceSpinCommand(CommandTerm):
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
-    # No speed means no spin request: retain the literal default four-wheel
-    # command.  Only the transverse front/rear pairs can supply the horizontal
-    # axle required by the reference in-place pivot.
-    moving = (
-      (torch.rand(count, device=self.device) > self.cfg.spin_idle_probability)
-      & (modes >= 1)
-      & (modes <= 2)
+    non_idle = (
+      torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
     )
+    # Every non-idle one-hot carries the same signed world-down rotation
+    # request.  Only the literal all-zero command invokes the default
+    # four-wheel idle controller.
+    active_ids = env_ids[non_idle]
+    if len(active_ids) > 0:
+      self.command_buf[active_ids, modes[non_idle]] = 1.0
+
+    moving = non_idle
     moving_ids = env_ids[moving]
     if len(moving_ids) == 0:
       return
-    self.command_buf[moving_ids, modes[moving]] = 1.0
     magnitude = torch.empty(len(moving_ids), device=self.device).uniform_(
       *self.cfg.spin_rate_range
     )
@@ -134,7 +137,13 @@ class StanceSpinCommandCfg(CommandTermCfg):
   """Configuration for the compact continuous-contact trick command."""
 
   entity_name: str
-  mode_probabilities: tuple[float, float, float, float, float] = (0.0, 0.5, 0.5, 0.0, 0.0)
+  mode_probabilities: tuple[float, float, float, float, float] = (
+    0.24,
+    0.28,
+    0.28,
+    0.10,
+    0.10,
+  )
   spin_idle_probability: float = 0.55
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0

@@ -185,13 +185,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
 def unitree_go2w_spin_stance_flat_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-  """Default four-wheel idle plus front/rear coaxial pivots.
+  """Default four-wheel idle plus all five contact-mode commands.
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
-  A zero speed is always four-wheel default idle.  Nonzero front/rear requests
-  must form the horizontal balancing axle required for the video's local
-  high-rate pivot.  Side pairs are not spin commands because, side-down, their
-  wheel axles are vertical and cannot provide that balancing axle.
+  Zero command is four-wheel default idle.  A nonzero normal rate requests the
+  video's all-wheel in-place yaw spin; nonzero front/rear rates request its
+  upright local pivot.  Left/right use their side wheel pair for the same
+  world-down rotation, without assuming a front/rear-style collinear axle.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
@@ -201,9 +201,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Front/rear are the only physically feasible high-rate pivots.  The
-      # zero-speed branch below always remains all-zero four-wheel idle.
-      mode_probabilities=(0.0, 0.50, 0.50, 0.0, 0.0),
+      # Every one-hot remains in the policy domain and carries spin rate.
+      mode_probabilities=(0.24, 0.28, 0.28, 0.10, 0.10),
       spin_idle_probability=0.25,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
@@ -225,8 +224,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # One outcome term: a front/rear request must build a tall collinear
-      # axle, track its rate, and keep that pivot centre local.
+      # One outcome term: normal tracks a four-wheel local yaw spin; all
+      # two-wheel modes track the same rate, with front/rear additionally
+      # requiring the tall collinear pivot geometry.
       weight=18.0,
       params={
         "command_name": "trick",
