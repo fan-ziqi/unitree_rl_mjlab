@@ -121,11 +121,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   cfg.rewards = {
     "ballistic_turn_progress": RewardTermCfg(
       func=trick_rewards.AerialBallisticTurnProgress,
-      # The bounded turn signal restores a durable discovery gradient for the
-      # hard pitch/roll modes.  A perfect first landing is still worth orders
-      # of magnitude more through the strict result below, so this cannot turn
-      # an uncontrolled spin into the preferred final policy.
-      weight=35.0,
+      # A complete first-flight turn must initially outrank the discovered
+      # safe half-turn basin even if its first landing is imperfect.  The
+      # strict result below is still about 35x larger for a real completed
+      # maneuver, so this remains a discovery signal rather than a reason to
+      # prefer an uncontrolled spin in the converged policy.
+      weight=100.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
