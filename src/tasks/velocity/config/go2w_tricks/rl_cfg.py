@@ -119,7 +119,10 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # launch, whereas +/- 1.0 repeatedly plateaued at safe 0.2--0.5-turn
     # hops before a full ballistic turn was ever sampled.
     clip_actions=1.5,
-    # Keep enough stochasticity for all five one-hots, but not enough to turn
-    # a compliant torque actuator into a permanently saturated random kick.
-    entropy_coef=0.001,
+    # V140's outcome reward is physically well behaved but its scalar action
+    # standard deviation contracts from 0.45 to about 0.26 before pitch/roll
+    # has sampled a full event.  A middle entropy pressure preserves
+    # coordinated launch exploration across all five one-hots without
+    # returning to the high-variance, permanently noisy landing regime.
+    entropy_coef=0.003,
   )
