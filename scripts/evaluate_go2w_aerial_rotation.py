@@ -38,6 +38,11 @@ class EvalConfig:
     device: str = "cuda:0"
     seed: int = 42
     post_landing_hold_time: float = 0.40
+    # Usually this is left unset and the task's standard network is used.
+    # Explicit dimensions make this evaluator compatible with a deliberately
+    # wider training run without changing its fixed-command physics.
+    actor_hidden_dims: tuple[int, ...] | None = None
+    critic_hidden_dims: tuple[int, ...] | None = None
     emit_metrics: bool = False
     output_path: Path | None = None
     quiet: bool = False
@@ -149,6 +154,14 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     command_cfg.post_landing_hold_time = cfg.post_landing_hold_time
     env_cfg.episode_length_s = cfg.duration_s + 0.5
     agent_cfg = load_rl_cfg(cfg.task_id)
+    if cfg.actor_hidden_dims is not None:
+        if not cfg.actor_hidden_dims or any(dim <= 0 for dim in cfg.actor_hidden_dims):
+            raise ValueError("actor_hidden_dims must contain positive dimensions.")
+        agent_cfg.actor.hidden_dims = cfg.actor_hidden_dims
+    if cfg.critic_hidden_dims is not None:
+        if not cfg.critic_hidden_dims or any(dim <= 0 for dim in cfg.critic_hidden_dims):
+            raise ValueError("critic_hidden_dims must contain positive dimensions.")
+        agent_cfg.critic.hidden_dims = cfg.critic_hidden_dims
     base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device)
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
     runner_cls = load_runner_cls(cfg.task_id) or MjlabOnPolicyRunner
