@@ -247,13 +247,14 @@ def _stance_spin_components(
   # V45 demonstrated that a linear attitude factor leaves a lucrative local
   # optimum: the named wheels become coaxial and spin in place while the
   # trunk remains roughly half-way to its requested vertical axis.  Squaring
-  # helped, but V39 still converged to a 0.86-alignment slanted arch even
-  # though its axle and local centre were correct.  The fourth power is the
-  # same measured support outcome, not a pose target: it preserves a gradient
-  # from four-wheel default (0.5 -> 0.0625) while making that proven slanted
-  # solution decisively worse than the requested near-vertical support.
+  # helped, and V40's fourth power found the correct axle, local centre, and
+  # rate, but still converged to a 0.89--0.91 alignment slanted arch.  The
+  # eighth power is the same measured support outcome, not a pose target: it
+  # preserves a nonzero discovery gradient from four-wheel default while
+  # decisively ranking the observed slanted solution below a near-vertical
+  # support.
   support_quality = (
-    contact_score * torch.pow(alignment, 4) * height_score * (0.15 + 0.85 * coaxiality)
+    contact_score * torch.pow(alignment, 8) * height_score * (0.15 + 0.85 * coaxiality)
   )
   return asset, moving, rate_score, support_quality, support_pair
 
