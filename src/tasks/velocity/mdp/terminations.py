@@ -204,3 +204,54 @@ class AerialPostLandingRelaunch:
       torch.zeros_like(self.airborne_time),
     )
     return landed & (self.airborne_time >= min_ballistic_time)
+
+
+class AerialEventFinished:
+  """Truncate after the one-shot aerial event has returned to public idle.
+
+  The command term keeps its one-hot through the short first-landing verdict,
+  then exposes the literal zero-command/default controller.  One additional
+  idle interval is required by ``AerialFirstLandingResult`` before this
+  condition is reached, so its verified payoff is not discarded.  Treating
+  the resulting reset as a timeout, rather than a failure, avoids spending
+  most of every three-second PPO rollout on an already-finished event.
+
+  An episode that was sampled idle does not satisfy ``_landing_started`` and
+  therefore retains the ordinary timeout path.  This is only an event
+  boundary; it supplies no pose, action, or reward target.
+  """
+
+  def __init__(self, cfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.idle_time = torch.zeros(env.num_envs, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.idle_time[env_ids] = 0.0
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    post_idle_settle_time_s: float,
+  ) -> torch.Tensor:
+    if post_idle_settle_time_s <= 0.0:
+      raise ValueError("post_idle_settle_time_s must be positive.")
+    command_term = env.command_manager.get_term(command_name)
+    active = torch.sum(command_term.command, dim=1) > 0.5
+    landed = getattr(
+      command_term,
+      "_landing_started",
+      torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
+    )
+    idle_after_landing = landed & (~active)
+    self.idle_time = torch.where(
+      idle_after_landing,
+      self.idle_time + env.step_dt,
+      torch.zeros_like(self.idle_time),
+    )
+    # This manager runs immediately before the reward manager.  Half a policy
+    # step of tolerance agrees with the landing-result's five-frame test, so
+    # the final idle frame is rewarded before the truncation reset occurs.
+    return idle_after_landing & (
+      self.idle_time + 0.5 * env.step_dt >= post_idle_settle_time_s
+    )

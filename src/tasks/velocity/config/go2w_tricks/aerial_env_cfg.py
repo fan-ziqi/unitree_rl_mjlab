@@ -21,7 +21,10 @@ from src.assets.robots.unitree_go2w.go2w_constants import (
   GO2W_WHEEL_JOINTS,
 )
 from src.tasks.velocity.mdp import trick_rewards
-from src.tasks.velocity.mdp.terminations import AerialPostLandingRelaunch
+from src.tasks.velocity.mdp.terminations import (
+  AerialEventFinished,
+  AerialPostLandingRelaunch,
+)
 from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
 
 from .common_env_cfg import (
@@ -192,6 +195,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       "min_ballistic_time": 0.08,
     },
   )
+  if not play:
+    # A one-hot is a single event, not an instruction to remain idle for the
+    # unused tail of a fixed three-second rollout.  Command clearing occurs
+    # only after the first landing window and the separate result term has
+    # received its public-idle settling interval.  Mark this reset as a
+    # truncation so PPO bootstraps it normally rather than treating a
+    # completed attempt as a fall.  The evaluator deliberately keeps the
+    # world alive for its full three-second passive-settling audit.
+    cfg.terminations["aerial_event_finished"] = TerminationTermCfg(
+      func=AerialEventFinished,
+      params={
+        "command_name": "trick",
+        "post_idle_settle_time_s": 0.20,
+      },
+      time_out=True,
+    )
   # There is deliberately no reward curriculum: every command is one full
   # turn from the first sample and all five events remain equally likely.
   cfg.curriculum = {}
