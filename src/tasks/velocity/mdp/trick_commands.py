@@ -438,15 +438,6 @@ class AerialRotationCommand(CommandTerm):
         "target_angle must be positive and max_overrotation non-negative."
       )
     if (
-      cfg.rotation_progress_clearance_start < 0.0
-      or cfg.rotation_progress_clearance_full <= cfg.rotation_progress_clearance_start
-      or cfg.rotation_rate_clearance_start < 0.0
-      or cfg.rotation_rate_clearance_full <= cfg.rotation_rate_clearance_start
-    ):
-      raise ValueError(
-        "Aerial rotation clearance gates must be ordered positive ranges."
-      )
-    if (
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
       or cfg.min_ballistic_time <= 0.0
@@ -664,12 +655,8 @@ class AerialRotationCommand(CommandTerm):
     *,
     idle_probability: float | None = None,
     mode_probabilities: tuple[float, float, float, float, float] | None = None,
-    rotation_progress_clearance_start: float | None = None,
-    rotation_progress_clearance_full: float | None = None,
-    rotation_rate_clearance_start: float | None = None,
-    rotation_rate_clearance_full: float | None = None,
   ) -> None:
-    """Update hidden reward difficulty without adding an actor input."""
+    """Update only command sampling without adding an actor input."""
     if idle_probability is not None:
       if not 0.0 <= idle_probability <= 1.0:
         raise ValueError("idle_probability must be in [0, 1].")
@@ -683,25 +670,6 @@ class AerialRotationCommand(CommandTerm):
       self._mode_probabilities = torch.tensor(
         mode_probabilities, dtype=torch.float32, device=self.device
       )
-    progress_pair = (
-      rotation_progress_clearance_start,
-      rotation_progress_clearance_full,
-    )
-    rate_pair = (rotation_rate_clearance_start, rotation_rate_clearance_full)
-    if (progress_pair[0] is None) != (progress_pair[1] is None):
-      raise ValueError("Rotation-progress clearance limits must be updated together.")
-    if (rate_pair[0] is None) != (rate_pair[1] is None):
-      raise ValueError("Rotation-rate clearance limits must be updated together.")
-    if progress_pair[0] is not None and progress_pair[1] is not None:
-      if progress_pair[0] < 0.0 or progress_pair[1] <= progress_pair[0]:
-        raise ValueError("Rotation-progress clearance limits must be ordered.")
-      self.cfg.rotation_progress_clearance_start = progress_pair[0]
-      self.cfg.rotation_progress_clearance_full = progress_pair[1]
-    if rate_pair[0] is not None and rate_pair[1] is not None:
-      if rate_pair[0] < 0.0 or rate_pair[1] <= rate_pair[0]:
-        raise ValueError("Rotation-rate clearance limits must be ordered.")
-      self.cfg.rotation_rate_clearance_start = rate_pair[0]
-      self.cfg.rotation_rate_clearance_full = rate_pair[1]
 
 
 @dataclass(kw_only=True)
@@ -739,17 +707,5 @@ class AerialRotationCommandCfg(CommandTermCfg):
   min_ballistic_time: float = 0.08
   target_angle: float = math.tau
   max_overrotation: float = 0.75
-  # Reward gates only; neither is exposed to the policy as a phase, pose, or
-  # additional command.  The completed maneuver remains one full normal-wheel
-  # landing at ``target_angle`` throughout training.
-  rotation_progress_clearance_start: float = 0.12
-  rotation_progress_clearance_full: float = 0.34
-  # Angular rate is a momentum-shaping signal.  The stricter progress gate
-  # above decides when angle itself is worth rewarding, so rate must begin
-  # earlier in the ballistic arc to avoid asking PPO to accelerate only at
-  # the apex.
-  rotation_rate_clearance_start: float = 0.08
-  rotation_rate_clearance_full: float = 0.24
-
   def build(self, env) -> AerialRotationCommand:
     return AerialRotationCommand(self, env)

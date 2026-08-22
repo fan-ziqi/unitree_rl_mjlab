@@ -70,38 +70,3 @@ def stance_locomotion_command_stages(
     "stance_locomotion_yaw_max": torch.tensor(command.cfg.yaw_rate_range[1]),
     "stance_locomotion_idle_probability": torch.tensor(command.cfg.idle_probability),
   }
-
-
-def aerial_rotation_command_stages(
-  env: "ManagerBasedRlEnv",
-  env_ids: torch.Tensor,
-  command_name: str,
-  stages: tuple[dict[str, Any], ...],
-) -> dict[str, torch.Tensor]:
-  """Tighten airborne rotation-quality gates without changing the full turn.
-
-  Early PPO exploration receives useful credit for the commanded rotation after
-  a modest but genuine jump.  The gate then advances to the final ballistic
-  height.  The actor still sees only its one-hot, and command completion stays
-  one normal four-wheel full turn at all curriculum stages.
-  """
-  del env_ids
-  stage = _active_stage(env.common_step_counter, stages)
-  command = env.command_manager.get_term(command_name)
-  command.set_curriculum(
-    idle_probability=stage.get("idle_probability"),
-    mode_probabilities=stage.get("mode_probabilities"),
-    rotation_progress_clearance_start=stage.get("rotation_progress_clearance_start"),
-    rotation_progress_clearance_full=stage.get("rotation_progress_clearance_full"),
-    rotation_rate_clearance_start=stage.get("rotation_rate_clearance_start"),
-    rotation_rate_clearance_full=stage.get("rotation_rate_clearance_full"),
-  )
-  return {
-    "aerial_idle_probability": torch.tensor(command.cfg.idle_probability),
-    "aerial_progress_clearance_full": torch.tensor(
-      command.cfg.rotation_progress_clearance_full
-    ),
-    "aerial_rate_clearance_full": torch.tensor(
-      command.cfg.rotation_rate_clearance_full
-    ),
-  }
