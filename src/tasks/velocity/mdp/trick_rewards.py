@@ -499,58 +499,63 @@ def aerial_airborne_clearance(
   return active.to(clearance.dtype) * airborne.to(clearance.dtype) * clearance * env.step_dt
 
 
-def aerial_signed_rotation_progress(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  target_clearance: float,
-  target_angle: float,
-  max_angular_rate: float,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Reward each measured desired-axis radian of a real airborne turn.
+class AerialNetRotationProgress:
+  """Reward only new net desired-axis radians in one ballistic event.
 
-  The five one-hots select only the signed axis.  PPO is free to discover the
-  takeoff pose and timing; it earns value only for positive rotation about the
-  chosen axis while every wheel is off the ground.  Credit stops at one turn,
-  so a one-hot never favors continuing to spin beyond its requested event.
+  ``AerialRotationCommand`` already integrates signed angular displacement only
+  during its first continuous wheel-free interval.  This term pays a radian
+  once, when that integration reaches a new high-water mark.  A policy cannot
+  collect extra reward by briefly turning forward, undoing the turn, then
+  repeating it.  No pose, phase, or desired joint state is introduced.
   """
-  if target_clearance <= 0.0 or target_angle <= 0.0 or max_angular_rate <= 0.0:
-    raise ValueError("aerial rotation parameters must be positive.")
-  asset: Entity = env.scene[asset_cfg.name]
-  command = _command(env, command_name)
-  active = torch.sum(command[:, :5], dim=1) > 0.5
-  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
-  default_root_state = asset.data.default_root_state
-  assert default_root_state is not None
-  clearance = torch.clamp(
-    (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
-    / target_clearance,
-    min=0.0,
-    max=1.0,
-  )
-  command_term = env.command_manager.get_term(command_name)
-  launch_axis_w = getattr(
-    command_term,
-    "_launch_axis_w",
-    torch.zeros(env.num_envs, 3, device=env.device),
-  )
-  signed_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
-  clipped_positive_rate = torch.clamp(signed_rate, min=0.0, max=max_angular_rate)
-  progress = getattr(
-    command_term,
-    "_rotation_progress",
-    torch.zeros(env.num_envs, device=env.device),
-  )
-  unfinished = progress < target_angle
-  return (
-    active.to(clearance.dtype)
-    * airborne.to(clearance.dtype)
-    * torch.sqrt(clearance)
-    * unfinished.to(clearance.dtype)
-    * clipped_positive_rate
-    * env.step_dt
-  )
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.peak_progress = torch.zeros(env.num_envs, device=env.device)
+    self.previous_active = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_progress[env_ids] = 0.0
+    self.previous_active[env_ids] = False
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    target_angle: float,
+  ) -> torch.Tensor:
+    if target_angle <= 0.0:
+      raise ValueError("target_angle must be positive.")
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    # Reset at the literal idle boundary as well as the environment reset.  A
+    # new one-hot event must not inherit credit from its predecessor.
+    reset = (
+      (~active)
+      | (active & ~self.previous_active)
+      | (env.episode_length_buf == 0)
+    )
+    self.peak_progress[reset] = 0.0
+    command_term = env.command_manager.get_term(command_name)
+    progress = torch.clamp(
+      getattr(
+        command_term,
+        "_rotation_progress",
+        torch.zeros(env.num_envs, device=env.device),
+      ),
+      min=0.0,
+      max=target_angle,
+    )
+    increment = torch.clamp(progress - self.peak_progress, min=0.0)
+    self.peak_progress = torch.where(
+      active,
+      torch.maximum(self.peak_progress, progress),
+      torch.zeros_like(self.peak_progress),
+    )
+    self.previous_active = active
+    return active.to(increment.dtype) * increment
 
 
 

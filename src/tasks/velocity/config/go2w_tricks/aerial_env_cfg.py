@@ -133,17 +133,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_clearance": 0.45,
       },
     ),
-    "airborne_signed_rotation": RewardTermCfg(
-      func=trick_rewards.aerial_signed_rotation_progress,
-      # This is the direct command-response signal: the actor is paid per
-      # desired-axis radian, only while it is genuinely airborne.
+    "net_rotation_progress": RewardTermCfg(
+      func=trick_rewards.AerialNetRotationProgress,
+      # The actor receives each *net* desired-axis radian once.  Undoing a
+      # partial turn and repeating it cannot accumulate reward; only lasting
+      # progress toward the requested full turn is valuable.
       weight=20.0,
       params={
         "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "target_clearance": 0.45,
-        "max_angular_rate": 20.0,
       },
     ),
     "completed_turn": RewardTermCfg(
