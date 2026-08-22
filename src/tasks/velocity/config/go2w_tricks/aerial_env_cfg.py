@@ -175,10 +175,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "strict_completion_bonus": 4.0,
       },
     ),
-    # The unique-progress signal is intentionally durable, so a body/leg
-    # collision must cost more than a medium partial turn.  A strict valid
-    # one-turn landing is still worth far more through ``first_landing_result``.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-5000.0),
+    # The unique-progress signal is intentionally durable.  A body/leg
+    # collision costs roughly a medium partial turn, while a strict valid
+    # one-turn landing remains worth far more through ``first_landing_result``.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-3000.0),
   }
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
