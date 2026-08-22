@@ -560,14 +560,8 @@ class AerialManeuverResultProgress:
     linear_settled = torch.clamp(
       1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
     )
-    # A clipped linear score has no distinction at all between 12 and 20
-    # rad/s once its scale is tightened, whereas keeping a loose 20-rad/s
-    # scale makes an almost-complete crash too valuable.  This smooth measured
-    # angular-momentum score retains a gradient throughout that high-speed
-    # region but strongly ranks a genuine late brake above a one-turn impact.
-    # It specifies neither an angular-rate schedule nor a body/joint pose.
-    total_angular_settled = torch.exp(
-      -torch.square(angular_speed / recovery_angular_speed_scale)
+    total_angular_settled = torch.clamp(
+      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
     )
     # A full revolution that is still spinning rapidly cannot make the quiet
     # four-wheel landing.  The former recovery score first required contact,
@@ -584,8 +578,8 @@ class AerialManeuverResultProgress:
     axis_speed = torch.abs(
       torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
     )
-    axis_settled = torch.exp(
-      -torch.square(axis_speed / recovery_angular_speed_scale)
+    axis_settled = torch.clamp(
+      1.0 - axis_speed / recovery_angular_speed_scale, min=0.0, max=1.0
     )
     landing_turn = torch.clamp(
       (progress - landing_turn_start) / (target_angle - landing_turn_start),
@@ -857,6 +851,12 @@ class AerialFirstLandingResult:
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
+    # Preserve the best valid simultaneous four-wheel state from the fixed
+    # first-touchdown window.  The public command becomes idle shortly after
+    # this window; measuring only 200 ms later discards useful landing credit
+    # even when the first contact was physically much better than the later
+    # passive recovery.  Payment still waits for that idle survival interval.
+    self.best_touchdown_result = torch.zeros(env.num_envs, device=env.device)
     # A landing has been observed and its command was closed, but its outcome
     # has not yet been paid.  Holding the reward through a brief public-idle
     # interval makes a bounce, body impact, or deliberate relaunch fail
@@ -867,6 +867,7 @@ class AerialFirstLandingResult:
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.peak_clearance[env_ids] = 0.0
+    self.best_touchdown_result[env_ids] = 0.0
     self.pending[env_ids] = False
     self.idle_settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
@@ -990,24 +991,32 @@ class AerialFirstLandingResult:
     linear_settled = torch.clamp(
       1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
     )
-    angular_settled = torch.exp(
-      -torch.square(angular_speed / recovery_angular_speed_scale)
+    angular_settled = torch.clamp(
+      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
     )
-    # A wheel graze followed by a body impact is not a partial success.  The
-    # graded signal is intentionally available only on simultaneous normal
-    # four-wheel support and a non-terminal physics state; turn/height then
-    # rank *safe* partial landings without rewarding a crash on its first
-    # wheel contact.
+    # A wheel graze followed by a body impact is not a partial success.  Keep
+    # only the best actual simultaneous four-wheel touchdown from this event's
+    # short first-landing window.  The multiplicative quality is deliberately
+    # more discerning than an average: a fast, spinning contact is useful
+    # evidence but ranks below a quiet one without naming a target posture or
+    # a timing trajectory.
     normal_wheel_support = torch.all(contacts, dim=1)
     alive = (~env.termination_manager.terminated).to(clearance.dtype)
-    landing_quality = (upright + linear_settled + angular_settled) / 3.0
-    graded_result = (
+    touchdown_quality = upright * linear_settled * angular_settled
+    touchdown_result = (
       getattr(command_term, "was_airborne", torch.zeros_like(active)).float()
       * torch.sqrt(self.peak_clearance)
       * turn_quality
-      * (0.20 + 0.80 * landing_quality)
+      * touchdown_quality
       * normal_wheel_support.to(clearance.dtype)
       * alive
+    )
+    first_landing_window = active & landing_started & (
+      landing_hold_time <= landing_window_s + 0.5 * env.step_dt
+    )
+    self.best_touchdown_result = torch.maximum(
+      self.best_touchdown_result,
+      first_landing_window.to(touchdown_result.dtype) * touchdown_result,
     )
     stable = (
       normal_wheel_support
@@ -1028,5 +1037,9 @@ class AerialFirstLandingResult:
       & (progress >= target_angle)
       & (progress <= target_angle + max_overrotation)
     )
-    result = graded_result + strict_completion.float() * strict_completion_bonus
+    # A best-touchdown score is paid only after all-zero idle has survived for
+    # the configured grace period above.  Thus it cannot pay a body collision,
+    # a bounce into another flight, or an event that never attained four-wheel
+    # support; strict completion remains the dominant full-task outcome.
+    result = self.best_touchdown_result + strict_completion.float() * strict_completion_bonus
     return award.to(result.dtype) * result / env.step_dt
