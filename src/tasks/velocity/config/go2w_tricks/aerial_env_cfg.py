@@ -57,11 +57,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # small but explicit share of it during training so this transition is
       # learned rather than being left undefined after a completed maneuver.
       idle_probability=0.12,
-      # Yaw has already discovered a high-quality one-shot solution, whereas
-      # the four pitch/roll signs remain the bottleneck.  Keep one fused
-      # five-way actor, but devote its fresh on-policy data to the unfinished
-      # modes rather than letting the easy yaw return dominate every update.
-      mode_probabilities=(0.23, 0.23, 0.23, 0.23, 0.08),
+      # V109 showed that under-sampling yaw weakens its already acquired
+      # landing skill without completing the hard flips.  Keep all five
+      # one-hots equally represented in the one fused policy.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -86,7 +85,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      r".*_hip_joint": 0.45,
+      # The model's hip actuator has a real 23.7-Nm cap.  At P=45 and 0.45-rad
+      # residual it could only request 20.25 Nm, leaving the final pitch/roll
+      # impulse physically unreachable.  This 0.55-rad bound merely reaches
+      # that existing cap; it does not enlarge torque, prescribe a pose, or
+      # add a reference trajectory.
+      r".*_hip_joint": 0.55,
       r".*_thigh_joint": 0.55,
       r".*_calf_joint": 0.55,
     },
