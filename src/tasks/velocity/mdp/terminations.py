@@ -163,10 +163,12 @@ def command_support_lost(
 class AerialPostLandingRelaunch:
   """Terminate an aerial event that bounces into a second flight.
 
-  ``AerialRotationCommand`` clears its one-hot after the first landing.  This
-  term watches the ensuing public-idle state and rejects another continuous
-  wheel-free interval long enough to be a real ballistic attempt.  A short
-  contact glitch is ignored by the same threshold used for the initial flight.
+  The first post-flight wheel contact closes the physical event immediately,
+  even though ``AerialRotationCommand`` keeps its one-hot for a brief landing
+  verdict.  Watch from that contact rather than from the later command clear:
+  otherwise a rebound within the verdict window would escape the one-shot
+  rule.  A short contact glitch is ignored by the same threshold used for the
+  initial flight.
   """
 
   def __init__(self, cfg, env: ManagerBasedRlEnv):
@@ -186,14 +188,10 @@ class AerialPostLandingRelaunch:
     if min_ballistic_time <= 0.0:
       raise ValueError("min_ballistic_time must be positive.")
     command_term = env.command_manager.get_term(command_name)
-    command = env.command_manager.get_command(command_name)
-    closed = (
-      getattr(
-        command_term,
-        "_landing_started",
-        torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
-      )
-      & (torch.sum(command, dim=1) <= 0.5)
+    landed = getattr(
+      command_term,
+      "_landing_started",
+      torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
     )
     sensor: ContactSensor = env.scene[sensor_name]
     found = sensor.data.found
@@ -201,8 +199,8 @@ class AerialPostLandingRelaunch:
     contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
     airborne = ~torch.any(contacts, dim=1)
     self.airborne_time = torch.where(
-      closed & airborne,
+      landed & airborne,
       self.airborne_time + env.step_dt,
       torch.zeros_like(self.airborne_time),
     )
-    return closed & (self.airborne_time >= min_ballistic_time)
+    return landed & (self.airborne_time >= min_ballistic_time)
