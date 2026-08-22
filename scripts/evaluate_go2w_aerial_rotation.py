@@ -37,6 +37,7 @@ class EvalConfig:
     duration_s: float = 3.0
     device: str = "cuda:0"
     seed: int = 42
+    post_landing_hold_time: float = 0.40
     emit_metrics: bool = False
     output_path: Path | None = None
     quiet: bool = False
@@ -120,8 +121,12 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
         raise FileNotFoundError(cfg.checkpoint_file)
     if not cfg.all_modes and not 0 <= cfg.mode < len(MODE_NAMES):
         raise ValueError(f"mode must be in [0, {len(MODE_NAMES) - 1}]")
-    if cfg.num_envs <= 0 or cfg.duration_s <= 0.0:
-        raise ValueError("num_envs and duration_s must be positive")
+    if (
+        cfg.num_envs <= 0
+        or cfg.duration_s <= 0.0
+        or cfg.post_landing_hold_time <= 0.0
+    ):
+        raise ValueError("num_envs, duration_s, and post_landing_hold_time must be positive")
     if cfg.all_modes and (
         cfg.num_envs < len(MODE_NAMES) or cfg.num_envs % len(MODE_NAMES)
     ):
@@ -137,6 +142,11 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     command_cfg = env_cfg.commands["trick"]
     command_cfg.idle_probability = 0.0
     command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
+    # Training may close the public event promptly to preserve its PPO signal.
+    # Actions nevertheless become literal idle at first touchdown.  Hold only
+    # this evaluator's public state longer so success means a settled, not
+    # merely momentary, four-wheel landing.
+    command_cfg.post_landing_hold_time = cfg.post_landing_hold_time
     env_cfg.episode_length_s = cfg.duration_s + 0.5
     agent_cfg = load_rl_cfg(cfg.task_id)
     base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device)

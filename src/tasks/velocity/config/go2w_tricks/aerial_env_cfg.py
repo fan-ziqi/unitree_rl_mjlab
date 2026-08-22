@@ -57,10 +57,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # small but explicit share of it during training so this transition is
       # learned rather than being left undefined after a completed maneuver.
       idle_probability=0.12,
-      # Five equally exposed events keep the one fused actor from spending
-      # most of its capacity on the mechanically easiest pitch directions.
-      # The former front/back bias left the negative side flip under-trained.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Yaw has already discovered a high-quality one-shot solution, whereas
+      # the four pitch/roll signs remain the bottleneck.  Keep one fused
+      # five-way actor, but devote its fresh on-policy data to the unfinished
+      # modes rather than letting the easy yaw return dominate every update.
+      mode_probabilities=(0.23, 0.23, 0.23, 0.23, 0.08),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -72,12 +73,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Require five consecutive 50-Hz control steps: a transient wheel graze
       # must never count as a completed normal-wheel landing.
       landing_settle_time=0.10,
-      # The physical controller becomes default idle at first contact, but a
-      # passive four-wheel landing needs more than the original 100 ms to
-      # dissipate its final impulse.  Retain the public event only while that
-      # same default controller is judged; the action gate prevents a second
-      # launch and the later relaunch termination remains armed after closure.
-      post_landing_hold_time=0.40,
+      # The physical controller becomes default idle at first contact.  Keep
+      # the *training* event window short: the 400-ms verdict delayed the
+      # already sparse pitch/roll learning signal.  Evaluation extends this
+      # same action-gated window to verify passive settling, so one-hot still
+      # means exactly one jump in both cases.
+      post_landing_hold_time=0.10,
       debug_vis=False,
     )
   }

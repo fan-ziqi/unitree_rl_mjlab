@@ -34,6 +34,7 @@ class RecordConfig:
   device: str = "cuda:0"
   name: str = "go2w-aerial-rotation"
   seed: int = 42
+  post_landing_hold_time: float = 0.40
 
 
 def _fixed_reset_observation(
@@ -83,8 +84,8 @@ def run(cfg: RecordConfig) -> Path:
     raise FileNotFoundError(cfg.checkpoint_file)
   if not cfg.idle and not 0 <= cfg.mode < len(MODE_NAMES):
     raise ValueError(f"mode must be in [0, {len(MODE_NAMES) - 1}]")
-  if cfg.duration_s <= 0.0:
-    raise ValueError("duration_s must be positive")
+  if cfg.duration_s <= 0.0 or cfg.post_landing_hold_time <= 0.0:
+    raise ValueError("duration_s and post_landing_hold_time must be positive")
 
   torch.manual_seed(cfg.seed)
   if torch.cuda.is_available():
@@ -101,6 +102,9 @@ def run(cfg: RecordConfig) -> Path:
   command_cfg = env_cfg.commands["trick"]
   command_cfg.idle_probability = 0.0
   command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
+  # Match the evaluator: after the first contact action control is already
+  # default idle, while this longer command window shows whether it settles.
+  command_cfg.post_landing_hold_time = cfg.post_landing_hold_time
 
   agent_cfg = load_rl_cfg(TASK_ID)
   base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device, render_mode="rgb_array")
