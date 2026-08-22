@@ -116,69 +116,56 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
 
-  # The objective has two outcome measurements.  Unique increases in a
-  # wheel-free height-and-signed-turn score make genuine partial discoveries
-  # learnable; the one-shot first-landing result decides whether that event is
-  # valid.  Neither names a joint pose, timing, or reference.
+  # A flip is deliberately reduced to its observable physical result: gain
+  # wheel-free height, accumulate desired-axis radians while airborne, then
+  # receive a one-shot bonus for a quiet one-turn four-wheel landing.  There
+  # is no pose target, phase clock, action reference, landing potential, or
+  # mode-specific limb schedule.
   cfg.rewards = {
-    "maneuver_progress": RewardTermCfg(
-      func=trick_rewards.AerialManeuverResultProgress,
-      # Credit only a bounded improvement in measured flight/landing result.
-      # A strict first landing below remains the dominant completed objective.
-      weight=400.0,
+    "airborne_clearance": RewardTermCfg(
+      func=trick_rewards.aerial_airborne_clearance,
+      # A small takeoff signal makes the first part of a flip discoverable,
+      # but is far below a turn or completed landing.
+      weight=15.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "target_clearance": 0.45,
+      },
+    ),
+    "airborne_signed_rotation": RewardTermCfg(
+      func=trick_rewards.aerial_signed_rotation_progress,
+      # This is the direct command-response signal: the actor is paid per
+      # desired-axis radian, only while it is genuinely airborne.
+      weight=20.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        # A 0.40-m saturated clearance is not enough ballistic time for a
-        # physical pitch/roll revolution.  Rewarding 0.55 m asks only for a
-        # higher measured jump; it leaves takeoff posture and timing entirely
-        # to PPO and is shared by all five one-hot modes.
-        "target_clearance": 0.55,
-        # This is the strongest observed safe pitch/roll setting: recovery
-        # value starts after a meaningful physical turn, while the first half
-        # still retains a pure ballistic-rotation objective.  It names no
-        # pose, timing schedule, or reference trajectory.
-        "landing_turn_start": 0.35 * math.tau,
-        "recovery_linear_speed_scale": 5.0,
-        # Keep a dense ranking signal through the measured 15--20 rad/s
-        # region.  The strict first-landing verifier below is unchanged at
-        # 1.5 rad/s, so this does not relax what counts as a completed flip.
-        "recovery_angular_speed_scale": 20.0,
+        "target_clearance": 0.45,
+        "max_angular_rate": 20.0,
       },
     ),
-    "first_landing_result": RewardTermCfg(
-      func=trick_rewards.AerialFirstLandingResult,
-      # A strictly completed event is worth 5x a perfect graded partial
-      # landing, while any body contact loses more than a mediocre result.
-      weight=700.0,
+    "completed_turn": RewardTermCfg(
+      func=trick_rewards.AerialRotationCompletion,
+      # A successful result dwarfs a partial flight, but the binary landing
+      # test itself remains exactly the command's physical completion test.
+      weight=60.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
+        "axes": AERIAL_AXES,
         "target_angle": math.tau,
         "max_overrotation": 1.25,
-        # The dense potential above can reveal partial flight, but the durable
-        # landing result must not let a repeatable low hop outrank a nearly
-        # complete maneuver.
-        "turn_exponent": 2.0,
-        "target_clearance": 0.55,
-        "landing_window_s": 0.10,
-        # Verify the result under the all-zero/default idle command before
-        # paying it.  This turns any immediate rebound into a failure rather
-        # than a profitable second hop.
-        "post_idle_settle_time_s": 0.20,
-        "recovery_linear_speed_scale": 5.0,
-        "recovery_angular_speed_scale": 20.0,
-        "landing_gravity_error_limit": 0.30,
+        "landing_gravity_std": 0.30,
+        "landing_settle_time": 0.10,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
-        "strict_completion_bonus": 4.0,
       },
     ),
-    # The unique-progress signal is intentionally durable.  A body/leg
-    # collision costs roughly a medium partial turn, while a strict valid
-    # one-turn landing remains worth far more through ``first_landing_result``.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-3000.0),
+    # Body/leg contact still terminates the rollout; this moderate scalar cost
+    # does not make a safe small hop preferable to discovering a real flip.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-250.0),
   }
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,

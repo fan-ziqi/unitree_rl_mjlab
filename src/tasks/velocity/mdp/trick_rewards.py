@@ -468,217 +468,91 @@ def normal_leg_default_pose_exp(
   return normal.to(score.dtype) * score
 
 
-class AerialManeuverResultProgress:
-  """Credit each unique improvement in the physical aerial result.
+def aerial_airborne_clearance(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+  target_clearance: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward measured wheel-free height for one active aerial command.
 
-  Flight receives value only when wheel-free clearance and signed angular
-  progress coexist.  The remaining value is available only to a near-full
-  turn that returns upright, low-momentum wheel contact.  This gives PPO a
-  continuous outcome signal without prescribing a limb trajectory or a phase
-  schedule.  The first-landing result and strict termination remain the final
-  validity test; this term supplies the missing exploration credit for a real
-  safe partial maneuver.
+  This is deliberately just the first physical part of a flip: leave the
+  floor.  It contains no desired joint pose, takeoff time, reference state, or
+  landing phase.  Multiplying by ``step_dt`` gives comparable return for the
+  same physical airborne duration at different control rates.
   """
+  if target_clearance <= 0.0:
+    raise ValueError("target_clearance must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+  default_root_state = asset.data.default_root_state
+  assert default_root_state is not None
+  clearance = torch.clamp(
+    (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
+    / target_clearance,
+    min=0.0,
+    max=1.0,
+  )
+  return active.to(clearance.dtype) * airborne.to(clearance.dtype) * clearance * env.step_dt
 
-  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
-    del cfg
-    self.previous_score = torch.zeros(env.num_envs, device=env.device)
-    self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
-    self.previous_active = torch.zeros(
-      env.num_envs, dtype=torch.bool, device=env.device
-    )
-    self.previous_mode = torch.full(
-      (env.num_envs,), -1, dtype=torch.long, device=env.device
-    )
 
-  def reset(self, env_ids: torch.Tensor) -> None:
-    self.previous_score[env_ids] = 0.0
-    self.peak_clearance[env_ids] = 0.0
-    self.previous_active[env_ids] = False
-    self.previous_mode[env_ids] = -1
+def aerial_signed_rotation_progress(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+  target_clearance: float,
+  target_angle: float,
+  max_angular_rate: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward each measured desired-axis radian of a real airborne turn.
 
-  def __call__(
-    self,
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    sensor_name: str,
-    target_angle: float,
-    target_clearance: float,
-    landing_turn_start: float,
-    recovery_linear_speed_scale: float,
-    recovery_angular_speed_scale: float,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-  ) -> torch.Tensor:
-    if (
-      target_angle <= 0.0
-      or target_clearance <= 0.0
-      or not 0.0 <= landing_turn_start < target_angle
-      or recovery_linear_speed_scale <= 0.0
-      or recovery_angular_speed_scale <= 0.0
-    ):
-      raise ValueError("invalid aerial result parameters.")
+  The five one-hots select only the signed axis.  PPO is free to discover the
+  takeoff pose and timing; it earns value only for positive rotation about the
+  chosen axis while every wheel is off the ground.  Credit stops at one turn,
+  so a one-hot never favors continuing to spin beyond its requested event.
+  """
+  if target_clearance <= 0.0 or target_angle <= 0.0 or max_angular_rate <= 0.0:
+    raise ValueError("aerial rotation parameters must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+  default_root_state = asset.data.default_root_state
+  assert default_root_state is not None
+  clearance = torch.clamp(
+    (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
+    / target_clearance,
+    min=0.0,
+    max=1.0,
+  )
+  command_term = env.command_manager.get_term(command_name)
+  launch_axis_w = getattr(
+    command_term,
+    "_launch_axis_w",
+    torch.zeros(env.num_envs, 3, device=env.device),
+  )
+  signed_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
+  clipped_positive_rate = torch.clamp(signed_rate, min=0.0, max=max_angular_rate)
+  progress = getattr(
+    command_term,
+    "_rotation_progress",
+    torch.zeros(env.num_envs, device=env.device),
+  )
+  unfinished = progress < target_angle
+  return (
+    active.to(clearance.dtype)
+    * airborne.to(clearance.dtype)
+    * torch.sqrt(clearance)
+    * unfinished.to(clearance.dtype)
+    * clipped_positive_rate
+    * env.step_dt
+  )
 
-    asset: Entity = env.scene[asset_cfg.name]
-    command = _command(env, command_name)
-    active = torch.sum(command[:, :5], dim=1) > 0.5
-    mode = torch.argmax(command[:, :5], dim=1)
-    reset = env.episode_length_buf == 0
-    new_skill = active & (
-      (~self.previous_active) | (mode != self.previous_mode) | reset
-    )
-    # Do not erase ``previous_score`` merely because the one-shot command
-    # returned to idle: the first idle reward must settle the final potential
-    # difference of a failed attempt.  Otherwise a bad jump could keep its
-    # pre-landing score for free.  Subsequent idle frames naturally return
-    # zero after this one settlement.
-    clear = reset | new_skill
-    self.previous_score[clear] = 0.0
-    self.peak_clearance[clear] = 0.0
 
-    command_term = env.command_manager.get_term(command_name)
-    progress = getattr(
-      command_term,
-      "_rotation_progress",
-      torch.zeros(env.num_envs, device=env.device),
-    )
-    was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
-    landing_started = getattr(
-      command_term, "_landing_started", torch.zeros_like(active)
-    )
-    contacts = _wheel_contacts(env, sensor_name)
-    default_root_state = asset.data.default_root_state
-    assert default_root_state is not None
-    height = torch.clamp(
-      (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2]) / target_clearance,
-      min=0.0,
-      max=1.0,
-    )
-    airborne = ~torch.any(contacts, dim=1)
-    # A full turn normally finishes while descending.  V77 used the current
-    # height, so correct late angular progress could lower the potential after
-    # apex and earn no return.  Keep the best wheel-free clearance achieved in
-    # this attempt: high launch remains necessary, while later radians keep
-    # improving the same physical result.
-    self.peak_clearance = torch.maximum(
-      self.peak_clearance, airborne.to(height.dtype) * height
-    )
-    # A partial turn is worth proportionally less than one turn.  Past the
-    # target, however, the previous symmetric ramp decayed over another full
-    # revolution, so 1.3--1.6 turns still retained most flight return once the
-    # terminal guard was removed.  Collapse the same result potential within
-    # the final 45-degree braking window instead: it rewards arriving at one
-    # turn with low residual rate, while leaving the remainder of the episode
-    # available for a failed attempt to recover normally.
-    braking_window = target_angle / 8.0
-    turn_before_target = torch.clamp(progress / target_angle, min=0.0, max=1.0)
-    turn_after_target = torch.clamp(
-      1.0 - (progress - target_angle) / braking_window, min=0.0, max=1.0
-    )
-    turn = torch.where(progress <= target_angle, turn_before_target, turn_after_target)
-    # After the first touchdown this event is closed.  Do not let a later
-    # bounce receive the original flight score as though it were another
-    # commanded maneuver.
-    flight = (
-      was_airborne.float()
-      * (~landing_started).to(height.dtype)
-      * torch.sqrt(self.peak_clearance)
-      * turn
-    )
-
-    normal_gravity = torch.tensor(
-      (0.0, 0.0, -1.0),
-      dtype=asset.data.projected_gravity_b.dtype,
-      device=env.device,
-    )
-    upright = torch.clamp(
-      1.0
-      - torch.linalg.vector_norm(asset.data.projected_gravity_b - normal_gravity, dim=1)
-      / 2.0,
-      min=0.0,
-      max=1.0,
-    )
-    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
-    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    # These are deliberately broader than the completion event below.  The
-    # strict 0.75 m/s and 1.5-rad/s event threshold is an all-or-nothing
-    # verifier; using it here made every first touchdown after a real flip
-    # score exactly zero, leaving PPO no braking gradient.  This *same*
-    # result potential instead ranks progressively quieter recoveries, while
-    # the separate one-shot event still certifies only a quiet four-wheel
-    # landing.
-    linear_settled = torch.clamp(
-      1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
-    )
-    total_angular_settled = torch.clamp(
-      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
-    )
-    # A full revolution that is still spinning rapidly cannot make the quiet
-    # four-wheel landing.  The former recovery score first required contact,
-    # so PPO received no directional signal to brake during the last airborne
-    # quadrant: it repeatedly learned a one-turn crash.  This is one outcome
-    # measurement, not a phase target—after a nearly upright full turn the
-    # commanded-axis speed itself must already be reducing, whether touchdown
-    # occurs on this frame or the next.
-    launch_axis_w = getattr(
-      command_term,
-      "_launch_axis_w",
-      torch.zeros(env.num_envs, 3, device=env.device),
-    )
-    axis_speed = torch.abs(
-      torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
-    )
-    axis_settled = torch.clamp(
-      1.0 - axis_speed / recovery_angular_speed_scale, min=0.0, max=1.0
-    )
-    landing_turn = torch.clamp(
-      (progress - landing_turn_start) / (target_angle - landing_turn_start),
-      min=0.0,
-      max=1.0,
-    )
-    landing = (
-      was_airborne.float()
-      * landing_turn
-      * turn
-      * upright
-      * linear_settled
-      * axis_settled
-      * (0.5 + 0.5 * total_angular_settled)
-      # Airborne braking earns a small part of the same recovery potential;
-      # the larger share arrives only with actual wheel contact and continues
-      # to rank a quiet four-wheel touchdown above a soft one/two-wheel graze.
-      * (0.25 + 0.75 * contacts.float().mean(dim=1))
-    )
-    # A complete maneuver must rank well above the already-discovered
-    # one-turn crash.  Both components remain inside one bounded potential:
-    # wheel-free height/turn gets the policy to the landing, and four-wheel
-    # upright recovery supplies the larger final return.
-    # A terminal body/leg contact erases this result immediately.  Its large
-    # explicit failure cost is configured alongside this reward, so a crash
-    # cannot outrank a safe landed partial maneuver.
-    terminated = env.termination_manager.terminated
-    alive = (~terminated).to(asset.data.root_link_pos_w.dtype)
-    score = active.float() * (0.40 * flight + 0.60 * landing) * alive
-    # The former discount-correct potential difference deliberately cancelled
-    # every failed partial turn.  Across two full 500-iteration runs it left
-    # pitch/roll with no discovery path at all.  Pay only unique *increases*
-    # in this bounded physical score instead.  The one-shot command closes at
-    # first landing, so the same climb cannot be collected from repeated hops;
-    # the large terminal cost below excludes body-first local optima.
-    stable_touchdown = (
-      torch.all(contacts, dim=1).to(score.dtype)
-      * landing_turn
-      * turn
-      * upright
-      * linear_settled
-      * axis_settled
-      * (0.5 + 0.5 * total_angular_settled)
-    )
-    previous_score = self.previous_score
-    self.previous_score = score
-    self.previous_active = active
-    self.previous_mode = torch.where(active, mode, self.previous_mode)
-    improvement = torch.clamp_min(score - previous_score, 0.0)
-    return improvement / env.step_dt + 0.25 * active.float() * stable_touchdown
 
 
 def _advance_qualified_aerial_rotation(
@@ -869,209 +743,3 @@ class AerialRotationCompletion:
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return reward.float() / env.step_dt
-
-
-class AerialFirstLandingResult:
-  """Score exactly one physical result after an aerial command.
-
-  This deliberately evaluates only the first post-flight landing window.  It
-  gives PPO a graded outcome for a safe partial turn, but no reward for a
-  second hop: the command term closes the event immediately afterwards.  No
-  joint posture, phase, or demonstration reference is involved.
-  """
-
-  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
-    del cfg
-    self.peak_clearance = torch.zeros(env.num_envs, device=env.device)
-    # Preserve the best valid simultaneous four-wheel state from the fixed
-    # first-touchdown window.  The public command becomes idle shortly after
-    # this window; measuring only 200 ms later discards useful landing credit
-    # even when the first contact was physically much better than the later
-    # passive recovery.  Payment still waits for that idle survival interval.
-    self.best_touchdown_result = torch.zeros(env.num_envs, device=env.device)
-    # A landing has been observed and its command was closed, but its outcome
-    # has not yet been paid.  Holding the reward through a brief public-idle
-    # interval makes a bounce, body impact, or deliberate relaunch fail
-    # before it can collect the first-landing score.
-    self.pending = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    self.idle_settle_time = torch.zeros(env.num_envs, device=env.device)
-    self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-
-  def reset(self, env_ids: torch.Tensor) -> None:
-    self.peak_clearance[env_ids] = 0.0
-    self.best_touchdown_result[env_ids] = 0.0
-    self.pending[env_ids] = False
-    self.idle_settle_time[env_ids] = 0.0
-    self.awarded[env_ids] = False
-
-  def __call__(
-    self,
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    sensor_name: str,
-    target_angle: float,
-    max_overrotation: float,
-    turn_exponent: float,
-    target_clearance: float,
-    landing_window_s: float,
-    post_idle_settle_time_s: float,
-    recovery_linear_speed_scale: float,
-    recovery_angular_speed_scale: float,
-    landing_gravity_error_limit: float,
-    landing_linear_velocity_limit: float,
-    landing_angular_velocity_limit: float,
-    strict_completion_bonus: float,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-  ) -> torch.Tensor:
-    """Return one verified outcome after a first landing and idle hold."""
-    if (
-      target_angle <= 0.0
-      or max_overrotation <= 0.0
-      or turn_exponent <= 0.0
-      or target_clearance <= 0.0
-      or landing_window_s <= 0.0
-      or post_idle_settle_time_s <= 0.0
-      or recovery_linear_speed_scale <= 0.0
-      or recovery_angular_speed_scale <= 0.0
-      or landing_gravity_error_limit <= 0.0
-      or landing_linear_velocity_limit <= 0.0
-      or landing_angular_velocity_limit <= 0.0
-      or strict_completion_bonus < 0.0
-    ):
-      raise ValueError("invalid aerial first-landing result parameters.")
-
-    asset: Entity = env.scene[asset_cfg.name]
-    command = _command(env, command_name)
-    active = torch.sum(command[:, :5], dim=1) > 0.5
-    command_term = env.command_manager.get_term(command_name)
-    contacts = _wheel_contacts(env, sensor_name)
-    airborne = ~torch.any(contacts, dim=1)
-    default_root_state = asset.data.default_root_state
-    assert default_root_state is not None
-    clearance = torch.clamp(
-      (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
-      / target_clearance,
-      min=0.0,
-      max=1.0,
-    )
-    landing_started = getattr(
-      command_term, "_landing_started", torch.zeros_like(active)
-    )
-    self.peak_clearance = torch.maximum(
-      self.peak_clearance,
-      active.to(clearance.dtype) * (~landing_started).to(clearance.dtype) * airborne.to(clearance.dtype) * clearance,
-    )
-
-    # RewardManager evaluates before CommandManager advances this control
-    # step.  Include that pending step so this marks the same frame on which
-    # the command state machine will clear the one-hot.
-    landing_hold_time = getattr(
-      command_term, "_landing_hold_time", torch.zeros_like(self.peak_clearance)
-    )
-    closing = active & landing_started & (
-      landing_hold_time + 1.5 * env.step_dt >= landing_window_s
-    )
-    self.pending |= closing & ~self.awarded
-
-    # The literal all-zero command is the normal four-wheel idle controller.
-    # Do not reward a landing until it has survived under that controller.  In
-    # particular, a rebound becomes ``post_landing_relaunch`` and an illegal
-    # non-wheel contact becomes terminal before the event gets any payoff.
-    idle_after_event = self.pending & (~active) & landing_started
-    alive_now = ~env.termination_manager.terminated
-    self.idle_settle_time = torch.where(
-      idle_after_event & alive_now,
-      self.idle_settle_time + env.step_dt,
-      torch.zeros_like(self.idle_settle_time),
-    )
-    award = (
-      self.pending
-      & (~active)
-      & (self.idle_settle_time + 0.5 * env.step_dt >= post_idle_settle_time_s)
-      & (~self.awarded)
-    )
-    self.awarded |= award
-
-    progress = getattr(
-      command_term, "_rotation_progress", torch.zeros_like(self.peak_clearance)
-    )
-    # A linear partial-turn score makes a repeatable 0.1--0.2-turn hop a
-    # locally attractive solution.  Keep the measured signed turn as the
-    # sole objective but make this terminal result convex: useful return now
-    # appears only when a safe landing approaches the requested full turn.
-    turn_before_target = torch.pow(
-      torch.clamp(progress / target_angle, min=0.0, max=1.0), turn_exponent
-    )
-    turn_after_target = torch.pow(
-      torch.clamp(
-        1.0 - (progress - target_angle) / max_overrotation, min=0.0, max=1.0
-      ),
-      turn_exponent,
-    )
-    turn_quality = torch.where(progress <= target_angle, turn_before_target, turn_after_target)
-    normal_gravity = torch.tensor(
-      (0.0, 0.0, -1.0),
-      dtype=asset.data.projected_gravity_b.dtype,
-      device=env.device,
-    )
-    gravity_error = torch.sum(
-      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
-    )
-    upright = torch.clamp(1.0 - torch.sqrt(gravity_error) / 2.0, min=0.0, max=1.0)
-    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
-    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    linear_settled = torch.clamp(
-      1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
-    )
-    angular_settled = torch.clamp(
-      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
-    )
-    # A wheel graze followed by a body impact is not a partial success.  Keep
-    # only the best actual simultaneous four-wheel touchdown from this event's
-    # short first-landing window.  The multiplicative quality is deliberately
-    # more discerning than an average: a fast, spinning contact is useful
-    # evidence but ranks below a quiet one without naming a target posture or
-    # a timing trajectory.
-    normal_wheel_support = torch.all(contacts, dim=1)
-    alive = (~env.termination_manager.terminated).to(clearance.dtype)
-    touchdown_quality = upright * linear_settled * angular_settled
-    touchdown_result = (
-      getattr(command_term, "was_airborne", torch.zeros_like(active)).float()
-      * torch.sqrt(self.peak_clearance)
-      * turn_quality
-      * touchdown_quality
-      * normal_wheel_support.to(clearance.dtype)
-      * alive
-    )
-    first_landing_window = active & landing_started & (
-      landing_hold_time <= landing_window_s + 0.5 * env.step_dt
-    )
-    self.best_touchdown_result = torch.maximum(
-      self.best_touchdown_result,
-      first_landing_window.to(touchdown_result.dtype) * touchdown_result,
-    )
-    stable = (
-      normal_wheel_support
-      & (gravity_error < landing_gravity_error_limit)
-      & (linear_speed < landing_linear_velocity_limit)
-      & (angular_speed < landing_angular_velocity_limit)
-    )
-    # ``_last_attempt_succeeded`` is latched at command closure, before the
-    # public one-hot is cleared.  It carries the strict first-landing verdict
-    # into the idle verification interval without exposing any extra actor
-    # observation.
-    strict_first_landing = getattr(
-      command_term, "_last_attempt_succeeded", torch.zeros_like(active)
-    )
-    strict_completion = (
-      stable
-      & strict_first_landing
-      & (progress >= target_angle)
-      & (progress <= target_angle + max_overrotation)
-    )
-    # A best-touchdown score is paid only after all-zero idle has survived for
-    # the configured grace period above.  Thus it cannot pay a body collision,
-    # a bounce into another flight, or an event that never attained four-wheel
-    # support; strict completion remains the dominant full-task outcome.
-    result = self.best_touchdown_result + strict_completion.float() * strict_completion_bonus
-    return award.to(result.dtype) * result / env.step_dt

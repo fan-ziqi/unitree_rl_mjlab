@@ -211,9 +211,9 @@ class AerialEventFinished:
 
   The command term keeps its one-hot through the short first-landing verdict,
   then exposes the literal zero-command/default controller.  One additional
-  idle interval is required by ``AerialFirstLandingResult`` before this
-  condition is reached, so its verified payoff is not discarded.  Treating
-  the resulting reset as a timeout, rather than a failure, avoids spending
+  idle interval preserves the normal default controller after touchdown before
+  this condition is reached.  Treating the resulting reset as a timeout,
+  rather than a failure, avoids spending
   most of every three-second PPO rollout on an already-finished event.
 
   An episode that was sampled idle does not satisfy ``_landing_started`` and
