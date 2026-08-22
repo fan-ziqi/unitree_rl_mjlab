@@ -103,16 +103,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     stationary_command_start_index=0,
     command_deadband=0.5,
     idle_contact_sensor_name=wheel_contact_cfg.name,
-    # Small and medium exploratory hops still need the literal idle stabilizer
-    # at first contact.  V103 showed that handing a one-third turn to an
-    # untrained landing policy corrupts the already useful takeoff discovery
-    # signal.  Only after three quarters of the measured full turn does PPO
-    # retain action authority through first touchdown, which is exactly the
-    # late impact-absorption/braking interval we need to improve.  This adds
-    # no pose, reference timing, or extra observation; command closure and the
-    # post-landing-relaunch termination still enforce exactly one jump.
+    # Aerial commands are one-shot: immediately after their first landing,
+    # the specified controller state is four-wheel model-default idle.  A
+    # later ballistic interval is separately rejected as a relaunch.
     default_after_first_landing=True,
-    default_after_first_landing_before_progress=0.75 * math.tau,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
@@ -141,10 +135,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # this is an outcome condition, not a prescribed braking phase.
         "landing_turn_start": 0.35 * math.tau,
         "recovery_linear_speed_scale": 5.0,
-        # Keep a dense ranking signal through the measured 15--20 rad/s
-        # region.  The strict first-landing verifier below is unchanged at
-        # 1.5 rad/s, so this does not relax what counts as a completed flip.
-        "recovery_angular_speed_scale": 20.0,
+        # This is a smooth momentum scale, not a hard cutoff.  An exponential
+        # result score still differentiates 15--20 rad/s from zero but makes
+        # the near-complete, high-spin crash worse than an actively braked
+        # touchdown.  Strict completion remains 1.5 rad/s below.
+        "recovery_angular_speed_scale": 10.0,
         "potential_discount": 0.997,
       },
     ),
@@ -169,7 +164,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # than a profitable second hop.
         "post_idle_settle_time_s": 0.20,
         "recovery_linear_speed_scale": 5.0,
-        "recovery_angular_speed_scale": 20.0,
+        "recovery_angular_speed_scale": 10.0,
         "landing_gravity_error_limit": 0.30,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,

@@ -560,8 +560,14 @@ class AerialManeuverResultProgress:
     linear_settled = torch.clamp(
       1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
     )
-    total_angular_settled = torch.clamp(
-      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
+    # A clipped linear score has no distinction at all between 12 and 20
+    # rad/s once its scale is tightened, whereas keeping a loose 20-rad/s
+    # scale makes an almost-complete crash too valuable.  This smooth measured
+    # angular-momentum score retains a gradient throughout that high-speed
+    # region but strongly ranks a genuine late brake above a one-turn impact.
+    # It specifies neither an angular-rate schedule nor a body/joint pose.
+    total_angular_settled = torch.exp(
+      -torch.square(angular_speed / recovery_angular_speed_scale)
     )
     # A full revolution that is still spinning rapidly cannot make the quiet
     # four-wheel landing.  The former recovery score first required contact,
@@ -578,8 +584,8 @@ class AerialManeuverResultProgress:
     axis_speed = torch.abs(
       torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
     )
-    axis_settled = torch.clamp(
-      1.0 - axis_speed / recovery_angular_speed_scale, min=0.0, max=1.0
+    axis_settled = torch.exp(
+      -torch.square(axis_speed / recovery_angular_speed_scale)
     )
     landing_turn = torch.clamp(
       (progress - landing_turn_start) / (target_angle - landing_turn_start),
@@ -984,8 +990,8 @@ class AerialFirstLandingResult:
     linear_settled = torch.clamp(
       1.0 - linear_speed / recovery_linear_speed_scale, min=0.0, max=1.0
     )
-    angular_settled = torch.clamp(
-      1.0 - angular_speed / recovery_angular_speed_scale, min=0.0, max=1.0
+    angular_settled = torch.exp(
+      -torch.square(angular_speed / recovery_angular_speed_scale)
     )
     # A wheel graze followed by a body impact is not a partial success.  The
     # graded signal is intentionally available only on simultaneous normal

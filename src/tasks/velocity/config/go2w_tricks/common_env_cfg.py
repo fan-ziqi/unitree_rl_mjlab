@@ -136,7 +136,6 @@ def configure_default_idle_actions(
   command_deadband: float,
   idle_contact_sensor_name: str,
   default_after_first_landing: bool = False,
-  default_after_first_landing_before_progress: float | None = None,
 ) -> None:
   """Make a public idle command the model's literal default controller.
 
@@ -158,9 +157,6 @@ def configure_default_idle_actions(
     "command_deadband": command_deadband,
     "idle_contact_sensor_name": idle_contact_sensor_name,
     "default_after_first_landing": default_after_first_landing,
-    "default_after_first_landing_before_progress": (
-      default_after_first_landing_before_progress
-    ),
   }
   cfg.actions["joint_pos"] = DefaultIdleGatedJointPositionActionCfg(
     entity_name=joint_pos.entity_name,
