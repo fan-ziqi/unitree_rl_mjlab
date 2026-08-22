@@ -155,8 +155,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "axes": AERIAL_AXES,
         "target_angle": math.tau,
+        # A correct one-turn, all-wheel touchdown is an informative precursor
+        # to the unchanged five-frame strict settle event.  It supplies no
+        # limb pose or time target.
+        "soft_touchdown_reward": 1.0,
         "max_overrotation": 1.25,
         "landing_gravity_std": 0.30,
         "landing_settle_time": 0.10,

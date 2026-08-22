@@ -645,13 +645,16 @@ def _advance_qualified_aerial_rotation(
 
 
 class AerialRotationCompletion:
-  """One-shot reward for the strict full-turn, four-wheel landing event."""
+  """Reward a full-turn wheel touchdown, then its strict stable completion."""
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.progress = torch.zeros(env.num_envs, device=env.device)
     self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.has_grounded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.touchdown_awarded = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.previous_active = torch.zeros(
       env.num_envs, dtype=torch.bool, device=env.device
@@ -671,6 +674,7 @@ class AerialRotationCompletion:
     self.progress[env_ids] = 0.0
     self.was_airborne[env_ids] = False
     self.has_grounded[env_ids] = False
+    self.touchdown_awarded[env_ids] = False
     self.awarded[env_ids] = False
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
@@ -685,8 +689,10 @@ class AerialRotationCompletion:
     env: ManagerBasedRlEnv,
     command_name: str,
     sensor_name: str,
+    nonwheel_sensor_name: str,
     axes: tuple[tuple[float, float, float], ...],
     target_angle: float = math.tau,
+    soft_touchdown_reward: float = 1.0,
     landing_gravity_std: float = 0.3,
     landing_settle_time: float = 0.10,
     landing_linear_velocity_limit: float = 0.75,
@@ -694,6 +700,8 @@ class AerialRotationCompletion:
     max_overrotation: float = 0.75,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
+    if soft_touchdown_reward < 0.0:
+      raise ValueError("soft_touchdown_reward must be non-negative.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -706,6 +714,7 @@ class AerialRotationCompletion:
     self.progress[clear] = 0.0
     self.was_airborne[clear] = False
     self.has_grounded[clear] = False
+    self.touchdown_awarded[clear] = False
     self.awarded[clear] = False
     self.landing_settle_time[clear] = 0.0
     self.airborne_time[clear] = 0.0
@@ -740,6 +749,23 @@ class AerialRotationCompletion:
     )
     self.was_airborne |= self.flight_qualified
     self.progress = torch.clamp_min(self.progress + increment, 0.0)
+    full_turn = (self.progress >= target_angle) & (
+      self.progress <= target_angle + max_overrotation
+    )
+    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    # This is the learnable bridge to the exact five-frame settle event below:
+    # after a genuine full turn, touching down on all four wheels is already a
+    # useful geometric outcome even if residual velocity prevents immediate
+    # strict completion.  It is paid once and never accepts body/leg support.
+    wheel_touchdown = (
+      active
+      & self.was_airborne
+      & full_turn
+      & torch.all(contacts, dim=1)
+      & legal
+    )
+    touchdown_reward = wheel_touchdown & (~self.touchdown_awarded)
+    self.touchdown_awarded |= wheel_touchdown
 
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0),
@@ -755,6 +781,7 @@ class AerialRotationCompletion:
       active
       & self.was_airborne
       & torch.all(contacts, dim=1)
+      & legal
       & (gravity_error < landing_gravity_std)
       & (linear_speed < landing_linear_velocity_limit)
       & (angular_speed < landing_angular_velocity_limit)
@@ -770,14 +797,12 @@ class AerialRotationCompletion:
     settled_long_enough = (
       self.landing_settle_time + 0.5 * env.step_dt >= landing_settle_time
     )
-    completed = (
-      stable_landing
-      & (self.progress >= target_angle)
-      & (self.progress <= target_angle + max_overrotation)
-      & settled_long_enough
-    )
-    reward = completed & (~self.awarded)
+    completed = stable_landing & full_turn & settled_long_enough
+    strict_reward = completed & (~self.awarded)
     self.awarded |= completed
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
-    return reward.float() / env.step_dt
+    return (
+      soft_touchdown_reward * touchdown_reward.float()
+      + strict_reward.float() / env.step_dt
+    )
