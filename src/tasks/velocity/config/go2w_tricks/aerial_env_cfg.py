@@ -55,11 +55,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   cfg.commands = {
     "trick": AerialRotationCommandCfg(
       entity_name="robot",
-      # All-zero is a real public idle command: it means the ordinary
-      # four-wheel default pose, not a residual flip/landing state.  Retain a
-      # small but explicit share of it during training so this transition is
-      # learned rather than being left undefined after a completed maneuver.
-      idle_probability=0.12,
+      # All-zero remains a real public idle command: the action gate makes it
+      # the ordinary four-wheel default pose and zero wheel speed, including
+      # after a landing.  It is not an aerial skill, so do not spend rollout
+      # samples on a condition whose output is already deterministic.  Every
+      # training event is consequently one of the five requested flips.
+      idle_probability=0.0,
       # All five one-hots stay equally represented in the same fused policy.
       # Reducing yaw samples did not improve pitch/roll discovery.
       mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
