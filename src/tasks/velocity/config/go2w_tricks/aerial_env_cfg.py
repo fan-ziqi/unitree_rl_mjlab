@@ -116,17 +116,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
 
-  # The objective has just two maneuver outcomes.  A discounted potential
-  # supplies short-horizon credit only when genuine wheel-free height and the
-  # commanded signed rotation improve together; it cancels when that state is
-  # thrown away.  The one-shot result then pays only after the first landing
-  # survives default idle.  Neither names a joint pose, timing, or reference.
+  # The objective has two outcome measurements.  Unique increases in a
+  # wheel-free height-and-signed-turn score make genuine partial discoveries
+  # learnable; the one-shot first-landing result decides whether that event is
+  # valid.  Neither names a joint pose, timing, or reference.
   cfg.rewards = {
     "maneuver_progress": RewardTermCfg(
       func=trick_rewards.AerialManeuverResultProgress,
-      # This is potential-based feedback, not an additional completed-event
-      # prize.  Its score is removed on a failed touchdown, while the strict
-      # first-landing result below remains the durable task objective.
+      # Credit only a bounded improvement in measured flight/landing result.
+      # A strict first landing below remains the dominant completed objective.
       weight=400.0,
       params={
         "command_name": "trick",
@@ -147,7 +145,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # region.  The strict first-landing verifier below is unchanged at
         # 1.5 rad/s, so this does not relax what counts as a completed flip.
         "recovery_angular_speed_scale": 20.0,
-        "potential_discount": 0.997,
       },
     ),
     "first_landing_result": RewardTermCfg(
@@ -178,11 +175,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "strict_completion_bonus": 4.0,
       },
     ),
-    # With dt-scaled rewards, -200 is only a -4 event cost and lets a crashing
-    # partial turn outrank the explicit no-body-support validity rule.  The
-    # convex landing result above makes -500 sufficient without freezing
-    # exploration into a no-risk small hop.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-500.0),
+    # The unique-progress signal is intentionally durable, so a body/leg
+    # collision must cost more than a medium partial turn.  A strict valid
+    # one-turn landing is still worth far more through ``first_landing_result``.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-5000.0),
   }
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,

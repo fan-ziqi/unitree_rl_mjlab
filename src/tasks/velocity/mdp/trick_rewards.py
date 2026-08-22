@@ -421,13 +421,15 @@ def stance_locomotion_yaw_rate_exp(
 
 
 class AerialManeuverResultProgress:
-  """Bounded result potential for a ballistic turn followed by recovery.
+  """Credit each unique improvement in the physical aerial result.
 
   Flight receives value only when wheel-free clearance and signed angular
   progress coexist.  The remaining value is available only to a near-full
   turn that returns upright, low-momentum wheel contact.  This gives PPO a
   continuous outcome signal without prescribing a limb trajectory or a phase
-  schedule, and without allowing height or a partial flip to be farmed alone.
+  schedule.  The first-landing result and strict termination remain the final
+  validity test; this term supplies the missing exploration credit for a real
+  safe partial maneuver.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -457,7 +459,6 @@ class AerialManeuverResultProgress:
     landing_turn_start: float,
     recovery_linear_speed_scale: float,
     recovery_angular_speed_scale: float,
-    potential_discount: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
@@ -466,7 +467,6 @@ class AerialManeuverResultProgress:
       or not 0.0 <= landing_turn_start < target_angle
       or recovery_linear_speed_scale <= 0.0
       or recovery_angular_speed_scale <= 0.0
-      or not 0.0 < potential_discount <= 1.0
     ):
       raise ValueError("invalid aerial result parameters.")
 
@@ -604,34 +604,18 @@ class AerialManeuverResultProgress:
     # one-turn crash.  Both components remain inside one bounded potential:
     # wheel-free height/turn gets the policy to the landing, and four-wheel
     # upright recovery supplies the larger final return.
-    # An illegal non-wheel contact is a true terminal state, not a temporary
-    # interruption of the maneuver.  The absorbing terminal state must have
-    # zero potential: otherwise a robot can retain a high airborne-turn
-    # potential by crashing before the next frame gets to settle it.  That
-    # would violate the same discounted-potential argument used below and
-    # makes a fast body-first collision a profitable local optimum.  Time
-    # limits deliberately remain bootstrap-able truncations; only failures
-    # erase the result potential.
+    # A terminal body/leg contact erases this result immediately.  Its large
+    # explicit failure cost is configured alongside this reward, so a crash
+    # cannot outrank a safe landed partial maneuver.
     terminated = env.termination_manager.terminated
     alive = (~terminated).to(asset.data.root_link_pos_w.dtype)
     score = active.float() * (0.40 * flight + 0.60 * landing) * alive
-    # Use the *discount-correct* potential difference.  PPO discounts returns
-    # by ``gamma``: with a plain ``score - previous_score``, a policy can
-    # collect the rise to a one-turn airborne score early, then lose it later
-    # while over-rotating, yet retain a positive discounted return.  That was
-    # exactly the high-rate crash local optimum in V85--V87.  The shaping
-    # theorem instead requires ``gamma * Phi(next) - Phi(current)``.  This
-    # keeps every dense physical discovery signal but makes an unlanded
-    # intermediate result cancel out under the same PPO discount, leaving the
-    # strict landing event as the only durable outcome advantage.
-    #
-    # A pure potential difference has one blind spot: after first touching
-    # down in an almost-good result its value is exactly zero on every
-    # subsequent frame.  The event verifier requires five consecutive
-    # 50-Hz frames, yet PPO was paid identically for immediately launching a
-    # second flip and for holding the recovery.  The command term now closes
-    # the event at the first landing, so this same-result holding value is
-    # available only during that one short landing decision window.
+    # The former discount-correct potential difference deliberately cancelled
+    # every failed partial turn.  Across two full 500-iteration runs it left
+    # pitch/roll with no discovery path at all.  Pay only unique *increases*
+    # in this bounded physical score instead.  The one-shot command closes at
+    # first landing, so the same climb cannot be collected from repeated hops;
+    # the large terminal cost below excludes body-first local optima.
     stable_touchdown = (
       torch.all(contacts, dim=1).to(score.dtype)
       * landing_turn
@@ -645,9 +629,8 @@ class AerialManeuverResultProgress:
     self.previous_score = score
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
-    return (
-      potential_discount * score - previous_score
-    ) / env.step_dt + 0.25 * active.float() * stable_touchdown
+    improvement = torch.clamp_min(score - previous_score, 0.0)
+    return improvement / env.step_dt + 0.25 * active.float() * stable_touchdown
 
 
 def _advance_qualified_aerial_rotation(
