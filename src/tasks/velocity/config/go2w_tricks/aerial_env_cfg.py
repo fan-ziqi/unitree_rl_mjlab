@@ -57,10 +57,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # small but explicit share of it during training so this transition is
       # learned rather than being left undefined after a completed maneuver.
       idle_probability=0.12,
-      # Yaw already has a viable one-turn basin while the four pitch/roll
-      # commands have none.  Keep one fused policy and all five one-hots, but
-      # devote most fresh discovery samples to the four hard physical modes.
-      mode_probabilities=(0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+      # Keep all five commands equally represented: reducing yaw did not
+      # improve pitch/roll rotation, while equal sampling retains one fused
+      # policy rather than a mode-specific training schedule.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -149,6 +149,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # 1.5 rad/s, so this does not relax what counts as a completed flip.
         "recovery_angular_speed_scale": 20.0,
         "potential_discount": 0.997,
+        # Pitch/roll now reliably reach a high ballistic arc but settle near
+        # half a turn.  Reward correct angular momentum only in measured high
+        # wheel-free flight; it fades before touchdown and near one full turn.
+        "high_altitude_axis_rate_weight": 0.25,
+        "high_altitude_axis_rate_scale": 15.0,
+        "high_altitude_clearance_start": 0.25,
       },
     ),
     "first_landing_result": RewardTermCfg(
