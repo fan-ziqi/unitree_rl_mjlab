@@ -457,9 +457,6 @@ class AerialManeuverResultProgress:
     recovery_linear_speed_scale: float,
     recovery_angular_speed_scale: float,
     potential_discount: float,
-    high_altitude_axis_rate_weight: float,
-    high_altitude_axis_rate_scale: float,
-    high_altitude_clearance_start: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
@@ -469,9 +466,6 @@ class AerialManeuverResultProgress:
       or recovery_linear_speed_scale <= 0.0
       or recovery_angular_speed_scale <= 0.0
       or not 0.0 < potential_discount <= 1.0
-      or high_altitude_axis_rate_weight < 0.0
-      or high_altitude_axis_rate_scale <= 0.0
-      or not 0.0 <= high_altitude_clearance_start < 1.0
     ):
       raise ValueError("invalid aerial result parameters.")
 
@@ -541,40 +535,6 @@ class AerialManeuverResultProgress:
       * torch.sqrt(self.peak_clearance)
       * turn
     )
-    # The previous potential alone is deliberately conservative: it removes
-    # all transient value on a failed landing.  In the measured pitch/roll
-    # runs that leaves a safe 0.2--0.6 turn hop with no gradient to generate
-    # more angular momentum.  Add one bounded *discovery* signal only while
-    # the robot is genuinely wheel-free and already high above the floor.
-    # This is a measured physical rate, not an actor command, reference pose,
-    # or timing schedule.  It vanishes before touchdown and as the requested
-    # turn is approached, leaving the existing recovery potential to brake.
-    launch_axis_w = getattr(
-      command_term,
-      "_launch_axis_w",
-      torch.zeros(env.num_envs, 3, device=env.device),
-    )
-    directed_axis_rate = torch.clamp(
-      torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
-      / high_altitude_axis_rate_scale,
-      min=0.0,
-      max=1.0,
-    )
-    high_altitude = torch.clamp(
-      (height - high_altitude_clearance_start)
-      / (1.0 - high_altitude_clearance_start),
-      min=0.0,
-      max=1.0,
-    )
-    high_altitude_axis_drive = (
-      active.to(height.dtype)
-      * was_airborne.to(height.dtype)
-      * (~landing_started).to(height.dtype)
-      * airborne.to(height.dtype)
-      * high_altitude
-      * (1.0 - turn_before_target)
-      * directed_axis_rate
-    )
 
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0),
@@ -610,6 +570,11 @@ class AerialManeuverResultProgress:
     # measurement, not a phase target—after a nearly upright full turn the
     # commanded-axis speed itself must already be reducing, whether touchdown
     # occurs on this frame or the next.
+    launch_axis_w = getattr(
+      command_term,
+      "_launch_axis_w",
+      torch.zeros(env.num_envs, 3, device=env.device),
+    )
     axis_speed = torch.abs(
       torch.sum(asset.data.root_link_ang_vel_w * launch_axis_w, dim=1)
     )
@@ -680,10 +645,8 @@ class AerialManeuverResultProgress:
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return (
-      (potential_discount * score - previous_score) / env.step_dt
-      + high_altitude_axis_rate_weight * high_altitude_axis_drive
-      + 0.25 * active.float() * stable_touchdown
-    )
+      potential_discount * score - previous_score
+    ) / env.step_dt + 0.25 * active.float() * stable_touchdown
 
 
 def _advance_qualified_aerial_rotation(

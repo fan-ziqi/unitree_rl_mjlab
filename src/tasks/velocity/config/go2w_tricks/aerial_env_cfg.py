@@ -57,9 +57,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # small but explicit share of it during training so this transition is
       # learned rather than being left undefined after a completed maneuver.
       idle_probability=0.12,
-      # Keep all five commands equally represented: reducing yaw did not
-      # improve pitch/roll rotation, while equal sampling retains one fused
-      # policy rather than a mode-specific training schedule.
+      # All five one-hots stay equally represented in the same fused policy.
+      # Reducing yaw samples did not improve pitch/roll discovery.
       mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
@@ -135,26 +134,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # higher measured jump; it leaves takeoff posture and timing entirely
         # to PPO and is shared by all five one-hot modes.
         "target_clearance": 0.55,
-        # At 0.35 turns the recovery component begins too early and pitch/roll
-        # modes commonly settle at 0.5--0.8 turns; moving it all the way to
-        # 0.70 removed too much time to decelerate and weakened takeoff.  Use
-        # the measured midpoint: it keeps the first half purely focused on a
-        # full ballistic turn while retaining the final 45% for the policy to
-        # discover a physical landing.  This supplies no timing, pose, or
-        # trajectory target.
-        "landing_turn_start": 0.55 * math.tau,
+        # This is the strongest observed safe pitch/roll setting: recovery
+        # value starts after a meaningful physical turn, while the first half
+        # still retains a pure ballistic-rotation objective.  It names no
+        # pose, timing schedule, or reference trajectory.
+        "landing_turn_start": 0.35 * math.tau,
         "recovery_linear_speed_scale": 5.0,
         # Keep a dense ranking signal through the measured 15--20 rad/s
         # region.  The strict first-landing verifier below is unchanged at
         # 1.5 rad/s, so this does not relax what counts as a completed flip.
         "recovery_angular_speed_scale": 20.0,
         "potential_discount": 0.997,
-        # Pitch/roll now reliably reach a high ballistic arc but settle near
-        # half a turn.  Reward correct angular momentum only in measured high
-        # wheel-free flight; it fades before touchdown and near one full turn.
-        "high_altitude_axis_rate_weight": 0.25,
-        "high_altitude_axis_rate_scale": 15.0,
-        "high_altitude_clearance_start": 0.25,
       },
     ),
     "first_landing_result": RewardTermCfg(
