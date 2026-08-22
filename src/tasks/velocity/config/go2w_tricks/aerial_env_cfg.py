@@ -57,10 +57,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # small but explicit share of it during training so this transition is
       # learned rather than being left undefined after a completed maneuver.
       idle_probability=0.12,
-      # V109 showed that under-sampling yaw weakens its already acquired
-      # landing skill without completing the hard flips.  Keep all five
-      # one-hots equally represented in the one fused policy.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Yaw already has a viable one-turn basin while the four pitch/roll
+      # commands have none.  Keep one fused policy and all five one-hots, but
+      # devote most fresh discovery samples to the four hard physical modes.
+      mode_probabilities=(0.2375, 0.2375, 0.2375, 0.2375, 0.05),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -114,22 +114,41 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
     cfg.observations[group_name].history_length = 10
 
-  # The objective has just two maneuver outcomes: unique physical turn during
-  # the first ballistic interval, then the quality of its first landing.  The
-  # turn term uses the command state's measured signed angle; neither term
-  # names a pose, timing schedule, or reference trajectory.
+  # The objective has just two maneuver outcomes.  A discounted potential
+  # supplies short-horizon credit only when genuine wheel-free height and the
+  # commanded signed rotation improve together; it cancels when that state is
+  # thrown away.  The one-shot result then pays only after the first landing
+  # survives default idle.  Neither names a joint pose, timing, or reference.
   cfg.rewards = {
-    "ballistic_turn_progress": RewardTermCfg(
-      func=trick_rewards.AerialBallisticTurnProgress,
-      # A complete first-flight turn must initially outrank the discovered
-      # safe half-turn basin even if its first landing is imperfect.  The
-      # strict result below is still about 35x larger for a real completed
-      # maneuver, so this remains a discovery signal rather than a reason to
-      # prefer an uncontrolled spin in the converged policy.
-      weight=100.0,
+    "maneuver_progress": RewardTermCfg(
+      func=trick_rewards.AerialManeuverResultProgress,
+      # This is potential-based feedback, not an additional completed-event
+      # prize.  Its score is removed on a failed touchdown, while the strict
+      # first-landing result below remains the durable task objective.
+      weight=400.0,
       params={
         "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
+        # A 0.40-m saturated clearance is not enough ballistic time for a
+        # physical pitch/roll revolution.  Rewarding 0.55 m asks only for a
+        # higher measured jump; it leaves takeoff posture and timing entirely
+        # to PPO and is shared by all five one-hot modes.
+        "target_clearance": 0.55,
+        # At 0.35 turns the recovery component begins too early and pitch/roll
+        # modes commonly settle at 0.5--0.8 turns; moving it all the way to
+        # 0.70 removed too much time to decelerate and weakened takeoff.  Use
+        # the measured midpoint: it keeps the first half purely focused on a
+        # full ballistic turn while retaining the final 45% for the policy to
+        # discover a physical landing.  This supplies no timing, pose, or
+        # trajectory target.
+        "landing_turn_start": 0.55 * math.tau,
+        "recovery_linear_speed_scale": 5.0,
+        # Keep a dense ranking signal through the measured 15--20 rad/s
+        # region.  The strict first-landing verifier below is unchanged at
+        # 1.5 rad/s, so this does not relax what counts as a completed flip.
+        "recovery_angular_speed_scale": 20.0,
+        "potential_discount": 0.997,
       },
     ),
     "first_landing_result": RewardTermCfg(
@@ -160,10 +179,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "strict_completion_bonus": 4.0,
       },
     ),
-    # Direct turn credit is deliberately paired with a real failure cost:
-    # non-wheel support cannot be profitable even if it happens after a large
-    # fraction of the requested physical rotation.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-1000.0),
+    # With dt-scaled rewards, -200 is only a -4 event cost and lets a crashing
+    # partial turn outrank the explicit no-body-support validity rule.  The
+    # convex landing result above makes -500 sufficient without freezing
+    # exploration into a no-risk small hop.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-500.0),
   }
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
