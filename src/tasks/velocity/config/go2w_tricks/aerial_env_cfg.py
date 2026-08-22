@@ -85,12 +85,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      # The model's hip actuator has a real 23.7-Nm cap.  At P=45 and 0.45-rad
-      # residual it could only request 20.25 Nm, leaving the final pitch/roll
-      # impulse physically unreachable.  This 0.55-rad bound merely reaches
-      # that existing cap; it does not enlarge torque, prescribe a pose, or
-      # add a reference trajectory.
-      r".*_hip_joint": 0.55,
+      r".*_hip_joint": 0.45,
       r".*_thigh_joint": 0.55,
       r".*_calf_joint": 0.55,
     },
@@ -135,7 +130,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "target_angle": math.tau,
-        "target_clearance": 0.40,
+        # A 0.40-m saturated clearance is not enough ballistic time for a
+        # physical pitch/roll revolution.  Rewarding 0.55 m asks only for a
+        # higher measured jump; it leaves takeoff posture and timing entirely
+        # to PPO and is shared by all five one-hot modes.
+        "target_clearance": 0.55,
         # At m499 the actor reaches 0.65--0.77 turns but carries 15--20 rad/s
         # into the final quadrant.  Start valuing an upright, decelerating
         # outcome early enough for its free PPO control to arrest that motion;
@@ -163,7 +162,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # landing result must not let a repeatable low hop outrank a nearly
         # complete maneuver.
         "turn_exponent": 2.0,
-        "target_clearance": 0.40,
+        "target_clearance": 0.55,
         "landing_window_s": 0.10,
         # Verify the result under the all-zero/default idle command before
         # paying it.  This turns any immediate rebound into a failure rather
