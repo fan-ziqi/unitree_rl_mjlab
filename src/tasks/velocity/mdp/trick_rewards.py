@@ -538,9 +538,11 @@ class AerialNetRotationProgress:
     command_name: str,
     nonwheel_sensor_name: str,
     target_angle: float,
+    target_clearance: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    if target_angle <= 0.0:
-      raise ValueError("target_angle must be positive.")
+    if target_angle <= 0.0 or target_clearance <= 0.0:
+      raise ValueError("target_angle and target_clearance must be positive.")
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     # Reset at the literal idle boundary as well as the environment reset.  A
@@ -569,7 +571,24 @@ class AerialNetRotationProgress:
     )
     self.previous_active = active
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    return active.to(increment.dtype) * legal.to(increment.dtype) * increment
+    asset: Entity = env.scene[asset_cfg.name]
+    default_root_state = asset.data.default_root_state
+    assert default_root_state is not None
+    clearance = torch.clamp(
+      (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
+      / target_clearance,
+      min=0.0,
+      max=1.0,
+    )
+    # A turn is useful only to the degree it was produced by a real jump.  The
+    # separate clearance term makes takeoff discoverable; this single factor
+    # prevents a low contact-edge pivot from competing with a ballistic flip.
+    return (
+      active.to(increment.dtype)
+      * legal.to(increment.dtype)
+      * torch.sqrt(clearance)
+      * increment
+    )
 
 
 

@@ -144,6 +144,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
+        "target_clearance": 0.45,
       },
     ),
     "completed_turn": RewardTermCfg(
