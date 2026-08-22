@@ -420,6 +420,35 @@ def stance_locomotion_yaw_rate_exp(
   )
 
 
+def normal_leg_default_pose_exp(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Keep only the ordinary four-wheel command near its model default pose.
+
+  This is deliberately a static outcome constraint, not a reference motion:
+  it has no phase, time index, or desired action.  In particular, it is
+  completely disabled for the front/rear modes, whose supporting legs must be
+  free to find their own upright geometry.  Wheel joints are excluded by the
+  supplied leg-joint selector, so rolling does not incur a posture cost.
+  """
+  if std <= 0.0:
+    raise ValueError("std must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  normal = torch.argmax(command[:, :3], dim=1) == 0
+  joint_ids = asset_cfg.joint_ids
+  if isinstance(joint_ids, slice):
+    raise ValueError("normal default-pose reward needs explicit leg joints.")
+  deviation = asset.data.joint_pos[:, joint_ids] - asset.data.default_joint_pos[
+    :, joint_ids
+  ]
+  score = torch.exp(-torch.mean(torch.square(deviation), dim=1) / std**2)
+  return normal.to(score.dtype) * score
+
+
 class AerialManeuverResultProgress:
   """Credit each unique improvement in the physical aerial result.
 

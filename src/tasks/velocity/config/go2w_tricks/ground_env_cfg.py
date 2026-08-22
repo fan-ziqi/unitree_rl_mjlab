@@ -1,10 +1,12 @@
 """Lean flat-ground Go2W trick environments.
 
-These two tasks deliberately reward only public command outcomes.  They do
-not encode leg lengths, a contact sequence, or an action-space posture.  The
-spin task measures only trunk-to-support-wheel clearance so that a visibly
-upright two-wheel pose cannot be replaced by a low crouch; PPO discovers every
-joint coordination that realizes that physical support geometry.
+These two tasks deliberately reward public command outcomes.  They do not
+encode leg lengths, a contact sequence, or an action-space posture for the
+two-wheel skills.  The only exception is the user's explicit normal-mode
+requirement: four-wheel rolling must remain recognizably close to the Go2W
+model default pose.  The spin task measures only trunk-to-support-wheel
+clearance so that a visibly upright two-wheel pose cannot be replaced by a low
+crouch; PPO discovers every joint coordination that realizes that geometry.
 """
 
 from __future__ import annotations
@@ -40,6 +42,20 @@ def _support_wheels() -> SceneEntityCfg:
   """
   return SceneEntityCfg(
     "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+  )
+
+
+def _leg_joints() -> SceneEntityCfg:
+  """Select actuated leg joints but intentionally exclude continuous wheels."""
+  return SceneEntityCfg(
+    "robot",
+    joint_names=(
+      "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
+      "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+      "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+      "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+    ),
+    preserve_order=True,
   )
 
 
@@ -141,6 +157,19 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "std": 0.35,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 1.0,
+      },
+    ),
+    # Four-wheel mode is not merely a legal contact mask: the requirement is
+    # the familiar Go2W default silhouette.  This static joint-space distance
+    # applies only to normal mode and excludes wheels, so it neither constrains
+    # their rolling nor prescribes a front/rear standing trajectory.
+    "normal_leg_default_pose": RewardTermCfg(
+      func=trick_rewards.normal_leg_default_pose_exp,
+      weight=2.5,
+      params={
+        "command_name": "trick",
+        "std": 0.20,
+        "asset_cfg": _leg_joints(),
       },
     ),
     # This remains a generic temporal smoothness cost—not a free-leg pose
