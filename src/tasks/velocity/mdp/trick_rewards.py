@@ -53,6 +53,10 @@ def _wheel_contacts(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   return (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
 
 
+def _has_any_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
+  return torch.any(_wheel_contacts(env, sensor_name), dim=1)
+
+
 # ---------------------------------------------------------------------------
 # Shared two-wheel support measurement.
 
@@ -472,6 +476,7 @@ def aerial_airborne_clearance(
   env: ManagerBasedRlEnv,
   command_name: str,
   sensor_name: str,
+  nonwheel_sensor_name: str,
   target_clearance: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
@@ -488,6 +493,7 @@ def aerial_airborne_clearance(
   command = _command(env, command_name)
   active = torch.sum(command[:, :5], dim=1) > 0.5
   airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+  legal = ~_has_any_contact(env, nonwheel_sensor_name)
   default_root_state = asset.data.default_root_state
   assert default_root_state is not None
   clearance = torch.clamp(
@@ -496,7 +502,13 @@ def aerial_airborne_clearance(
     min=0.0,
     max=1.0,
   )
-  return active.to(clearance.dtype) * airborne.to(clearance.dtype) * clearance * env.step_dt
+  return (
+    active.to(clearance.dtype)
+    * airborne.to(clearance.dtype)
+    * legal.to(clearance.dtype)
+    * clearance
+    * env.step_dt
+  )
 
 
 class AerialNetRotationProgress:
@@ -524,6 +536,7 @@ class AerialNetRotationProgress:
     self,
     env: ManagerBasedRlEnv,
     command_name: str,
+    nonwheel_sensor_name: str,
     target_angle: float,
   ) -> torch.Tensor:
     if target_angle <= 0.0:
@@ -555,7 +568,8 @@ class AerialNetRotationProgress:
       torch.zeros_like(self.peak_progress),
     )
     self.previous_active = active
-    return active.to(increment.dtype) * increment
+    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    return active.to(increment.dtype) * legal.to(increment.dtype) * increment
 
 
 

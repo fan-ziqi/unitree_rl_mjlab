@@ -39,7 +39,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
   """Train one policy for front, back, left, right, and yaw aerial turns."""
-  cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
+  cfg, wheel_contact_cfg, nonwheel_contact_cfg = make_base_go2w_trick_cfg(play)
   configure_compact_aerial_actuators(cfg)
   # First learn the maneuver on one nominal flat system.  Sensor bias and
   # broad mass/friction randomization are robustness work for a later stage;
@@ -130,6 +130,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_clearance": 0.45,
       },
     ),
@@ -141,6 +142,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       weight=20.0,
       params={
         "command_name": "trick",
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
       },
     ),
