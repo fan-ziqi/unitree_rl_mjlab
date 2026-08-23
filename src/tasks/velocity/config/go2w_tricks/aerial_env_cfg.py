@@ -61,11 +61,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # m800 established a real front-flip endpoint, while back/left/yaw have
-      # not closed even one valid event.  The actor and one-hot interface stay
-      # fused, but reduce the already-dominant front samples so its large
-      # advantage cannot erase first discovery on the unresolved axes.
-      mode_probabilities=(0.10, 0.26, 0.26, 0.15, 0.23),
+      # This is a new random-policy run.  The previous run's asymmetric
+      # sampling made it collapse onto one side flip despite sharing a single
+      # one-hot policy, so every requested axis receives equal discovery
+      # budget from reset.  It changes neither the command interface nor the
+      # strict whole-body landing condition.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
