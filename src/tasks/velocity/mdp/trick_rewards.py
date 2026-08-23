@@ -910,6 +910,7 @@ class AerialRotationCompletion:
     soft_touchdown_orientation_exponent: float = 1.0,
     soft_touchdown_turn_exponent: float = 2.0,
     max_overrotation: float = 1.25,
+    settle_reward: float = 0.0,
     post_idle_settle_time: float = 0.40,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
@@ -929,6 +930,8 @@ class AerialRotationCompletion:
       raise ValueError("soft_touchdown_orientation_exponent must be positive.")
     if max_overrotation <= 0.0:
       raise ValueError("max_overrotation must be positive.")
+    if settle_reward < 0.0:
+      raise ValueError("settle_reward must be non-negative.")
     if post_idle_settle_time <= 0.0:
       raise ValueError("post_idle_settle_time must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
@@ -1142,5 +1145,13 @@ class AerialRotationCompletion:
     return (
       soft_touchdown_reward
       * (touchdown_reward.float() * touchdown_quality + recovery_increment)
+      # A real full-turn, all-wheel, launch-frame landing is now observable
+      # before it survives the complete settle window.  Reward each moment
+      # that this *same strict endpoint* remains true, so PPO can reinforce
+      # braking/idle recovery instead of receiving a signal only after an
+      # unlikely uninterrupted 0.6-s dwell.  It is gated by the exact
+      # endpoint below; no pose, time-indexed trajectory, or new action goal
+      # is introduced, and ``completed`` remains the sole success event.
+      + settle_reward * idle_stable.float() * env.step_dt
       + strict_reward.float() / env.step_dt
     )

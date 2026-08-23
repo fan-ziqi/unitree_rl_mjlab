@@ -237,6 +237,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # fraction keeps a small hop far below an almost-complete flip.
         "soft_touchdown_turn_exponent": 2.0,
         "max_overrotation": 0.50,
+        # Once a complete legal landing is sampled, reward its continuous
+        # dwell under public idle. This is the same strict physical endpoint
+        # used for acceptance, not a landing pose or reference trajectory.
+        "settle_reward": 4.0,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         # The strict bonus is paid only if the all-zero/default controller
