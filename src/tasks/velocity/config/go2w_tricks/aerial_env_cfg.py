@@ -67,7 +67,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # discovery batch for the unresolved front/back/left/right events.
       # This changes neither the command interface nor the strict whole-body
       # landing condition.
-      mode_probabilities=(0.24, 0.24, 0.24, 0.24, 0.04),
+      mode_probabilities=(0.08, 0.31, 0.30, 0.30, 0.01),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
