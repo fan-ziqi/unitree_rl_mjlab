@@ -115,21 +115,11 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # needs evidence that it improves all five modes, not just a hypothesis
     # about mode interference.
     hidden_dims=(512, 512, 256),
-    # This leaves initial exploration inside the physically tested compact
-    # position-residual envelope while still exposing coordinated launch
-    # pulses in the large parallel batch.
-    # V85/V86 both discover full rotations but their scalar Gaussian standard
-    # deviation grows past 1.5 late in training, destroying the short
-    # all-wheel landing window before the completion event can be reinforced.
-    # Start with enough residual exploration to jump, then use a low entropy
-    # pressure so PPO can consolidate a discovered landing rather than keep
-    # widening every limb action.  This changes no command, reward, contact
-    # criterion, or reference trajectory.
-    # V95's correct one-shot/safe-landing objective collapsed to std=0.27
-    # before any full turn was sampled, yielding only small safe hops.  The
-    # action clamp still bounds every joint residual; retain a wider Gaussian
-    # long enough for the rare complete ballistic event to be discovered.
-    init_std=0.45,
+    # A128 demonstrated real front/right strict landings, but its scalar
+    # Gaussian std collapsed to 0.18 and it forgot the remaining one-hots.
+    # Keep all five commands in one policy and preserve bounded exploration
+    # long enough for their equally physical launches to coexist.
+    init_std=0.60,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
@@ -141,5 +131,9 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # The initial exploration is ample across 8,192 worlds. A small entropy
     # pressure lets PPO consolidate a smooth landing once it is discovered,
     # rather than retaining the late-training flailing of the previous run.
-    entropy_coef=0.001,
+    entropy_coef=0.003,
+    # The large batch already produces a low-variance PPO gradient.  A
+    # smaller actor step prevents a rare successful mode from overwriting
+    # still-exploring command branches between checkpoints.
+    learning_rate=5.0e-4,
   )
