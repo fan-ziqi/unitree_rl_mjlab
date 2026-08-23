@@ -242,7 +242,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # requests in the same actor, but allocate its rollout budget to the
       # unresolved physical pivots instead of letting the easy front outcome
       # dominate their advantages.
-      mode_probabilities=(0.26, 0.08, 0.24, 0.21, 0.21),
+      # At m600 rear is the only reliable upright pivot and normal has a
+      # usable near-coaxial rate, whereas the side pairs have not yet
+      # discovered their support geometry.  Retain every command in the same
+      # policy, but spend the next zero-start rollout predominantly on the
+      # unresolved left/right pivots.
+      mode_probabilities=(0.16, 0.04, 0.15, 0.325, 0.325),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
