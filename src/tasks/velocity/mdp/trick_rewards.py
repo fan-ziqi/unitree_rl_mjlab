@@ -887,17 +887,16 @@ class AerialRotationCompletion:
     # Its value remains scaled by measured turn fraction, contact, velocity,
     # and whole-base orientation below—there is no pose, phase, or motion
     # reference introduced here.
-    # While the one-hot remains active, a partial legal touchdown is still a
-    # useful ordinary discovery sample.  After the public command has become
-    # idle, however, only an almost-complete event may use that delayed
-    # landing bridge.  Otherwise a low hop can clear to idle, touch down on
-    # four wheels, and collect recovery credit without ever exploring the
-    # requested revolution.
-    delayed_landing_eligible = post_landing_idle & (
-      self.progress >= 0.75 * target_angle
-    )
+    # A low hop at m500 was collecting the active-command touchdown signal at
+    # only 0.22 turns, then displacing the useful 0.7--0.9 turn attempts.
+    # The bridge is an endpoint result, not a generic landing bonus: require
+    # substantial signed turn progress whether the first wheel contact is
+    # still active or has already exposed public idle.  Rotation progress and
+    # airborne clearance remain dense discovery signals below this threshold.
+    landing_turn_eligible = self.progress >= 0.70 * target_angle
     wheel_touchdown = (
-      (active | delayed_landing_eligible)
+      (active | post_landing_idle)
+      & landing_turn_eligible
       & self.was_airborne
       & torch.all(contacts, dim=1)
       & legal
