@@ -34,6 +34,22 @@ CONTACT_MASKS = (
 )
 
 
+def _pair_coaxiality(
+  wheel_axles: torch.Tensor, wheel_positions: torch.Tensor, first: int, second: int
+) -> torch.Tensor:
+  """Measure whether two wheel centres lie on their common horizontal axle."""
+  axle_a = wheel_axles[:, first]
+  axle_b = wheel_axles[:, second]
+  centre_line = torch.nn.functional.normalize(
+    wheel_positions[:, second] - wheel_positions[:, first], dim=1
+  )
+  return (
+    torch.abs(torch.sum(axle_a * axle_b, dim=1))
+    * torch.abs(torch.sum(centre_line * axle_a, dim=1))
+    * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
+  )
+
+
 @dataclass
 class EvalConfig:
   checkpoint_file: Path
@@ -212,24 +228,28 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         (0.0, 1.0, 0.0), dtype=wheel_quat.dtype, device=base_env.device
       ).expand(wheel_quat.shape[0], -1)
       wheel_axles = quat_apply(wheel_quat, local_axle).reshape(cfg.num_envs, 4, 3)
-      axle_a = wheel_axles[batch, support_pair[:, 0]]
-      axle_b = wheel_axles[batch, support_pair[:, 1]]
       wheel_positions = robot.data.site_pos_w[:, wheel_site_ids]
-      centre_line = torch.nn.functional.normalize(
-        wheel_positions[batch, support_pair[:, 1]]
-        - wheel_positions[batch, support_pair[:, 0]],
+      pair_coaxiality_for_mode = torch.stack(
+        (
+          _pair_coaxiality(wheel_axles, wheel_positions, 0, 1),
+          _pair_coaxiality(wheel_axles, wheel_positions, 0, 1),
+          _pair_coaxiality(wheel_axles, wheel_positions, 2, 3),
+          _pair_coaxiality(wheel_axles, wheel_positions, 0, 2),
+          _pair_coaxiality(wheel_axles, wheel_positions, 1, 3),
+        ),
         dim=1,
-      )
-      coaxiality = (
-        torch.abs(torch.sum(axle_a * axle_b, dim=1))
-        * torch.abs(torch.sum(centre_line * axle_a, dim=1))
-        * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
-      )
+      )[batch, modes]
+      normal_coaxiality = _pair_coaxiality(
+        wheel_axles, wheel_positions, 0, 2
+      ) * _pair_coaxiality(wheel_axles, wheel_positions, 1, 3)
       coaxiality = torch.where(
-        modes <= 2, coaxiality, torch.ones_like(coaxiality)
-      )
-      coaxiality = torch.where(
-        modes == 0, torch.ones_like(coaxiality), coaxiality
+        modes == 0,
+        normal_coaxiality,
+        torch.where(
+          modes <= 2,
+          pair_coaxiality_for_mode,
+          torch.ones_like(normal_coaxiality),
+        ),
       )
       rate_ok = torch.where(active_spin, rate_error < 0.75, torch.ones_like(active_spin))
       pose_ok = target_alignment >= 0.97

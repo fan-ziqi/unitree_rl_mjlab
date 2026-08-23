@@ -81,6 +81,7 @@ def _pin_modes(command_term, modes: torch.Tensor) -> None:
     command_term._landing_hold_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()
+    command_term._launch_root_quat_w.zero_()
     # The command term captures the launch axis from the normal reset attitude
     # on its first control step, just as it does during training.
     command_term._new_skill.fill_(True)
@@ -220,6 +221,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     # geometry supports on the ground.
     peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_gravity_error = torch.zeros(cfg.num_envs, device=base_env.device)
+    completion_orientation_similarity = torch.zeros(
+        cfg.num_envs, device=base_env.device
+    )
     completion_linear_speed = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_angular_speed = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_all_wheels = torch.zeros_like(trial_open)
@@ -230,6 +234,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     full_turn_seen = torch.zeros_like(trial_open)
     post_turn_touchdown = torch.zeros_like(trial_open)
     post_turn_best_gravity_error = torch.full(
+        (cfg.num_envs,), float("inf"), device=base_env.device
+    )
+    post_turn_best_orientation_error = torch.full(
         (cfg.num_envs,), float("inf"), device=base_env.device
     )
     post_turn_best_linear_speed = torch.full(
@@ -353,6 +360,13 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     torch.square(robot.data.projected_gravity_b - normal_gravity),
                     dim=1,
                 )
+                orientation_similarity = torch.abs(
+                    torch.sum(
+                        robot.data.root_link_quat_w
+                        * command_term._launch_root_quat_w,
+                        dim=1,
+                    )
+                )
                 linear_speed = torch.linalg.vector_norm(robot.data.root_link_lin_vel_w, dim=1)
                 angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
                 post_turn_touchdown |= post_turn_touchdown_now
@@ -360,6 +374,14 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     post_turn_touchdown_now,
                     torch.minimum(post_turn_best_gravity_error, gravity_error),
                     post_turn_best_gravity_error,
+                )
+                post_turn_best_orientation_error = torch.where(
+                    post_turn_touchdown_now,
+                    torch.minimum(
+                        post_turn_best_orientation_error,
+                        1.0 - orientation_similarity,
+                    ),
+                    post_turn_best_orientation_error,
                 )
                 post_turn_best_linear_speed = torch.where(
                     post_turn_touchdown_now,
@@ -385,6 +407,16 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                         dim=1,
                     )
                     < command_cfg.landing_gravity_error_limit
+                )
+                & (
+                    torch.abs(
+                        torch.sum(
+                            robot.data.root_link_quat_w
+                            * command_term._launch_root_quat_w,
+                            dim=1,
+                        )
+                    )
+                    >= command_cfg.landing_orientation_dot_min
                 )
                 & (
                     torch.linalg.vector_norm(robot.data.root_link_lin_vel_w, dim=1)
@@ -414,6 +446,13 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     torch.square(robot.data.projected_gravity_b - normal_gravity), dim=1
                 )
                 completion_gravity_error[completed_now] = gravity_error[completed_now]
+                completion_orientation_similarity[completed_now] = torch.abs(
+                    torch.sum(
+                        robot.data.root_link_quat_w[completed_now]
+                        * command_term._launch_root_quat_w[completed_now],
+                        dim=1,
+                    )
+                )
                 completion_linear_speed[completed_now] = torch.linalg.vector_norm(
                     robot.data.root_link_lin_vel_w[completed_now], dim=1
                 )
@@ -483,6 +522,13 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             .item()
             if completed_count
             else float("inf"),
+            "completion_mean_orientation_similarity": completion_orientation_similarity[
+                completed_mask
+            ]
+            .mean()
+            .item()
+            if completed_count
+            else 0.0,
             "completion_mean_linear_speed": completion_linear_speed[completed_mask]
             .mean()
             .item()
@@ -510,6 +556,13 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             .max()
             .item(),
             "post_turn_best_gravity_error": post_turn_best_gravity_error[
+                post_turn_touchdown_mask
+            ]
+            .mean()
+            .item()
+            if post_turn_touchdown_count
+            else float("inf"),
+            "post_turn_best_orientation_error": post_turn_best_orientation_error[
                 post_turn_touchdown_mask
             ]
             .mean()

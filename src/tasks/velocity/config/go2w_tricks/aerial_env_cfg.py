@@ -164,6 +164,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "soft_touchdown_speed_scale": 4.0,
         "max_overrotation": 1.25,
         "landing_gravity_std": 0.30,
+        "landing_orientation_dot_min": 0.995,
+        "soft_touchdown_orientation_floor": 0.50,
         "landing_settle_time": 0.10,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,

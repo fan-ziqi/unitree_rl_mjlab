@@ -184,8 +184,10 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Every non-idle one-hot tracks the same world-down rate.  Normal uses all
-  # four wheels, while front/rear/left/right use their named support pair.
+  # Every non-idle one-hot tracks the same world-down rate.  Normal retains
+  # four wheel contacts, but at speed it must first bring each front/rear
+  # wheel pair onto a common axle; front/rear/left/right use their named
+  # support pair.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -224,7 +226,7 @@ def _stance_spin_components(
     min=0.0,
     max=1.0,
   )
-  # A normal four-wheel yaw spin and a side support have no tall-trunk
+  # A normal coaxial four-wheel spin and a side support have no tall-trunk
   # requirement.  Height remains only the existing physical anti-crouch
   # outcome for front/rear upright pivots.
   upright_pivot = (mode == 1) | (mode == 2)
@@ -244,24 +246,47 @@ def _stance_spin_components(
   ).expand(wheel_quat.shape[0], -1)
   wheel_axles = quat_apply(wheel_quat, local_axle).reshape(env.num_envs, 4, 3)
   wheel_positions = asset.data.site_pos_w[:, asset_cfg.site_ids]
-  axle_a = wheel_axles[batch, support_pair[:, 0]]
-  axle_b = wheel_axles[batch, support_pair[:, 1]]
-  axis_parallel = torch.abs(torch.sum(axle_a * axle_b, dim=1))
-  centre_line = (
-    wheel_positions[batch, support_pair[:, 1]]
-    - wheel_positions[batch, support_pair[:, 0]]
+  def pair_coaxiality(first: int, second: int) -> torch.Tensor:
+    axle_a = wheel_axles[:, first]
+    axle_b = wheel_axles[:, second]
+    centre_line = torch.nn.functional.normalize(
+      wheel_positions[:, second] - wheel_positions[:, first], dim=1
+    )
+    return (
+      torch.abs(torch.sum(axle_a * axle_b, dim=1))
+      * torch.abs(torch.sum(centre_line * axle_a, dim=1))
+      * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
+    )
+
+  pair_coaxiality_for_mode = torch.stack(
+    (
+      pair_coaxiality(0, 1),
+      pair_coaxiality(0, 1),
+      pair_coaxiality(2, 3),
+      pair_coaxiality(0, 2),
+      pair_coaxiality(1, 3),
+    ),
+    dim=1,
+  )[batch, mode]
+  # The reference's normal high-speed spin is not ordinary four-wheel yaw
+  # steering.  It first draws the front/rear wheels into two co-linear axle
+  # tracks.  This product gives PPO a continuous geometry score while making
+  # a bicycle-like floor circle strictly inferior to the intended pivot.
+  normal_coaxiality = pair_coaxiality(0, 2) * pair_coaxiality(1, 3)
+  coaxiality = torch.where(
+    mode == 0,
+    normal_coaxiality,
+    torch.where(
+      upright_pivot,
+      pair_coaxiality_for_mode,
+      torch.ones_like(normal_coaxiality),
+    ),
   )
-  centre_line = torch.nn.functional.normalize(centre_line, dim=1)
-  line_on_axle = torch.abs(torch.sum(centre_line * axle_a, dim=1))
-  horizontal_axle = torch.linalg.vector_norm(axle_a[:, :2], dim=1)
-  coaxiality = axis_parallel * line_on_axle * horizontal_axle
-  # Four wheel differential steering is not a single coaxial pair, and a
-  # side-down pair has vertical wheel axes by construction.  The collinearity
-  # test belongs only to the front/rear upright pivots.
-  coaxiality = torch.where(upright_pivot, coaxiality, torch.ones_like(coaxiality))
   # The small nonzero baseline keeps the physical contact/attitude discovery
-  # gradient alive before the front/rear pair has achieved exact co-linearity.
-  # Full rate return nevertheless requires the measured coaxial geometry.
+  # gradient alive before a front/rear pair has achieved exact co-linearity.
+  # The normal high-speed branch deliberately has no baseline: otherwise
+  # ordinary four-wheel steering is a profitable local optimum and the policy
+  # never changes its rotation centre.
   # V45 demonstrated that a linear attitude factor leaves a lucrative local
   # optimum: the named wheels become coaxial and spin in place while the
   # trunk remains roughly half-way to its requested vertical axis.  Squaring
@@ -271,9 +296,16 @@ def _stance_spin_components(
   # preserves a nonzero discovery gradient from four-wheel default while
   # decisively ranking the observed slanted solution below a near-vertical
   # support.
-  support_quality = (
-    contact_score * torch.pow(alignment, 8) * height_score * (0.15 + 0.85 * coaxiality)
+  coaxial_factor = torch.where(
+    mode == 0,
+    coaxiality,
+    torch.where(
+      upright_pivot,
+      0.15 + 0.85 * coaxiality,
+      torch.ones_like(coaxiality),
+    ),
   )
+  support_quality = contact_score * torch.pow(alignment, 8) * height_score * coaxial_factor
   return asset, moving, rate_score, support_quality, support_pair, mode
 
 
@@ -664,6 +696,7 @@ class AerialRotationCompletion:
     )
     self.landing_settle_time = torch.zeros(env.num_envs, device=env.device)
     self.launch_axis_w = torch.zeros(env.num_envs, 3, device=env.device)
+    self.launch_root_quat_w = torch.zeros(env.num_envs, 4, device=env.device)
     self.airborne_time = torch.zeros(env.num_envs, device=env.device)
     self.flight_qualified = torch.zeros(
       env.num_envs, dtype=torch.bool, device=env.device
@@ -680,6 +713,7 @@ class AerialRotationCompletion:
     self.previous_mode[env_ids] = -1
     self.landing_settle_time[env_ids] = 0.0
     self.launch_axis_w[env_ids] = 0.0
+    self.launch_root_quat_w[env_ids] = 0.0
     self.airborne_time[env_ids] = 0.0
     self.flight_qualified[env_ids] = False
     self.flight_rotation[env_ids] = 0.0
@@ -698,6 +732,8 @@ class AerialRotationCompletion:
     landing_settle_time: float = 0.10,
     landing_linear_velocity_limit: float = 0.75,
     landing_angular_velocity_limit: float = 1.5,
+    landing_orientation_dot_min: float = 0.995,
+    soft_touchdown_orientation_floor: float = 0.50,
     max_overrotation: float = 0.75,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
@@ -705,6 +741,12 @@ class AerialRotationCompletion:
       raise ValueError("soft_touchdown_reward must be non-negative.")
     if soft_touchdown_speed_scale <= 0.0:
       raise ValueError("soft_touchdown_speed_scale must be positive.")
+    if not 0.0 < landing_orientation_dot_min <= 1.0:
+      raise ValueError("landing_orientation_dot_min must be in (0, 1].")
+    if not 0.0 <= soft_touchdown_orientation_floor < landing_orientation_dot_min:
+      raise ValueError(
+        "soft_touchdown_orientation_floor must be non-negative and below the strict threshold."
+      )
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -730,6 +772,7 @@ class AerialRotationCompletion:
     self.launch_axis_w[new_skill] = quat_apply(
       asset.data.root_link_quat_w[new_skill], axes_b[new_skill]
     )
+    self.launch_root_quat_w[new_skill] = asset.data.root_link_quat_w[new_skill]
     axis_rate = torch.sum(asset.data.root_link_ang_vel_w * self.launch_axis_w, dim=1)
     contacts = _wheel_contacts(env, sensor_name)
     command_term = env.command_manager.get_term(command_name)
@@ -778,6 +821,9 @@ class AerialRotationCompletion:
     gravity_error = torch.sum(
       torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
     )
+    orientation_similarity = torch.abs(
+      torch.sum(asset.data.root_link_quat_w * self.launch_root_quat_w, dim=1)
+    )
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
     # The original geometric touchdown bridge gave exactly the same credit to
@@ -806,6 +852,12 @@ class AerialRotationCompletion:
         min=0.0,
         max=1.0,
       )
+      * torch.clamp(
+        (orientation_similarity - soft_touchdown_orientation_floor)
+        / (1.0 - soft_touchdown_orientation_floor),
+        min=0.0,
+        max=1.0,
+      )
     )
     stable_landing = (
       active
@@ -813,6 +865,7 @@ class AerialRotationCompletion:
       & torch.all(contacts, dim=1)
       & legal
       & (gravity_error < landing_gravity_std)
+      & (orientation_similarity >= landing_orientation_dot_min)
       & (linear_speed < landing_linear_velocity_limit)
       & (angular_speed < landing_angular_velocity_limit)
     )

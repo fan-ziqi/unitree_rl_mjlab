@@ -165,7 +165,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # their rolling nor prescribes a front/rear standing trajectory.
     "normal_leg_default_pose": RewardTermCfg(
       func=trick_rewards.normal_leg_default_pose_exp,
-      weight=2.5,
+      # In four-wheel rolling there is no physical need to bend a leg: wheel
+      # velocity alone supplies x/yaw motion.  Give the visual/default-pose
+      # requirement comparable scale to contact support so normal locomotion
+      # cannot buy a little tracking accuracy by adopting an unrelated squat.
+      # This term is identically zero for front/rear commands.
+      weight=8.0,
       params={
         "command_name": "trick",
         "std": 0.20,
@@ -175,7 +180,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # This remains a generic temporal smoothness cost—not a free-leg pose
     # target—but now has enough scale to reject the visibly flailing airborne
     # pair once the support and velocity outcomes are already satisfied.
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   cfg.curriculum = {}
@@ -189,8 +194,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
-  video's all-wheel in-place yaw spin; nonzero front/rear rates request its
-  upright local pivot.  Left/right use their side wheel pair for the same
+  video's all-wheel in-place yaw spin after front/rear wheel axles are
+  co-linear; nonzero front/rear rates request its upright local pivot.
+  Left/right use their side wheel pair for the same
   world-down rotation, without assuming a front/rear-style collinear axle.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
@@ -224,9 +230,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # One outcome term: normal tracks a four-wheel local yaw spin; all
-      # two-wheel modes track the same rate, with front/rear additionally
-      # requiring the tall collinear pivot geometry.
+      # One outcome term: normal tracks a four-wheel local yaw spin only once
+      # its front/rear axles are co-linear; front/rear track the upright
+      # collinear pivot geometry.  This prevents a normal command from
+      # collapsing to ordinary differential steering around a floor circle.
       weight=18.0,
       params={
         "command_name": "trick",

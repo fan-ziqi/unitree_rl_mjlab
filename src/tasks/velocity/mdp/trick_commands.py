@@ -28,10 +28,10 @@ class StanceSpinCommand(CommandTerm):
   The public layout is ``[normal, front, rear, left, right, spin_rate]``.
   Its literal all-zero value is the normal four-wheel idle.  A nonzero rate
   requests a local world-down rotation in one of the five contact modes.
-  ``normal`` is the four-wheel in-place yaw spin; front/rear are the upright
-  two-wheel pivots; left/right are the corresponding side supports.  Only the
-  upright front/rear pivots require a collinear horizontal wheel axle.  No
-  command carries a pose, phase, or limb target.
+  ``normal`` is the four-wheel in-place yaw spin, but a nonzero rate must
+  bring the front/rear wheel axles onto co-linear tracks first; front/rear are
+  the upright two-wheel pivots; left/right are the corresponding side
+  supports.  No command carries a pose, phase, or limb target.
   """
 
   cfg: StanceSpinCommandCfg
@@ -471,6 +471,11 @@ class AerialRotationCommand(CommandTerm):
     self._landing_hold_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
+    # A 2π aerial turn is only complete when the whole base frame—not merely
+    # its gravity vector—returns to the frame present at command onset.  The
+    # initial orientation is private event bookkeeping, just like the world
+    # turn axis: it never enters the policy observation.
+    self._launch_root_quat_w = torch.zeros(self.num_envs, 4, device=self.device)
     self._new_skill = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
     # Evaluator-only outcome bit.  It is not part of the actor observation:
     # command clearing now means an attempt has ended, not necessarily that it
@@ -501,6 +506,7 @@ class AerialRotationCommand(CommandTerm):
     self._landing_hold_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
+    self._launch_root_quat_w[env_ids] = 0.0
     self._new_skill[env_ids] = False
     self._last_attempt_succeeded[env_ids] = False
     active = torch.rand(count, device=self.device) > self.cfg.idle_probability
@@ -537,6 +543,9 @@ class AerialRotationCommand(CommandTerm):
     self._launch_axis_w[self._new_skill] = quat_apply(
       asset.data.root_link_quat_w[self._new_skill], axes_b[self._new_skill]
     )
+    self._launch_root_quat_w[self._new_skill] = asset.data.root_link_quat_w[
+      self._new_skill
+    ]
     self._new_skill[active] = False
 
     sensor: ContactSensor = self._env.scene[self.cfg.sensor_name]
@@ -615,6 +624,9 @@ class AerialRotationCommand(CommandTerm):
     gravity_error = torch.sum(
       torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
     )
+    orientation_similarity = torch.abs(
+      torch.sum(asset.data.root_link_quat_w * self._launch_root_quat_w, dim=1)
+    )
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
     stable_landing = (
@@ -622,6 +634,7 @@ class AerialRotationCommand(CommandTerm):
       & self.was_airborne
       & torch.all(contacts, dim=1)
       & (gravity_error < self.cfg.landing_gravity_error_limit)
+      & (orientation_similarity >= self.cfg.landing_orientation_dot_min)
       & (linear_speed < self.cfg.landing_linear_velocity_limit)
       & (angular_speed < self.cfg.landing_angular_velocity_limit)
     )
@@ -699,6 +712,11 @@ class AerialRotationCommandCfg(CommandTermCfg):
   # sampled command rather than repeated retries.
   post_landing_hold_time: float = 0.10
   landing_gravity_error_limit: float = 0.30
+  # ``abs(dot(q_land, q_launch))`` is invariant to the quaternion sign.  A
+  # 0.995 threshold permits about 11.5 degrees of residual whole-body
+  # rotation, while rejecting the yaw drift that projected gravity cannot
+  # observe after a front/back/side flip.
+  landing_orientation_dot_min: float = 0.995
   landing_linear_velocity_limit: float = 0.75
   landing_angular_velocity_limit: float = 1.5
   # Four controller steps at the 50-Hz policy rate.  This removes the
