@@ -103,9 +103,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Literal normal idle is a deterministic action gate, not a skill PPO
       # needs to spend samples rediscovering.  Keep static examples only for
       # the two upright forms, whose balance still benefits from them.
-      # Static balance is already discoverable; devote most upright samples
-      # to the requested x/yaw response while retaining balance examples.
-      mode_idle_probabilities=(0.0, 0.25, 0.25),
+      # A front/rear controller needs many successful no-motion supports
+      # before x/yaw reward can improve its wheel motion. Reducing this share
+      # prematurely made both upright modes reset before they ever became a
+      # controllable base, so retain half the samples as static balance.
+      mode_idle_probabilities=(0.0, 0.50, 0.50),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
