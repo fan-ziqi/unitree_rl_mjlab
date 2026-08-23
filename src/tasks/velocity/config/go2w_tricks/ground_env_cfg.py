@@ -208,7 +208,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
       # Every one-hot remains in the policy domain and carries spin rate.
-      mode_probabilities=(0.24, 0.28, 0.28, 0.10, 0.10),
+      # This is one fused five-direction policy, so no branch may receive
+      # preferential exploration mass.  Front/rear used to dominate 56% of
+      # samples and produced exactly the observed collapse: those poses made
+      # progress while normal/left/right did not.  Keep every public one-hot
+      # at the same 20% probability from the first PPO update.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       spin_idle_probability=0.25,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
