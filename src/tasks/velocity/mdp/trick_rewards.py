@@ -366,8 +366,15 @@ class StanceSpinPivotResult:
     # circle is still strictly worse than a local pivot; no phase, trajectory,
     # or joint target is introduced.
     support_and_rate = support_quality * (1.0 + rate_score)
-    mature_support = torch.clamp((support_quality - 0.65) / 0.35, min=0.0, max=1.0)
-    translation_penalty = 1.5 * mature_support * translation_cost
+    # A stable but travelling two-wheel form became the V99 local optimum:
+    # support quality was just high enough to earn rate credit, while the
+    # previous drift cost remained smaller than that credit.  Once a support
+    # is visibly established, only *excess* centre speed is harmful.  Keep the
+    # whole sub-limit region free so a true local pivot is not overdamped, but
+    # make a 0.25-m/s floor circle decisively worse than a 0.12-m/s pivot.
+    mature_support = torch.clamp((support_quality - 0.45) / 0.30, min=0.0, max=1.0)
+    excess_translation = torch.clamp(translation_cost - 1.0, min=0.0, max=1.0)
+    translation_penalty = 4.0 * mature_support * excess_translation
     dynamic_result = support_and_rate - translation_penalty
     return moving.to(rate_score.dtype) * dynamic_result
 
