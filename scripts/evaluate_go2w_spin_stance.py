@@ -75,12 +75,8 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Only normal/front/rear are dynamic; left/right are static supports."""
-  return torch.where(
-    modes <= 2,
-    torch.full_like(modes, spin_rate, dtype=torch.float32),
-    torch.zeros_like(modes, dtype=torch.float32),
-  )
+  """Every non-idle one-hot is a signed high-rate local pivot request."""
+  return torch.full_like(modes, spin_rate, dtype=torch.float32)
 
 
 def _pin_modes(
@@ -248,11 +244,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       coaxiality = torch.where(
         modes == 0,
         normal_coaxiality,
-        torch.where(
-          modes <= 2,
-          pair_coaxiality_for_mode,
-          torch.ones_like(normal_coaxiality),
-        ),
+        pair_coaxiality_for_mode,
       )
       rate_ok = torch.where(active_spin, rate_error < 0.75, torch.ones_like(active_spin))
       pose_ok = target_alignment >= 0.97
@@ -264,11 +256,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       axle_ok = torch.where(
         active_spin, coaxiality >= 0.90, torch.ones_like(active_spin)
       )
-      idle_quiet = (
-        torch.linalg.vector_norm(robot.data.root_link_lin_vel_w[:, :2], dim=1) < 0.05
-      ) & (torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1) < 0.75)
       success = support_ok & rate_ok & pose_ok & pivot_ok & axle_ok & ~nonwheel
-      success = success & torch.where(active_spin, torch.ones_like(success), idle_quiet)
 
       sample_count += valid.float()
       alignment_sum += valid.float() * target_alignment

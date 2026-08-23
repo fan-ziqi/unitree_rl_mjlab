@@ -30,9 +30,9 @@ class StanceSpinCommand(CommandTerm):
   requests a local world-down rotation in one of the five contact modes.
   ``normal`` is the four-wheel in-place yaw spin, but a nonzero rate must
   bring the front/rear wheel axles onto co-linear tracks first; front/rear are
-  the upright two-wheel pivots.  Left/right are static side supports: their
-  one-hot stays public, but their rate channel is deliberately zero because
-  the reference supplies no evidence for a same-side high-speed pivot.
+  the upright two-wheel pivots and left/right are their side-wheel
+  equivalents.  Every non-idle one-hot carries the same signed rotation
+  request.
   No command carries a pose, phase, or limb target.
   """
 
@@ -79,15 +79,14 @@ class StanceSpinCommand(CommandTerm):
     non_idle = (
       torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
     )
-    # Every non-idle command has a public stance one-hot.  Only normal,
-    # front, and rear carry a signed world-down rate; left/right are the
-    # explicitly static dual-wheel forms seen in the reference.  The literal
-    # all-zero command remains default four-wheel idle.
+    # Every non-idle command has a public stance one-hot and a signed
+    # world-down rate.  The literal all-zero command remains default
+    # four-wheel idle.
     active_ids = env_ids[non_idle]
     if len(active_ids) > 0:
       self.command_buf[active_ids, modes[non_idle]] = 1.0
 
-    moving = non_idle & (modes <= 2)
+    moving = non_idle
     moving_ids = env_ids[moving]
     if len(moving_ids) == 0:
       return

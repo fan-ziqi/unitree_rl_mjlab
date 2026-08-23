@@ -215,9 +215,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
   video's all-wheel in-place yaw spin after front/rear wheel axles are
-  co-linear; nonzero front/rear rates request its upright local pivot.
-  Left/right select static side-wheel support and deliberately ignore the
-  rate channel: the reference does not support inventing a same-side spin.
+  co-linear; the other four one-hots request the corresponding two-wheel
+  local pivot.  All five modes therefore use the same one-hot plus signed
+  spin-rate command interface.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
@@ -227,20 +227,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Every one-hot remains in the policy domain.  The command term emits a
-      # nonzero spin rate only for normal/front/rear; left/right are static
-      # side-support examples in the same fused policy.
-      # This is one fused five-direction policy, so no branch may receive
-      # preferential exploration mass.  Front/rear used to dominate 56% of
-      # samples and produced exactly the observed collapse: those poses made
-      # progress while normal/left/right did not.  Keep every public one-hot
-      # at the same 20% probability from the first PPO update.
-      # The former non-uniform draw still collapsed the static left/right
-      # forms: right retained a partial two-wheel contact, left received
-      # almost none.  Every requested one-hot gets equal fused-policy
-      # coverage.  The public all-zero default is already enforced by the
-      # idle-action gate, so withholding a quarter of all PPO samples for an
-      # action the policy cannot change only starves the five real skills.
+      # Every active one-hot carries a rate and has equal probability.  The
+      # all-zero default is enforced by the action gate rather than consuming
+      # a fifth of the PPO batch.
       mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
@@ -264,11 +253,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
       # One outcome term: normal tracks a four-wheel local yaw spin only once
-      # its front/rear axles are co-linear; front/rear track the upright
-      # collinear pivot.  Left/right use the same outcome term as static side
-      # supports.  This prevents a normal command from collapsing to ordinary
-      # differential steering around a floor circle without adding a second
-      # policy or a motion reference.
+      # its front/rear axles are co-linear; each other mode tracks its upright
+      # local pivot.  This prevents a normal command from collapsing to
+      # ordinary differential steering around a floor circle without adding a
+      # second policy or a motion reference.
       weight=18.0,
       params={
         "command_name": "trick",
@@ -280,8 +268,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # Circle-running is not an acceptable approximation to the reference
         # pivot.  The support axle midpoint must be nearly stationary.
         "pivot_speed_limit": 0.12,
-        "static_angular_velocity_scale": 0.75,
-        "static_linear_velocity_scale": 0.15,
         "asset_cfg": _support_wheels(),
       },
     ),

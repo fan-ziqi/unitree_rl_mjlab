@@ -230,12 +230,15 @@ def _stance_spin_components(
     min=0.0,
     max=1.0,
   )
-  # A normal coaxial four-wheel spin and a side support have no tall-trunk
-  # requirement.  Height remains only the existing physical anti-crouch
-  # outcome for front/rear upright pivots.
-  upright_pivot = (mode == 1) | (mode == 2)
+  # Every non-normal mode is a two-wheel pivot.  Normal also needs enough
+  # trunk-to-axle clearance to rule out the low crouch that can otherwise
+  # spin while keeping four wheel contacts, but it deliberately has a looser
+  # requirement than an upright two-wheel balance.
+  upright_pivot = mode != 0
   height_score = torch.where(
-    upright_pivot, height_score, torch.ones_like(height_score)
+    upright_pivot,
+    height_score,
+    torch.clamp(height_score * (0.45 / 0.28), min=0.0, max=1.0),
   )
 
   # Wheel-joint local Y is the cylinder axle.  Wheel spin itself is a
@@ -280,11 +283,7 @@ def _stance_spin_components(
   coaxiality = torch.where(
     mode == 0,
     normal_coaxiality,
-    torch.where(
-      upright_pivot,
-      pair_coaxiality_for_mode,
-      torch.ones_like(normal_coaxiality),
-    ),
+    pair_coaxiality_for_mode,
   )
   # A small baseline keeps the physical contact/rate signal alive while the
   # normal branch first moves its two longitudinal wheel pairs together.  The
@@ -299,33 +298,27 @@ def _stance_spin_components(
   coaxial_factor = torch.where(
     mode == 0,
     0.05 + 0.95 * coaxiality,
-    torch.where(
-      upright_pivot,
-      0.15 + 0.85 * coaxiality,
-      torch.ones_like(coaxiality),
-    ),
+    0.15 + 0.85 * coaxiality,
   )
-  # A broad squared attitude score admits a visibly slanted front/rear pivot
-  # as a local optimum.  Sharpen only those dynamic upright modes; the static
-  # side supports retain the denser squared signal needed to discover their
-  # 90-degree balance from the ordinary reset.
+  # A broad squared attitude score admits a visibly slanted two-wheel pivot
+  # as a local optimum.  Sharpen every two-wheel mode while preserving the
+  # dense normal spin signal needed to move out of the default reset.
   alignment_score = torch.where(
     upright_pivot,
     torch.pow(alignment, 4.0),
-    torch.where(mode >= 3, alignment, torch.square(alignment)),
+    torch.square(alignment),
   )
   support_quality = contact_score * alignment_score * height_score * coaxial_factor
   return asset, moving, rate_score, support_quality, support_pair, mode
 
 
 class StanceSpinPivotResult:
-  """Reward the dynamic pivots and static side supports of one ground policy.
+  """Reward five high-rate local pivots of one fused ground policy.
 
-  Normal/front/rear use the supporting wheel centres, rather than root
-  velocity, to identify a high-rate local pivot.  Left/right instead reward
-  a quiet, correctly supported two-wheel stand.  Both are instantaneous
-  measured outcomes: no anchor, transition clock, reference path, or limb
-  trajectory is retained in state.
+  Normal uses the four-wheel centre and front/rear axle co-linearity; each
+  two-wheel branch uses its named support axle.  The result is always an
+  instantaneous physical measurement: no anchor, transition clock, reference
+  path, or limb trajectory is retained in state.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -344,16 +337,10 @@ class StanceSpinPivotResult:
     contact_masks: tuple[tuple[float, float, float, float], ...],
     sensor_name: str,
     pivot_speed_limit: float,
-    static_angular_velocity_scale: float,
-    static_linear_velocity_scale: float,
     asset_cfg: SceneEntityCfg,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
-    if static_angular_velocity_scale <= 0.0:
-      raise ValueError("static_angular_velocity_scale must be positive.")
-    if static_linear_velocity_scale <= 0.0:
-      raise ValueError("static_linear_velocity_scale must be positive.")
     asset, moving, rate_score, support_quality, pair, mode = _stance_spin_components(
       env,
       command_name,
@@ -382,31 +369,7 @@ class StanceSpinPivotResult:
     # at the required 0.12-m/s local centre speed.
     pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
     dynamic_result = support_quality * rate_score * pivot_stillness
-    command = _command(env, command_name)
-    active = torch.sum(command[:, :5], dim=1) > 0.5
-    static_side = active & (mode >= 3)
-    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    static_stillness = torch.clamp(
-      1.0 - angular_speed / static_angular_velocity_scale,
-      min=0.0,
-      max=1.0,
-    )
-    # Side supports are static poses, not an unspecified request to roll
-    # across the floor.  Angular stillness alone left a travelling two-wheel
-    # local optimum, so grade this same physical outcome by horizontal root
-    # stillness as well.  This is a velocity measurement, not an anchor or a
-    # target position.
-    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
-    static_stillness *= torch.clamp(
-      1.0 - linear_speed / static_linear_velocity_scale,
-      min=0.0,
-      max=1.0,
-    )
-    static_result = support_quality * static_stillness
-    return (
-      moving.to(rate_score.dtype) * dynamic_result
-      + static_side.to(rate_score.dtype) * static_result
-    )
+    return moving.to(rate_score.dtype) * dynamic_result
 
 
 # ---------------------------------------------------------------------------
