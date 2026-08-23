@@ -165,7 +165,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_overrotation": 1.25,
         "landing_gravity_std": 0.30,
         "landing_orientation_dot_min": 0.995,
-        "soft_touchdown_orientation_floor": 0.50,
+        # The landing must still pass the strict 0.995 completion threshold,
+        # but a legal full-turn wheel touchdown receives a continuous
+        # orientation-quality signal all the way from zero similarity.  The
+        # former 0.50 floor made every badly aligned but otherwise informative
+        # first landing exactly equivalent, so PPO had no return gradient
+        # toward restoring the launch heading.
+        "soft_touchdown_orientation_floor": 0.0,
         "landing_settle_time": 0.10,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
