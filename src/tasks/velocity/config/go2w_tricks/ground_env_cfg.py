@@ -184,7 +184,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=20.0,
+      weight=10.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -213,7 +213,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # existing public-command outcome large enough to compete with the
       # always-available support score; it still contains no posture, wheel
       # target, phase, or transition prescription.
-      weight=30.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "std": 0.60,
