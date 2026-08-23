@@ -257,12 +257,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # This run starts from a new random policy, so it must not inherit the
-      # old checkpoint's "front is already solved" sampling bias.  Give every
-      # requested one-hot equal discovery budget; otherwise the fused actor
-      # can look good on side supports while never relearning front/rear/normal
-      # high-rate behaviour.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Equal sampling established front almost immediately, but its much
+      # larger return then starved normal/rear/right of useful advantages.
+      # Retain front in the same policy while spending this fresh discovery run
+      # on the unresolved pivots and the near-complete left side support.
+      mode_probabilities=(0.25, 0.05, 0.30, 0.20, 0.20),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
