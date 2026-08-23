@@ -141,7 +141,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # the trunk above its transverse support axle; without this existing
         # support-outcome geometry, V1 found a low front crouch with the right
         # two contacts but not the requested inverted stand.
-        "minimum_root_clearance": (0.18, 0.40, 0.40),
+        "minimum_root_clearance": (0.18, 0.45, 0.45),
         "asset_cfg": _support_wheels(),
       },
     ),

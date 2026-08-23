@@ -222,7 +222,11 @@ def _stance_spin_components(
     wheel_height[batch, support_pair[:, 0]] + wheel_height[batch, support_pair[:, 1]]
   )
   height_score = torch.clamp(
-    (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.35,
+    # The former 0.35-m target admitted the low, visibly diagonal support
+    # measured at m300/m400.  This remains a base-to-wheel geometric outcome,
+    # not a leg configuration or reference posture; it simply requires the
+    # intended upright pivot to stand clear of its supporting axle.
+    (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.45,
     min=0.0,
     max=1.0,
   )

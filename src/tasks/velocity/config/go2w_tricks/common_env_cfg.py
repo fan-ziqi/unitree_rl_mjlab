@@ -257,7 +257,13 @@ def make_base_go2w_trick_cfg(
       entity_name="robot",
       actuator_names=GO2W_LEG_JOINTS,
       scale={
-        r".*_hip_joint": 0.35,
+        # A 0.35-rad abduction residual froze the contact geometry close to
+        # the four-wheel reset: front/rear supports settled into a low slant
+        # and normal spin could not draw its wheel axles together.  The model
+        # itself permits ±1.05 rad; expose a still-bounded 0.55-rad working
+        # envelope so PPO can discover the support geometry without changing
+        # torque limits, a pose target, or the public command interface.
+        r".*_hip_joint": 0.55,
         r".*_thigh_joint": 0.85,
         r".*_calf_joint": 0.85,
       },
