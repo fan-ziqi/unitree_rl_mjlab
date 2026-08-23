@@ -286,11 +286,11 @@ def _stance_spin_components(
       torch.ones_like(normal_coaxiality),
     ),
   )
-  # The small nonzero baseline keeps the physical contact/attitude discovery
-  # gradient alive before a front/rear pair has achieved exact co-linearity.
-  # The normal high-speed branch deliberately has no baseline: otherwise
-  # ordinary four-wheel steering is a profitable local optimum and the policy
-  # never changes its rotation centre.
+  # A small baseline keeps the physical contact/rate signal alive while the
+  # normal branch first moves its two longitudinal wheel pairs together.  The
+  # full co-axial form is still twenty times more valuable, and the local
+  # support-centre requirement below rejects ordinary four-wheel circle
+  # steering as a substitute for the video's pivot geometry.
   # Squaring ranks a fully established support above a slanted form while
   # retaining a practical discovery signal from the ordinary four-wheel
   # reset.  The former eighth power was too sparse for normal and side modes:
@@ -298,7 +298,7 @@ def _stance_spin_components(
   # axle geometry, and rate all changed at once.
   coaxial_factor = torch.where(
     mode == 0,
-    coaxiality,
+    0.05 + 0.95 * coaxiality,
     torch.where(
       upright_pivot,
       0.15 + 0.85 * coaxiality,
@@ -312,7 +312,7 @@ def _stance_spin_components(
   alignment_score = torch.where(
     upright_pivot,
     torch.pow(alignment, 4.0),
-    torch.square(alignment),
+    torch.where(mode >= 3, alignment, torch.square(alignment)),
   )
   support_quality = contact_score * alignment_score * height_score * coaxial_factor
   return asset, moving, rate_score, support_quality, support_pair, mode
@@ -374,31 +374,14 @@ class StanceSpinPivotResult:
       (mode == 0).unsqueeze(1), all_wheel_centre_velocity, pair_centre_velocity
     )
     centre_speed = torch.linalg.vector_norm(centre_velocity, dim=1)
-    translation_cost = torch.clamp(centre_speed / pivot_speed_limit, min=0.0, max=2.0)
-    # A four-wheel-to-two-wheel rise necessarily shifts its eventual support
-    # centre before the target contact/attitude geometry exists.  Penalizing
-    # that transient displacement (as V98 did) made every front/rear/side
-    # attempt fail before it could establish support.  Therefore this same
-    # outcome term starts charging local-centre drift only after the measured
-    # support is already substantially formed.  At a mature support, a floor
-    # circle is still strictly worse than a local pivot; no phase, trajectory,
-    # or joint target is introduced.
-    support_and_rate = support_quality * (1.0 + rate_score)
-    # A stable but travelling two-wheel form became the V99 local optimum:
-    # support quality was just high enough to earn rate credit, while the
-    # previous drift cost remained smaller than that credit.  Once a support
-    # is visibly established, only *excess* centre speed is harmful.  Keep the
-    # whole sub-limit region free so a true local pivot is not overdamped, but
-    # make a 0.25-m/s floor circle decisively worse than a 0.12-m/s pivot.
-    # At m200 a visibly travelling front/rear pair achieved support quality
-    # around 0.35, just below the previous 0.45 start threshold.  That made
-    # a floor circle receive *no* local-pivot penalty.  Begin rejecting
-    # translation as soon as a recognizable two-wheel support exists, while
-    # retaining a zero penalty during the initial four-wheel rise.
-    mature_support = torch.clamp((support_quality - 0.25) / 0.30, min=0.0, max=1.0)
-    excess_translation = torch.clamp(translation_cost - 1.0, min=0.0, max=1.0)
-    translation_penalty = 4.0 * mature_support * excess_translation
-    dynamic_result = support_and_rate - translation_penalty
+    # The old late, subtractive penalty permitted a high-rate front/rear form
+    # to score while its support axle travelled around a broad floor circle.
+    # A local pivot is an inseparable outcome: score rate *and* a stationary
+    # support centre together.  The rational form is smooth from the reset,
+    # but a 0.40-m/s travelling pair receives only 8% of the result available
+    # at the required 0.12-m/s local centre speed.
+    pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
+    dynamic_result = support_quality * rate_score * pivot_stillness
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     static_side = active & (mode >= 3)
@@ -804,6 +787,7 @@ class AerialRotationCompletion:
     soft_touchdown_turn_exponent: float = 2.0,
     max_overrotation: float = 1.25,
     post_idle_settle_time: float = 0.40,
+    post_idle_settle_shape_reward: float = 0.0,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if soft_touchdown_reward < 0.0:
@@ -824,6 +808,8 @@ class AerialRotationCompletion:
       raise ValueError("max_overrotation must be positive.")
     if post_idle_settle_time <= 0.0:
       raise ValueError("post_idle_settle_time must be positive.")
+    if post_idle_settle_shape_reward < 0.0:
+      raise ValueError("post_idle_settle_shape_reward must be non-negative.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -972,6 +958,38 @@ class AerialRotationCompletion:
       )
       * turn_quality
     )
+    # Once the public one-hot is cleared, the only valid event result is
+    # ordinary four-wheel idle in the launch frame.  Keep grading that exact
+    # measured condition throughout the landing window: a controller can no
+    # longer receive all of its endpoint credit from one favourable contact
+    # frame and then let yaw, roll, or pitch drift before the maneuver ends.
+    post_idle_settle_quality = (
+      post_landing_idle.to(orientation_similarity.dtype)
+      * landing_turn_eligible.to(orientation_similarity.dtype)
+      * torch.all(contacts, dim=1).to(orientation_similarity.dtype)
+      * legal.to(orientation_similarity.dtype)
+      * torch.clamp(
+        1.0 - gravity_error / (soft_touchdown_speed_scale * landing_gravity_std),
+        min=0.0,
+        max=1.0,
+      )
+      * torch.clamp(
+        1.0
+        - linear_speed
+        / (soft_touchdown_speed_scale * landing_linear_velocity_limit),
+        min=0.0,
+        max=1.0,
+      )
+      * torch.clamp(
+        1.0
+        - angular_speed
+        / (soft_touchdown_speed_scale * landing_angular_velocity_limit),
+        min=0.0,
+        max=1.0,
+      )
+      * torch.pow(orientation_similarity, soft_touchdown_orientation_exponent)
+      * turn_quality
+    )
     # The command clears on the first wheel contact.  From then on this same
     # reward owns the entire measured outcome: it must have completed one
     # bounded rotation and remain quietly recovered under the public idle
@@ -1003,5 +1021,6 @@ class AerialRotationCompletion:
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return (
       soft_touchdown_reward * touchdown_reward.float() * touchdown_quality
+      + post_idle_settle_shape_reward * post_idle_settle_quality
       + strict_reward.float() / env.step_dt
     )

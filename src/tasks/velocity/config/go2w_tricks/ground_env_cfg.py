@@ -45,20 +45,6 @@ def _support_wheels() -> SceneEntityCfg:
   )
 
 
-def _leg_joints() -> SceneEntityCfg:
-  """Select actuated leg joints but intentionally exclude continuous wheels."""
-  return SceneEntityCfg(
-    "robot",
-    joint_names=(
-      "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
-      "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
-      "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
-      "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
-    ),
-    preserve_order=True,
-  )
-
-
 def _configure_fast_discovery(cfg: ManagerBasedRlEnvCfg) -> None:
   """Keep first-pass PPO on nominal flat physics, not robustness noise."""
   cfg.events.pop("encoder_bias", None)
@@ -98,7 +84,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Keep the short, efficient 8-s horizon and expose the existing one-hot
       # at two to three real (non-reset) states instead.  This is command
       # coverage, not a staged pose/transition target.
-      resampling_time_range=(2.0, 3.0),
+      # A normal-reset-to-upright transition needs a full physical window.
+      # Two seconds was long enough to switch commands again but not to
+      # establish either two-wheel balance; four seconds still exposes one
+      # genuine in-episode one-hot transition without making a mode a separate
+      # task or changing the policy interface.
+      resampling_time_range=(4.0, 4.0),
       mode_probabilities=(0.30, 0.35, 0.35),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
@@ -119,6 +110,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     stationary_command_start_index=3,
     command_deadband=0.04,
     idle_contact_sensor_name=wheel_contact_cfg.name,
+    # Normal x/yaw locomotion should roll on the wheels with the same compact
+    # four-leg silhouette as the untriggered Go2W, rather than spending policy
+    # capacity on an unnecessary squat or leg swing.
+    hold_default_position_mode_index=0,
   )
   _use_history(cfg, "trick")
 
@@ -128,7 +123,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      weight=8.0,
+      weight=12.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -181,24 +176,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 3.0,
-      },
-    ),
-    # Four-wheel mode is not merely a legal contact mask: the requirement is
-    # the familiar Go2W default silhouette.  This static joint-space distance
-    # applies only to normal mode and excludes wheels, so it neither constrains
-    # their rolling nor prescribes a front/rear standing trajectory.
-    "normal_leg_default_pose": RewardTermCfg(
-      func=trick_rewards.normal_leg_default_pose_exp,
-      # In four-wheel rolling there is no physical need to bend a leg: wheel
-      # velocity alone supplies x/yaw motion.  Give the visual/default-pose
-      # requirement comparable scale to contact support so normal locomotion
-      # cannot buy a little tracking accuracy by adopting an unrelated squat.
-      # This term is identically zero for front/rear commands.
-      weight=8.0,
-      params={
-        "command_name": "trick",
-        "std": 0.20,
-        "asset_cfg": _leg_joints(),
       },
     ),
     # This remains a generic temporal smoothness cost—not a free-leg pose

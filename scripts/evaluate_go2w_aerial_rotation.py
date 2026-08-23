@@ -37,7 +37,10 @@ class EvalConfig:
     duration_s: float = 3.0
     device: str = "cuda:0"
     seed: int = 42
-    post_idle_settle_time: float = 0.40
+    # Match the training acceptance window: after a one-shot turn returns to
+    # idle, the complete launch-frame orientation must stay quiet rather than
+    # appearing only on the first touchdown frame.
+    post_idle_settle_time: float = 0.60
     # Usually this is left unset and the task's standard network is used.
     # Explicit dimensions make this evaluator compatible with a deliberately
     # wider training run without changing its fixed-command physics.

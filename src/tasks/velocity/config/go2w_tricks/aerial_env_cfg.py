@@ -203,7 +203,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_angular_velocity_limit": 1.5,
         # The strict bonus is paid only if the all-zero/default controller
         # keeps that same landing intact through this final physical window.
-        "post_idle_settle_time": 0.40,
+        # Ending in a changed heading is a failed flip even if the wheels
+        # touched down cleanly for one frame.  Hold default four-wheel idle
+        # long enough to make the full-base orientation a sustained result.
+        "post_idle_settle_time": 0.60,
+        # Score the same physical landing throughout that whole idle window,
+        # rather than only on the first contact frame.  This supplies a direct
+        # learning signal against a post-touchdown heading drift while keeping
+        # the existing strict completion as the acceptance criterion.
+        "post_idle_settle_shape_reward": 2.0,
       },
     ),
   }
@@ -233,7 +241,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       func=AerialEventFinished,
       params={
         "command_name": "trick",
-        "post_idle_settle_time_s": 0.40,
+        "post_idle_settle_time_s": 0.60,
       },
       time_out=True,
     )

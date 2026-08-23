@@ -92,6 +92,11 @@ class DefaultIdleGatedJointPositionActionCfg(JointPositionActionCfg):
   command_deadband: float = 0.05
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
+  # A moving four-wheel command uses wheels for x/yaw control.  When this is
+  # set, its legs retain the literal model-default position once normal
+  # four-wheel support is established; a transition from another stance is
+  # still free until it has physically returned to that support.
+  hold_default_position_mode_index: int | None = None
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointPositionAction:
     return DefaultIdleGatedJointPositionAction(self, env)
@@ -107,6 +112,7 @@ class DefaultIdleGatedJointVelocityActionCfg(JointVelocityActionCfg):
   command_deadband: float = 0.05
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
+  hold_default_position_mode_index: int | None = None
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointVelocityAction:
     return DefaultIdleGatedJointVelocityAction(self, env)
@@ -175,6 +181,7 @@ class _DefaultIdleGate:
     return four_wheel_support & upright
 
   def _apply_default_idle_target(self) -> None:
+    command = self._idle_command.command
     requested_idle = self._default_idle_mask()
     # Any one-hot trick request releases literal default control immediately.
     # This contains no pose or trajectory information; it only restores the
@@ -186,10 +193,24 @@ class _DefaultIdleGate:
     # transiently misses a contact.
     self._idle_latched |= requested_idle & self._physical_idle_mask()
     idle = requested_idle & self._idle_latched
+    # This optional position-only invariant is used by normal wheeled
+    # locomotion: the public normal one-hot may carry non-zero x/yaw commands,
+    # but does not need leg reshaping to execute them.  Keep the velocity
+    # action unconstrained, and do not engage the hold until ordinary upright
+    # four-wheel support has already been recovered.
+    hold_default_position = torch.zeros_like(idle)
+    hold_mode_index = self.cfg.hold_default_position_mode_index
+    if hold_mode_index is not None:
+      if not 0 <= hold_mode_index < command.shape[1]:
+        raise ValueError("hold_default_position_mode_index is outside the command vector.")
+      hold_default_position = (
+        (command[:, hold_mode_index] > 0.5) & self._physical_idle_mask()
+      )
+    target_default = idle | hold_default_position
     if isinstance(self._offset, torch.Tensor):
-      self._processed_actions[idle] = self._offset[idle]
+      self._processed_actions[target_default] = self._offset[target_default]
     else:
-      self._processed_actions[idle] = self._offset
+      self._processed_actions[target_default] = self._offset
 
   def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
     """Re-arm literal idle as part of every normal four-wheel environment reset."""

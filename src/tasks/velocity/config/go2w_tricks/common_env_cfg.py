@@ -135,6 +135,7 @@ def configure_default_idle_actions(
   stationary_command_start_index: int,
   command_deadband: float,
   idle_contact_sensor_name: str,
+  hold_default_position_mode_index: int | None = None,
 ) -> None:
   """Make a public idle command the model's literal default controller.
 
@@ -164,6 +165,7 @@ def configure_default_idle_actions(
     preserve_order=joint_pos.preserve_order,
     clip=joint_pos.clip,
     use_default_offset=joint_pos.use_default_offset,
+    hold_default_position_mode_index=hold_default_position_mode_index,
     **common,
   )
   cfg.actions["joint_vel"] = DefaultIdleGatedJointVelocityActionCfg(
