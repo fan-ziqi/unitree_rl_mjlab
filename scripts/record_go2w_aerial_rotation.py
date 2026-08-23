@@ -1,7 +1,8 @@
-"""Record one deterministic fixed-one-hot Go2W aerial-rotation rollout."""
+"""Record fixed or consecutive-one-hot Go2W aerial-rotation rollouts."""
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -40,6 +41,12 @@ class RecordConfig:
   actor_class_name: str | None = None
   critic_class_name: str | None = None
   observation_history_length: int | None = None
+  # An optional real-time command schedule.  Unlike concatenating independent
+  # clips, one simulator instance receives each next one-hot only after the
+  # previous one-shot event has returned to upright four-wheel idle.
+  sequence: tuple[str, ...] = ()
+  initial_idle_s: float = 0.8
+  sequence_idle_s: float = 0.6
 
 
 def _fixed_reset_observation(
@@ -80,6 +87,24 @@ def _fixed_reset_observation(
   return TensorDict(observations, batch_size=[base_env.num_envs])
 
 
+def _append_current_observation(base_env: ManagerBasedRlEnv) -> TensorDict:
+  """Expose an externally triggered command to the recurrent actor now."""
+  observations = base_env.observation_manager.compute(update_history=True)
+  base_env.obs_buf = observations
+  return TensorDict(observations, batch_size=[base_env.num_envs])
+
+
+def _upright_four_wheel_idle(base_env: ManagerBasedRlEnv, sensor_name: str) -> bool:
+  """Gate the next one-hot on the public four-wheel idle state."""
+  sensor = base_env.scene[sensor_name]
+  found = sensor.data.found
+  assert found is not None
+  contacts = (found.reshape(1, found.shape[1], -1) > 0).any(dim=-1)
+  robot = base_env.scene["robot"]
+  gravity = torch.nn.functional.normalize(robot.data.projected_gravity_b, dim=1)
+  return bool(torch.all(contacts) and (-gravity[0, 2] >= 0.98))
+
+
 def run(cfg: RecordConfig) -> Path:
   import mjlab.tasks  # noqa: F401
 
@@ -89,8 +114,19 @@ def run(cfg: RecordConfig) -> Path:
     raise FileNotFoundError(cfg.checkpoint_file)
   if not cfg.idle and not 0 <= cfg.mode < len(MODE_NAMES):
     raise ValueError(f"mode must be in [0, {len(MODE_NAMES) - 1}]")
-  if cfg.duration_s <= 0.0 or cfg.post_landing_hold_time <= 0.0:
-    raise ValueError("duration_s and post_landing_hold_time must be positive")
+  if cfg.idle and cfg.sequence:
+    raise ValueError("idle and sequence cannot be requested together")
+  if (
+    cfg.duration_s <= 0.0
+    or cfg.post_landing_hold_time <= 0.0
+    or cfg.initial_idle_s < 0.0
+    or cfg.sequence_idle_s < 0.0
+  ):
+    raise ValueError("durations must be non-negative, with duration_s positive")
+  unknown_modes = set(cfg.sequence).difference(MODE_NAMES)
+  if unknown_modes:
+    raise ValueError(f"Unknown aerial modes in sequence: {sorted(unknown_modes)}")
+  sequence_modes = tuple(MODE_NAMES.index(name) for name in cfg.sequence)
 
   torch.manual_seed(cfg.seed)
   if torch.cuda.is_available():
@@ -103,7 +139,17 @@ def run(cfg: RecordConfig) -> Path:
       raise ValueError("observation_history_length must be positive")
     for group_name in ("actor", "critic"):
       env_cfg.observations[group_name].history_length = cfg.observation_history_length
-  env_cfg.episode_length_s = cfg.duration_s + 0.5
+  total_duration_s = (
+    cfg.duration_s
+    if not sequence_modes
+    else (
+      cfg.initial_idle_s
+      + len(sequence_modes) * cfg.duration_s
+      + max(0, len(sequence_modes) - 1) * cfg.sequence_idle_s
+      + 0.8
+    )
+  )
+  env_cfg.episode_length_s = total_duration_s + 0.5
   env_cfg.viewer.width = cfg.width
   env_cfg.viewer.height = cfg.height
   env_cfg.viewer.distance = 3.4
@@ -111,9 +157,9 @@ def run(cfg: RecordConfig) -> Path:
   env_cfg.viewer.lookat = (0.0, 0.0, 0.32)
   command_cfg = env_cfg.commands["trick"]
   command_cfg.idle_probability = 0.0
-  command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
-  # Match the evaluator: after the first contact action control is already
-  # default idle, while this longer command window shows whether it settles.
+  command_cfg.resampling_time_range = (total_duration_s + 1.0, total_duration_s + 1.0)
+  # Keep the public one-hot through the event's landing-control window; the
+  # sequence injects a new command only after the command term exposes zero.
   command_cfg.post_landing_hold_time = cfg.post_landing_hold_time
 
   agent_cfg = load_rl_cfg(TASK_ID)
@@ -130,7 +176,7 @@ def run(cfg: RecordConfig) -> Path:
   if cfg.critic_class_name is not None:
     agent_cfg.critic.class_name = cfg.critic_class_name
   base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device, render_mode="rgb_array")
-  num_steps = round(cfg.duration_s / base_env.step_dt)
+  num_steps = round(total_duration_s / base_env.step_dt)
   recorder = VideoRecorder(
     base_env,
     video_folder=cfg.output_dir,
@@ -145,16 +191,59 @@ def run(cfg: RecordConfig) -> Path:
   policy = runner.get_inference_policy(device=cfg.device)
 
   env.reset()
-  obs = _fixed_reset_observation(base_env, None if cfg.idle else cfg.mode)
+  # A sequence begins from the same all-zero default state exposed to users.
+  obs = _fixed_reset_observation(
+    base_env, None if cfg.idle or sequence_modes else cfg.mode
+  )
+  command_term = base_env.command_manager.get_term("trick")
+  sequence_next = 0
+  idle_elapsed = 0.0
+  trigger_log: list[dict[str, float | int | str]] = []
   with torch.inference_mode():
-    for _ in range(num_steps):
+    for step in range(num_steps):
       obs, _, dones, _ = env.step(policy(obs))
       if torch.any(dones):
         break
+      if not sequence_modes or sequence_next >= len(sequence_modes):
+        continue
+      active = bool(torch.linalg.vector_norm(command_term.command_buf, dim=1)[0] > 0.5)
+      if active:
+        idle_elapsed = 0.0
+        continue
+      idle_elapsed += base_env.step_dt
+      required_idle = cfg.initial_idle_s if sequence_next == 0 else cfg.sequence_idle_s
+      if idle_elapsed < required_idle or not _upright_four_wheel_idle(
+        base_env, command_cfg.sensor_name
+      ):
+        continue
+      mode = sequence_modes[sequence_next]
+      _pin_mode(command_term, mode)
+      # Keep RNN state continuous, but append the new public command right
+      # away so the next policy action responds to the trigger rather than a
+      # stale all-zero observation.
+      obs = _append_current_observation(base_env)
+      trigger_log.append(
+        {"mode": MODE_NAMES[mode], "step": step + 1, "time_s": (step + 1) * base_env.step_dt}
+      )
+      sequence_next += 1
+      idle_elapsed = 0.0
   env.close()
   video_path = cfg.output_dir / f"{cfg.name}-step-0.mp4"
   if not video_path.is_file():
     raise RuntimeError(f"Video was not created: {video_path}")
+  if sequence_modes:
+    schedule_path = cfg.output_dir / f"{cfg.name}-triggers.json"
+    schedule_path.write_text(
+      json.dumps(
+        {
+          "initial_idle_s": cfg.initial_idle_s,
+          "sequence_idle_s": cfg.sequence_idle_s,
+          "triggers": trigger_log,
+        },
+        indent=2,
+      )
+      + "\n"
+    )
   return video_path
 
 
