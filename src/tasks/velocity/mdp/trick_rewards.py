@@ -332,12 +332,15 @@ class StanceSpinPivotResult:
     sensor_name: str,
     pivot_speed_limit: float,
     static_angular_velocity_scale: float,
+    static_linear_velocity_scale: float,
     asset_cfg: SceneEntityCfg,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
     if static_angular_velocity_scale <= 0.0:
       raise ValueError("static_angular_velocity_scale must be positive.")
+    if static_linear_velocity_scale <= 0.0:
+      raise ValueError("static_linear_velocity_scale must be positive.")
     asset, moving, rate_score, support_quality, pair, mode = _stance_spin_components(
       env,
       command_name,
@@ -384,6 +387,17 @@ class StanceSpinPivotResult:
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
     static_stillness = torch.clamp(
       1.0 - angular_speed / static_angular_velocity_scale,
+      min=0.0,
+      max=1.0,
+    )
+    # Side supports are static poses, not an unspecified request to roll
+    # across the floor.  Angular stillness alone left a travelling two-wheel
+    # local optimum, so grade this same physical outcome by horizontal root
+    # stillness as well.  This is a velocity measurement, not an anchor or a
+    # target position.
+    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
+    static_stillness *= torch.clamp(
+      1.0 - linear_speed / static_linear_velocity_scale,
       min=0.0,
       max=1.0,
     )

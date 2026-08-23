@@ -265,6 +265,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # pivot.  The support axle midpoint must be nearly stationary.
         "pivot_speed_limit": 0.12,
         "static_angular_velocity_scale": 0.75,
+        "static_linear_velocity_scale": 0.15,
         "asset_cfg": _support_wheels(),
       },
     ),
