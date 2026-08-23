@@ -787,7 +787,6 @@ class AerialRotationCompletion:
     soft_touchdown_turn_exponent: float = 2.0,
     max_overrotation: float = 1.25,
     post_idle_settle_time: float = 0.40,
-    post_idle_settle_shape_reward: float = 0.0,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if soft_touchdown_reward < 0.0:
@@ -808,8 +807,6 @@ class AerialRotationCompletion:
       raise ValueError("max_overrotation must be positive.")
     if post_idle_settle_time <= 0.0:
       raise ValueError("post_idle_settle_time must be positive.")
-    if post_idle_settle_shape_reward < 0.0:
-      raise ValueError("post_idle_settle_shape_reward must be non-negative.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -958,38 +955,6 @@ class AerialRotationCompletion:
       )
       * turn_quality
     )
-    # Once the public one-hot is cleared, the only valid event result is
-    # ordinary four-wheel idle in the launch frame.  Keep grading that exact
-    # measured condition throughout the landing window: a controller can no
-    # longer receive all of its endpoint credit from one favourable contact
-    # frame and then let yaw, roll, or pitch drift before the maneuver ends.
-    post_idle_settle_quality = (
-      post_landing_idle.to(orientation_similarity.dtype)
-      * landing_turn_eligible.to(orientation_similarity.dtype)
-      * torch.all(contacts, dim=1).to(orientation_similarity.dtype)
-      * legal.to(orientation_similarity.dtype)
-      * torch.clamp(
-        1.0 - gravity_error / (soft_touchdown_speed_scale * landing_gravity_std),
-        min=0.0,
-        max=1.0,
-      )
-      * torch.clamp(
-        1.0
-        - linear_speed
-        / (soft_touchdown_speed_scale * landing_linear_velocity_limit),
-        min=0.0,
-        max=1.0,
-      )
-      * torch.clamp(
-        1.0
-        - angular_speed
-        / (soft_touchdown_speed_scale * landing_angular_velocity_limit),
-        min=0.0,
-        max=1.0,
-      )
-      * torch.pow(orientation_similarity, soft_touchdown_orientation_exponent)
-      * turn_quality
-    )
     # The command clears on the first wheel contact.  From then on this same
     # reward owns the entire measured outcome: it must have completed one
     # bounded rotation and remain quietly recovered under the public idle
@@ -1021,6 +986,5 @@ class AerialRotationCompletion:
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return (
       soft_touchdown_reward * touchdown_reward.float() * touchdown_quality
-      + post_idle_settle_shape_reward * post_idle_settle_quality
       + strict_reward.float() / env.step_dt
     )
