@@ -301,7 +301,16 @@ def _stance_spin_components(
       torch.ones_like(coaxiality),
     ),
   )
-  support_quality = contact_score * torch.square(alignment) * height_score * coaxial_factor
+  # Once a front/rear or side mode has discovered its correct wheel pair, a
+  # broad squared attitude score admits the visibly slanted 0.7--0.8-aligned
+  # form as a stable local optimum.  Sharpen only those non-normal modes so
+  # their instantaneous physical result continues to improve toward the
+  # commanded two-wheel gravity direction.  Normal remains squared because
+  # its upright four-wheel form is already the desired result.
+  alignment_score = torch.where(
+    mode == 0, torch.square(alignment), torch.pow(alignment, 4.0)
+  )
+  support_quality = contact_score * alignment_score * height_score * coaxial_factor
   return asset, moving, rate_score, support_quality, support_pair, mode
 
 
