@@ -35,7 +35,6 @@ class RecordConfig:
   device: str = "cuda:0"
   name: str = "go2w-aerial-rotation"
   seed: int = 42
-  post_landing_hold_time: float = 0.40
   actor_hidden_dims: tuple[int, ...] | None = None
   critic_hidden_dims: tuple[int, ...] | None = None
   actor_class_name: str | None = None
@@ -70,13 +69,10 @@ def _fixed_reset_observation(
     command_term._airborne_time.zero_()
     command_term._flight_rotation.zero_()
     command_term._current_flight_qualified.zero_()
-    command_term._landing_settle_time.zero_()
     command_term._landing_started.zero_()
-    command_term._landing_hold_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()
     command_term._new_skill.fill_(False)
-    command_term._last_attempt_succeeded.zero_()
   else:
     _pin_mode(command_term, mode)
   history_length = base_env.cfg.observations["actor"].history_length or 1
@@ -118,7 +114,6 @@ def run(cfg: RecordConfig) -> Path:
     raise ValueError("idle and sequence cannot be requested together")
   if (
     cfg.duration_s <= 0.0
-    or cfg.post_landing_hold_time <= 0.0
     or cfg.initial_idle_s < 0.0
     or cfg.sequence_idle_s < 0.0
   ):
@@ -158,9 +153,6 @@ def run(cfg: RecordConfig) -> Path:
   command_cfg = env_cfg.commands["trick"]
   command_cfg.idle_probability = 0.0
   command_cfg.resampling_time_range = (total_duration_s + 1.0, total_duration_s + 1.0)
-  # Keep the public one-hot through the event's landing-control window; the
-  # sequence injects a new command only after the command term exposes zero.
-  command_cfg.post_landing_hold_time = cfg.post_landing_hold_time
 
   agent_cfg = load_rl_cfg(TASK_ID)
   if cfg.actor_hidden_dims is not None:

@@ -37,7 +37,7 @@ class EvalConfig:
     duration_s: float = 3.0
     device: str = "cuda:0"
     seed: int = 42
-    post_landing_hold_time: float = 0.40
+    post_idle_settle_time: float = 0.40
     # Usually this is left unset and the task's standard network is used.
     # Explicit dimensions make this evaluator compatible with a deliberately
     # wider training run without changing its fixed-command physics.
@@ -76,16 +76,13 @@ def _pin_modes(command_term, modes: torch.Tensor) -> None:
     command_term._airborne_time.zero_()
     command_term._flight_rotation.zero_()
     command_term._current_flight_qualified.zero_()
-    command_term._landing_settle_time.zero_()
     command_term._landing_started.zero_()
-    command_term._landing_hold_time.zero_()
     command_term._rotation_progress.zero_()
     command_term._launch_axis_w.zero_()
     command_term._launch_root_quat_w.zero_()
     # The command term captures the launch axis from the normal reset attitude
     # on its first control step, just as it does during training.
     command_term._new_skill.fill_(True)
-    command_term._last_attempt_succeeded.zero_()
 
 
 def _pin_mode(command_term, mode: int) -> None:
@@ -136,9 +133,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     if (
         cfg.num_envs <= 0
         or cfg.duration_s <= 0.0
-        or cfg.post_landing_hold_time <= 0.0
+        or cfg.post_idle_settle_time <= 0.0
     ):
-        raise ValueError("num_envs, duration_s, and post_landing_hold_time must be positive")
+        raise ValueError("num_envs, duration_s, and post_idle_settle_time must be positive")
     if cfg.all_modes and (
         cfg.num_envs < len(MODE_NAMES) or cfg.num_envs % len(MODE_NAMES)
     ):
@@ -159,11 +156,6 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     command_cfg = env_cfg.commands["trick"]
     command_cfg.idle_probability = 0.0
     command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
-    # Training may close the public event promptly to preserve its PPO signal.
-    # Actions nevertheless become literal idle at first touchdown.  Hold only
-    # this evaluator's public state longer so success means a settled, not
-    # merely momentary, four-wheel landing.
-    command_cfg.post_landing_hold_time = cfg.post_landing_hold_time
     env_cfg.episode_length_s = cfg.duration_s + 0.5
     agent_cfg = load_rl_cfg(cfg.task_id)
     if cfg.actor_hidden_dims is not None:
@@ -247,12 +239,13 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     )
     # Averages of separately minimized speed, attitude, and contact can make
     # different instants of one failed rollout look like a stable landing.
-    # Record their simultaneous occurrence and the command term's actual
-    # consecutive-settle accumulator instead.
+    # Record their simultaneous occurrence and our measured idle-settle
+    # window instead.
     strict_landing_seen = torch.zeros_like(trial_open)
-    peak_command_landing_settle_time = torch.zeros(
+    idle_stable_time = torch.zeros(
         cfg.num_envs, device=base_env.device
     )
+    peak_idle_stable_time = torch.zeros_like(idle_stable_time)
     # A non-zero command is one event, not permission to keep hopping until a
     # lucky landing.  The physical event closes at its *first contact*, not
     # when the brief command-verdict window later clears the public one-hot.
@@ -289,11 +282,10 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             contacts = _wheel_contacts(wheel_sensor)
             airborne = ~torch.any(contacts, dim=1)
             landing_seen |= trial_open & command_term._landing_started
-            # ``trial_open`` is true through the landing-verdict window;
-            # ``event_closed`` extends this check through the remaining idle
-            # observation time.  Clear it on a reset below, so a fresh episode
-            # cannot be attributed to the preceding command.
-            post_landing_window = landing_seen & (trial_open | event_closed)
+            # The public one-hot clears at first contact.  Keep the physical
+            # trial open through the following idle settle window so a quiet
+            # landing, not just a command transition, determines success.
+            post_landing_window = landing_seen & trial_open
             post_event_airborne_time = torch.where(
                 post_landing_window & ~dones.bool() & airborne,
                 post_event_airborne_time + base_env.step_dt,
@@ -428,18 +420,24 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 )
             )
             strict_landing_seen |= strict_landing_now
-            peak_command_landing_settle_time = torch.maximum(
-                peak_command_landing_settle_time,
-                command_term._landing_settle_time,
+            idle_stable_now = event_closed & strict_landing_now
+            idle_stable_time = torch.where(
+                idle_stable_now,
+                idle_stable_time + base_env.step_dt,
+                torch.zeros_like(idle_stable_time),
             )
-            # A one-hot now clears when its single attempt ends, successful or
-            # failed.  Use the command term's explicit strict outcome bit so a
-            # return to idle is never reported as a completed aerial maneuver.
+            peak_idle_stable_time = torch.maximum(
+                peak_idle_stable_time, idle_stable_time
+            )
             attempt_finished_now = trial_open & pre_active & ~post_active
             completed_now = (
-                attempt_finished_now
-                & command_term._last_attempt_succeeded
-                & ~dones.bool()
+                trial_open
+                & event_closed
+                & strict_landing_now
+                & (
+                    idle_stable_time + 0.5 * base_env.step_dt
+                    >= cfg.post_idle_settle_time
+                )
             )
             if torch.any(completed_now):
                 gravity_error = torch.sum(
@@ -467,11 +465,10 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 termination_by_term[name] |= (
                     trial_open & dones.bool() & term_done
                 )
-            attempt_failed |= trial_open & attempt_finished_now & ~completed_now
+            attempt_failed |= trial_open & dones.bool() & ~completed_now
             failed |= trial_open & dones.bool() & ~completed_now
             event_closed |= attempt_finished_now
-            event_closed &= ~dones.bool()
-            trial_open &= ~(attempt_finished_now | dones.bool())
+            trial_open &= ~(completed_now | dones.bool())
 
     peak_progress = torch.maximum(peak_progress, command_term._rotation_progress)
 
@@ -545,12 +542,12 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             "strict_landing_state_rate": strict_landing_seen[mask].float()
             .mean()
             .item(),
-            "mean_peak_command_landing_settle_time_s": peak_command_landing_settle_time[
+            "mean_peak_command_landing_settle_time_s": peak_idle_stable_time[
                 mask
             ]
             .mean()
             .item(),
-            "max_peak_command_landing_settle_time_s": peak_command_landing_settle_time[
+            "max_peak_command_landing_settle_time_s": peak_idle_stable_time[
                 mask
             ]
             .max()

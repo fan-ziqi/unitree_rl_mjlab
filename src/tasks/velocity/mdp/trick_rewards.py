@@ -718,9 +718,6 @@ class AerialRotationCompletion:
       (env.num_envs,), -1, dtype=torch.long, device=env.device
     )
     self.post_idle_settle_time = torch.zeros(env.num_envs, device=env.device)
-    self.pre_idle_complete = torch.zeros(
-      env.num_envs, dtype=torch.bool, device=env.device
-    )
     self.launch_axis_w = torch.zeros(env.num_envs, 3, device=env.device)
     self.launch_root_quat_w = torch.zeros(env.num_envs, 4, device=env.device)
     self.airborne_time = torch.zeros(env.num_envs, device=env.device)
@@ -738,7 +735,6 @@ class AerialRotationCompletion:
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
     self.post_idle_settle_time[env_ids] = 0.0
-    self.pre_idle_complete[env_ids] = False
     self.launch_axis_w[env_ids] = 0.0
     self.launch_root_quat_w[env_ids] = 0.0
     self.airborne_time[env_ids] = 0.0
@@ -762,6 +758,7 @@ class AerialRotationCompletion:
     soft_touchdown_orientation_floor: float = 0.50,
     soft_touchdown_orientation_exponent: float = 1.0,
     soft_touchdown_turn_exponent: float = 2.0,
+    max_overrotation: float = 1.25,
     post_idle_settle_time: float = 0.40,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
@@ -779,6 +776,8 @@ class AerialRotationCompletion:
       raise ValueError("soft_touchdown_turn_exponent must be positive.")
     if soft_touchdown_orientation_exponent <= 0.0:
       raise ValueError("soft_touchdown_orientation_exponent must be positive.")
+    if max_overrotation < 0.0:
+      raise ValueError("max_overrotation must be non-negative.")
     if post_idle_settle_time <= 0.0:
       raise ValueError("post_idle_settle_time must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
@@ -805,7 +804,6 @@ class AerialRotationCompletion:
     self.touchdown_awarded[clear] = False
     self.awarded[clear] = False
     self.post_idle_settle_time[clear] = 0.0
-    self.pre_idle_complete[clear] = False
     self.airborne_time[clear] = 0.0
     self.flight_qualified[clear] = False
     self.flight_rotation[clear] = 0.0
@@ -907,16 +905,16 @@ class AerialRotationCompletion:
         soft_touchdown_turn_exponent,
       )
     )
-    # ``AerialRotationCommand`` latches this only on the final active landing
-    # frame, so a transient early stable pose does not get grandfathered into
-    # the default-idle check below.
-    command_completed = getattr(
-      command_term, "_last_attempt_succeeded", torch.zeros_like(active)
+    # The command clears on the first wheel contact.  From then on this same
+    # reward owns the entire measured outcome: it must have completed one
+    # bounded rotation and remain quietly recovered under the public idle
+    # command.  No landing pose, reference action, or timing signal is added.
+    turn_complete = (self.progress >= target_angle) & (
+      self.progress <= target_angle + max_overrotation
     )
-    self.pre_idle_complete |= command_completed
     idle_stable = (
       post_landing_idle
-      & self.pre_idle_complete
+      & turn_complete
       & torch.all(contacts, dim=1)
       & legal
       & (gravity_error < landing_gravity_std)

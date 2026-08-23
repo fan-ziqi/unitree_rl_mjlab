@@ -444,7 +444,6 @@ class AerialRotationCommand(CommandTerm):
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
       or cfg.min_ballistic_time <= 0.0
-      or cfg.post_landing_hold_time <= 0.0
     ):
       raise ValueError("landing limits and min_ballistic_time must be positive.")
 
@@ -467,11 +466,9 @@ class AerialRotationCommand(CommandTerm):
     self._current_flight_qualified = torch.zeros(
       self.num_envs, dtype=torch.bool, device=self.device
     )
-    self._landing_settle_time = torch.zeros(self.num_envs, device=self.device)
     self._landing_started = torch.zeros(
       self.num_envs, dtype=torch.bool, device=self.device
     )
-    self._landing_hold_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
     # A 2π aerial turn is only complete when the whole base frame—not merely
@@ -480,12 +477,6 @@ class AerialRotationCommand(CommandTerm):
     # turn axis: it never enters the policy observation.
     self._launch_root_quat_w = torch.zeros(self.num_envs, 4, device=self.device)
     self._new_skill = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-    # Evaluator-only outcome bit.  It is not part of the actor observation:
-    # command clearing now means an attempt has ended, not necessarily that it
-    # met the strict landing criterion.
-    self._last_attempt_succeeded = torch.zeros(
-      self.num_envs, dtype=torch.bool, device=self.device
-    )
 
   @property
   def command(self) -> torch.Tensor:
@@ -504,14 +495,11 @@ class AerialRotationCommand(CommandTerm):
     self._airborne_time[env_ids] = 0.0
     self._flight_rotation[env_ids] = 0.0
     self._current_flight_qualified[env_ids] = False
-    self._landing_settle_time[env_ids] = 0.0
     self._landing_started[env_ids] = False
-    self._landing_hold_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
     self._launch_root_quat_w[env_ids] = 0.0
     self._new_skill[env_ids] = False
-    self._last_attempt_succeeded[env_ids] = False
     active = torch.rand(count, device=self.device) > self.cfg.idle_probability
     active_ids = env_ids[active]
     if len(active_ids) == 0:
@@ -526,10 +514,11 @@ class AerialRotationCommand(CommandTerm):
     """Finish exactly one aerial attempt, then return to idle.
 
     CommandManager calls this after rewards.  Therefore the terminal landing
-    reward still sees the requested one-hot, while the next actor observation
-    correctly returns to the all-zero idle command.  A failed first landing
-    also clears the event after the same short decision window, so one one-hot
-    cannot produce a sequence of independent jumps.
+    reward still sees the requested one-hot, while the *next* actor
+    observation sees literal idle.  The default-action gate keeps ordinary
+    policy authority until a physical four-wheel upright recovery, so there
+    is no need to keep a flip request alive for braking.  Clearing at the
+    first contact prevents that one-hot from asking for a rebound.
     """
     active = torch.sum(self.command_buf, dim=1) > 0.5
     if not torch.any(active):
@@ -613,58 +602,7 @@ class AerialRotationCommand(CommandTerm):
       & torch.any(contacts, dim=1)
     )
     self._landing_started |= first_landing
-    self._landing_hold_time = torch.where(
-      active & self._landing_started,
-      self._landing_hold_time + self._env.step_dt,
-      torch.zeros_like(self._landing_hold_time),
-    )
-
-    normal_gravity = torch.tensor(
-      (0.0, 0.0, -1.0),
-      dtype=asset.data.projected_gravity_b.dtype,
-      device=self.device,
-    )
-    gravity_error = torch.sum(
-      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
-    )
-    orientation_similarity = torch.abs(
-      torch.sum(asset.data.root_link_quat_w * self._launch_root_quat_w, dim=1)
-    )
-    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
-    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    stable_landing = (
-      active
-      & self.was_airborne
-      & torch.all(contacts, dim=1)
-      & (gravity_error < self.cfg.landing_gravity_error_limit)
-      & (orientation_similarity >= self.cfg.landing_orientation_dot_min)
-      & (linear_speed < self.cfg.landing_linear_velocity_limit)
-      & (angular_speed < self.cfg.landing_angular_velocity_limit)
-    )
-    self._landing_settle_time = torch.where(
-      stable_landing,
-      self._landing_settle_time + self._env.step_dt,
-      torch.zeros_like(self._landing_settle_time),
-    )
-    complete_turn = (self._rotation_progress >= self.cfg.target_angle) & (
-      self._rotation_progress <= self.cfg.target_angle + self.cfg.max_overrotation
-    )
-    # Five 20-ms float32 additions can be represented as 0.09999999 rather
-    # than 0.10.  Compare at half a control-step precision so the configured
-    # five actual consecutive stable frames complete the one-shot command.
-    # This preserves the physical duration; it only removes a numeric
-    # off-by-one frame that was visible in validation.
-    settled_long_enough = (
-      self._landing_settle_time + 0.5 * self._env.step_dt
-      >= self.cfg.landing_settle_time
-    )
-    succeeded = stable_landing & complete_turn & settled_long_enough
-    landing_window_elapsed = self._landing_hold_time + 0.5 * self._env.step_dt >= (
-      self.cfg.post_landing_hold_time
-    )
-    finished = active & self._landing_started & landing_window_elapsed
-    self._last_attempt_succeeded[finished] = succeeded[finished]
-    self.command_buf[finished] = 0.0
+    self.command_buf[first_landing] = 0.0
 
   def set_curriculum(
     self,
@@ -710,10 +648,6 @@ class AerialRotationCommandCfg(CommandTermCfg):
   idle_probability: float = 0.15
   sensor_name: str = "wheel_ground_contact"
   landing_settle_time: float = 0.10
-  # Retain the public one-hot only long enough to judge the first touchdown.
-  # It is then cleared even for a failed landing, enforcing one jump per
-  # sampled command rather than repeated retries.
-  post_landing_hold_time: float = 0.10
   landing_gravity_error_limit: float = 0.30
   # ``abs(dot(q_land, q_launch))`` is invariant to the quaternion sign.  A
   # 0.995 threshold permits about 11.5 degrees of residual whole-body

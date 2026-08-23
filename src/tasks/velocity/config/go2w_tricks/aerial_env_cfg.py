@@ -77,12 +77,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # launch orientation, including yaw.  The continuous landing signal
       # below makes this tight endpoint learnable without a reference motion.
       landing_orientation_dot_min=0.999,
-      # A one-hot still owns exactly one ballistic interval, but must retain
-      # ordinary actuator authority briefly after its first touchdown.  An
-      # immediate jump to the default controller removes the only chance to
-      # brake residual rotation and absorb the landing.  This is an outcome
-      # window, not a landing pose or reference trajectory.
-      post_landing_hold_time=0.40,
       debug_vis=False,
     )
   }
@@ -194,6 +188,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # ever happened to achieve a perfect full turn.  Squaring the turn
         # fraction keeps a small hop far below an almost-complete flip.
         "soft_touchdown_turn_exponent": 2.0,
+        "max_overrotation": 1.25,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         # The strict bonus is paid only if the all-zero/default controller
