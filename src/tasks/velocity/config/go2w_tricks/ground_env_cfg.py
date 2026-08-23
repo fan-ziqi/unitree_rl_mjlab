@@ -101,14 +101,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # but supplied too few moving samples for either that pose or its rear
       # counterpart to learn the requested controls.  This is only command
       # coverage; it introduces no reset stance, target posture, or phase.
-      # The previous 45% stationary share found a rear handstand, then left
-      # it nearly unresponsive to non-zero x/yaw requests.  Retain genuine
-      # balance examples, but make motion the usual front/rear command so the
-      # one policy cannot treat a two-wheel one-hot as merely a static pose.
+      # A 15% stationary share let normal-wheel velocity tracking outscore
+      # discovery of either upright support.  Keep a substantial balance
+      # subset inside the same fused command distribution; the remaining
+      # front/rear samples still carry x/yaw requests.
       # Literal normal idle is a deterministic action gate, not a skill PPO
       # needs to spend samples rediscovering.  Keep static examples only for
       # the two upright forms, whose balance still benefits from them.
-      mode_idle_probabilities=(0.0, 0.15, 0.15),
+      mode_idle_probabilities=(0.0, 0.45, 0.45),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -135,7 +135,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      weight=12.0,
+      weight=24.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -191,7 +191,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # turning.  Front/rear retain the previous effective scale until
         # their two-wheel form is established, preventing a normal-pose yaw
         # response from displacing the requested inverted support.
-        "mode_weights": (1.0, 0.4, 0.4),
+        "mode_weights": (1.0, 0.2, 0.2),
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 3.0,
