@@ -75,8 +75,6 @@ def mode_support_score(
   clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
   command_deadband: float = 0.0,
-  moving_command_start_index: int | None = None,
-  moving_command_scale: float = 1.0,
   static_angular_velocity_scale: float | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
@@ -102,11 +100,6 @@ def mode_support_score(
     clearance_values = ()
   if stationary_command_index is not None and command_deadband < 0.0:
     raise ValueError("command_deadband must be non-negative.")
-  if moving_command_start_index is not None:
-    if moving_command_start_index < 0:
-      raise ValueError("moving_command_start_index must be non-negative.")
-    if not 0.0 <= moving_command_scale <= 1.0:
-      raise ValueError("moving_command_scale must be in [0, 1].")
   if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
     raise ValueError("static_angular_velocity_scale must be positive.")
 
@@ -172,32 +165,7 @@ def mode_support_score(
       min=0.0,
       max=1.0,
     )
-  # A stopped two-wheel command must first discover and keep its support.
-  # Once the public x/yaw channels ask it to move, retaining a fixed support
-  # outcome must not outweigh every signed command response.  This is a scale
-  # on the same measured support result—not a second reward, target pose, or
-  # transition schedule—and it remains zero until the physical support is
-  # actually present.
-  moving_scale = torch.ones_like(orientation)
-  if moving_command_start_index is not None:
-    if moving_command_start_index >= command.shape[1]:
-      raise ValueError("moving_command_start_index is outside the command tensor.")
-    moving = torch.linalg.vector_norm(
-      command[:, moving_command_start_index :], dim=1
-    ) > command_deadband
-    moving_scale = torch.where(
-      moving,
-      torch.full_like(orientation, moving_command_scale),
-      moving_scale,
-    )
-  return (
-    active.to(orientation.dtype)
-    * orientation
-    * support
-    * clearance
-    * stillness
-    * moving_scale
-  )
+  return active.to(orientation.dtype) * orientation * support * clearance * stillness
 
 
 def _stance_spin_components(
@@ -536,6 +504,25 @@ def _locomotion_alignment(
   return score
 
 
+def _locomotion_support_match(
+  env: ManagerBasedRlEnv,
+  mode: torch.Tensor,
+  contact_masks: tuple[tuple[float, float, float, float], ...],
+  sensor_name: str,
+) -> torch.Tensor:
+  """Return the measured fraction of the commanded wheel support."""
+  contacts = _wheel_contacts(env, sensor_name).float()
+  masks = torch.tensor(contact_masks, dtype=contacts.dtype, device=env.device)
+  if masks.ndim != 2 or masks.shape[1] != contacts.shape[1]:
+    raise ValueError("contact_masks must match the wheel-contact sensor layout.")
+  target = masks[mode]
+  desired = (contacts * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
+  non_target = 1.0 - target
+  extra = (contacts * non_target).sum(dim=1) / non_target.sum(dim=1).clamp_min(1.0)
+  extra = torch.where(non_target.sum(dim=1) > 0.0, extra, torch.zeros_like(extra))
+  return desired * (1.0 - extra)
+
+
 def stance_locomotion_linear_velocity_exp(
   env: ManagerBasedRlEnv,
   command_name: str,
@@ -543,6 +530,8 @@ def stance_locomotion_linear_velocity_exp(
   lateral_weight: float = 2.0,
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
   gravity_power: float = 0.0,
+  contact_masks: tuple[tuple[float, float, float, float], ...] | None = None,
+  sensor_name: str | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Track requested forward velocity while holding lateral velocity at zero.
@@ -558,6 +547,8 @@ def stance_locomotion_linear_velocity_exp(
   """
   if std <= 0.0 or lateral_weight < 0.0:
     raise ValueError("std must be positive and lateral_weight non-negative.")
+  if (contact_masks is None) != (sensor_name is None):
+    raise ValueError("contact_masks and sensor_name must be provided together.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :3], dim=1)
@@ -569,9 +560,13 @@ def stance_locomotion_linear_velocity_exp(
     lateral_speed
   )
   score = 1.0 - torch.sqrt(squared_error) / std
-  return score * _locomotion_alignment(
+  result = score * _locomotion_alignment(
     env, asset, mode, gravity_targets, gravity_power
   )
+  if contact_masks is not None:
+    assert sensor_name is not None
+    result = result * _locomotion_support_match(env, mode, contact_masks, sensor_name)
+  return result
 
 
 def stance_locomotion_yaw_rate_exp(
@@ -581,11 +576,15 @@ def stance_locomotion_yaw_rate_exp(
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
   gravity_power: float = 0.0,
   mode_weights: tuple[float, ...] | None = None,
+  contact_masks: tuple[tuple[float, float, float, float], ...] | None = None,
+  sensor_name: str | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Track world-up yaw rate without an error-saturation dead zone."""
   if std <= 0.0:
     raise ValueError("std must be positive.")
+  if (contact_masks is None) != (sensor_name is None):
+    raise ValueError("contact_masks and sensor_name must be provided together.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :3], dim=1)
@@ -594,6 +593,9 @@ def stance_locomotion_yaw_rate_exp(
   result = score * _locomotion_alignment(
     env, asset, mode, gravity_targets, gravity_power
   )
+  if contact_masks is not None:
+    assert sensor_name is not None
+    result = result * _locomotion_support_match(env, mode, contact_masks, sensor_name)
   if mode_weights is not None:
     if len(mode_weights) != command.shape[1] - 2 or any(
       weight < 0.0 for weight in mode_weights

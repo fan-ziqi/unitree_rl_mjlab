@@ -172,13 +172,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # gradient toward an actually tall, vertical wheel pair.
         "orientation_power": 4.0,
         "clearance_power": 2.0,
-        # Static front/rear commands should primarily establish a legal
-        # upright support.  A non-zero public x/yaw command needs that exact
-        # support but cannot be allowed to make a fixed, wrong-direction roll
-        # just as valuable as tracking it.  Scale this existing outcome while
-        # moving; the velocity rewards below then decide the signed response.
-        "moving_command_start_index": 3,
-        "moving_command_scale": 0.25,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -191,7 +184,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=10.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -211,6 +204,8 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # negligible at the reset attitude yet leaves a strong command signal
         # once the measured two-wheel orientation is genuinely established.
         "gravity_power": 8.0,
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        "sensor_name": wheel_contact_cfg.name,
       },
     ),
     "track_yaw": RewardTermCfg(
@@ -220,7 +215,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # existing public-command outcome large enough to compete with the
       # always-available support score; it still contains no posture, wheel
       # target, phase, or transition prescription.
-      weight=20.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "std": 0.60,
@@ -234,6 +229,8 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 8.0,
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        "sensor_name": wheel_contact_cfg.name,
       },
     ),
     # This remains a generic temporal smoothness cost—not a free-leg pose
