@@ -819,6 +819,7 @@ class AerialRotationCompletion:
       env.num_envs, dtype=torch.bool, device=env.device
     )
     self.flight_rotation = torch.zeros(env.num_envs, device=env.device)
+    self.recovery_peak = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.progress[env_ids] = 0.0
@@ -834,6 +835,7 @@ class AerialRotationCompletion:
     self.airborne_time[env_ids] = 0.0
     self.flight_qualified[env_ids] = False
     self.flight_rotation[env_ids] = 0.0
+    self.recovery_peak[env_ids] = 0.0
 
   def __call__(
     self,
@@ -901,6 +903,7 @@ class AerialRotationCompletion:
     self.airborne_time[clear] = 0.0
     self.flight_qualified[clear] = False
     self.flight_rotation[clear] = 0.0
+    self.recovery_peak[clear] = 0.0
 
     axes_b = torch.tensor(
       axes, dtype=asset.data.root_link_quat_w.dtype, device=env.device
@@ -1022,6 +1025,36 @@ class AerialRotationCompletion:
       )
       * turn_quality
     )
+    # The one-hot clears on its first wheel contact.  Requiring a simultaneous
+    # four-wheel contact before *any* endpoint signal made that recovery
+    # transition sparse: a policy could land a wheel pair close to the launch
+    # frame but receive no preference for settling the remaining wheels.  Pay
+    # only new progress of the same terminal-quality measurement while public
+    # idle is recovering.  This still contains no pose, timing, or trajectory
+    # target, and strict completion below remains the sole success criterion.
+    recovery_eligible = (
+      post_landing_idle
+      & self.was_airborne
+      & legal
+      & (self.progress >= 0.70 * target_angle)
+    )
+    recovery_quality = touchdown_quality * contacts.float().mean(dim=1)
+    recovery_increment = recovery_eligible.to(recovery_quality.dtype) * torch.clamp(
+      recovery_quality - self.recovery_peak, min=0.0
+    )
+    self.recovery_peak = torch.where(
+      recovery_eligible,
+      torch.maximum(self.recovery_peak, recovery_quality),
+      torch.zeros_like(self.recovery_peak),
+    )
+    # An already all-wheel touchdown has received the same endpoint quality
+    # through the existing bridge; seed the monotonic recovery potential so it
+    # cannot collect that result twice on the following public-idle frame.
+    self.recovery_peak = torch.where(
+      touchdown_reward,
+      torch.maximum(self.recovery_peak, touchdown_quality),
+      self.recovery_peak,
+    )
     # The command clears on the first wheel contact.  From then on this same
     # reward owns the entire measured outcome: it must have completed one
     # bounded rotation and remain quietly recovered under the public idle
@@ -1052,6 +1085,7 @@ class AerialRotationCompletion:
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return (
-      soft_touchdown_reward * touchdown_reward.float() * touchdown_quality
+      soft_touchdown_reward
+      * (touchdown_reward.float() * touchdown_quality + recovery_increment)
       + strict_reward.float() / env.step_dt
     )
