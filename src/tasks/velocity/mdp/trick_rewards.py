@@ -483,7 +483,17 @@ def stance_locomotion_linear_velocity_exp(
   gravity_power: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Track requested forward velocity while holding lateral velocity at zero."""
+  """Track requested forward velocity while holding lateral velocity at zero.
+
+  This deliberately uses a non-saturating, signed distance score instead of
+  an RBF.  A two-wheel policy that happens to roll in the wrong direction can
+  be more than one RBF width away from a small x/yaw command; an RBF then
+  returns exactly (or numerically almost) zero for *all* such actions and
+  gives PPO no preference for reducing the error.  ``1 - distance / std``
+  keeps the same compact outcome measurement but makes every reduction in
+  command error valuable.  Validity is still supplied by the existing
+  gravity gate below, so a fallen robot cannot receive a tracking result.
+  """
   if std <= 0.0 or lateral_weight < 0.0:
     raise ValueError("std must be positive and lateral_weight non-negative.")
   asset: Entity = env.scene[asset_cfg.name]
@@ -493,10 +503,11 @@ def stance_locomotion_linear_velocity_exp(
   velocity_xy = asset.data.root_link_lin_vel_w[:, :2]
   forward_speed = torch.sum(velocity_xy * forward, dim=1)
   lateral_speed = torch.sum(velocity_xy * right, dim=1)
-  error = torch.square(command[:, 3] - forward_speed) + lateral_weight * torch.square(
+  squared_error = torch.square(command[:, 3] - forward_speed) + lateral_weight * torch.square(
     lateral_speed
   )
-  return torch.exp(-error / std**2) * _locomotion_alignment(
+  score = 1.0 - torch.sqrt(squared_error) / std
+  return score * _locomotion_alignment(
     env, asset, mode, gravity_targets, gravity_power
   )
 
@@ -509,14 +520,15 @@ def stance_locomotion_yaw_rate_exp(
   gravity_power: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Track world-up yaw rate in all three commanded support modes."""
+  """Track world-up yaw rate without an error-saturation dead zone."""
   if std <= 0.0:
     raise ValueError("std must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :3], dim=1)
-  error = command[:, 4] - asset.data.root_link_ang_vel_w[:, 2]
-  return torch.exp(-torch.square(error) / std**2) * _locomotion_alignment(
+  error = torch.abs(command[:, 4] - asset.data.root_link_ang_vel_w[:, 2])
+  score = 1.0 - error / std
+  return score * _locomotion_alignment(
     env, asset, mode, gravity_targets, gravity_power
   )
 

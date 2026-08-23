@@ -147,10 +147,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_x_and_zero_lateral": RewardTermCfg(
       func=trick_rewards.stance_locomotion_linear_velocity_exp,
-      weight=3.0,
+      # Support discovery is already established by the measured wheel
+      # contact/attitude outcome above.  Give the public x command enough
+      # importance that a fixed forward roll cannot outscore command response.
+      weight=5.0,
       params={
         "command_name": "trick",
-        "std": 0.30,
+        "std": 0.45,
         "lateral_weight": 2.0,
         # A light physical gate keeps a fallen robot from being paid for a
         # coincidental root velocity; it is not a posture target.
@@ -170,10 +173,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # tracking, but under-tracked a normal yaw-rate command.  Raise the
       # already existing command-tracking outcome rather than introducing a
       # posture or wheel-action target.
-      weight=5.0,
+      weight=6.0,
       params={
         "command_name": "trick",
-        "std": 0.35,
+        "std": 0.60,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
