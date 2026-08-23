@@ -181,7 +181,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # outcome gate reduces that bypass to 0.125 while preserving a smooth
         # signal toward the requested two-wheel attitude.  No joint pose or
         # transition timing is prescribed.
-        "gravity_power": 3.0,
+        # With the strengthened x/yaw weights, a cubic validity gate still
+        # lets an ordinary four-wheel front/rear request earn enough velocity
+        # return to avoid standing up.  An eighth power makes that bypass
+        # negligible at the reset attitude yet leaves a strong command signal
+        # once the measured two-wheel orientation is genuinely established.
+        "gravity_power": 8.0,
       },
     ),
     "track_yaw": RewardTermCfg(
@@ -204,7 +209,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "mode_weights": (1.0, 1.0, 1.0),
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
-        "gravity_power": 3.0,
+        "gravity_power": 8.0,
       },
     ),
     # This remains a generic temporal smoothness cost—not a free-leg pose
