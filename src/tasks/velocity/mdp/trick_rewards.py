@@ -341,12 +341,13 @@ def _stance_spin_components(
 
 
 class StanceSpinPivotResult:
-  """Reward five high-rate local pivots of one fused ground policy.
+  """Reward one fused policy's dynamic pivots and static side supports.
 
-  Normal uses the four-wheel centre and front/rear axle co-linearity; each
-  two-wheel branch uses its named support axle.  The result is always an
-  instantaneous physical measurement: no anchor, transition clock, reference
-  path, or limb trajectory is retained in state.
+  Normal uses the four-wheel centre and front/rear axle co-linearity;
+  front/rear use their named horizontal support axle.  Left/right are static
+  side supports because those wheel axes are vertical in the commanded pose.
+  Every result is an instantaneous physical measurement: no anchor,
+  transition clock, reference path, or limb trajectory is retained in state.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
