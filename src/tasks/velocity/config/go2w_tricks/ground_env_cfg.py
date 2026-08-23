@@ -90,11 +90,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # genuine in-episode one-hot transition without making a mode a separate
       # task or changing the policy interface.
       resampling_time_range=(4.0, 4.0),
-      # Rear has demonstrated the static rise, while front still needs
-      # comparable discovery mass.  Keep normal in the fused domain, but put
-      # most samples on the two public upright commands that must learn x/yaw
-      # response from the ordinary four-wheel reset.
-      mode_probabilities=(0.20, 0.40, 0.40),
+      # Front/rear now reliably discover their two-wheel support, while the
+      # normal four-wheel yaw command remains under-trained.  Give the same
+      # fused actor equal total dynamic exposure to normal versus the two
+      # already-established upright branches combined; no mode receives a
+      # separate reset, network, or action interface.
+      mode_probabilities=(0.40, 0.30, 0.30),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
       # but supplied too few moving samples for either that pose or its rear
@@ -104,7 +105,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # it nearly unresponsive to non-zero x/yaw requests.  Retain genuine
       # balance examples, but make motion the usual front/rear command so the
       # one policy cannot treat a two-wheel one-hot as merely a static pose.
-      mode_idle_probabilities=(0.25, 0.15, 0.15),
+      # Literal normal idle is a deterministic action gate, not a skill PPO
+      # needs to spend samples rediscovering.  Keep static examples only for
+      # the two upright forms, whose balance still benefits from them.
+      mode_idle_probabilities=(0.0, 0.15, 0.15),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -176,7 +180,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # tracking, but under-tracked a normal yaw-rate command.  Raise the
       # already existing command-tracking outcome rather than introducing a
       # posture or wheel-action target.
-      weight=6.0,
+      weight=8.0,
       params={
         "command_name": "trick",
         "std": 0.60,
