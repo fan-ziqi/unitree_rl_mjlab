@@ -176,11 +176,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      # The final m999 audit retained the requested normal form and x
-      # tracking, but under-tracked a normal yaw-rate command.  Raise the
-      # already existing command-tracking outcome rather than introducing a
-      # posture or wheel-action target.
-      weight=8.0,
+      # Fixed-command audits showed normal x control and default posture were
+      # recovered while yaw-only commands stayed near zero rate.  Make this
+      # existing public-command outcome large enough to compete with the
+      # always-available support score; it still contains no posture, wheel
+      # target, phase, or transition prescription.
+      weight=20.0,
       params={
         "command_name": "trick",
         "std": 0.60,
