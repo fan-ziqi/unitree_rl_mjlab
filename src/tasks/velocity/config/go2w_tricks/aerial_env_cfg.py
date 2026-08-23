@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
@@ -131,7 +130,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # low, fast hops produced by the previous 15:20 height-to-radian ratio.
       # This is still the same measured wheel-free height outcome; it merely
       # gives PPO enough incentive to find the necessary launch.
-      weight=80.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -144,7 +143,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # The actor receives each *net* desired-axis radian once.  Undoing a
       # partial turn and repeating it cannot accumulate reward; only lasting
       # progress toward the requested full turn is valuable.
-      weight=15.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -205,14 +204,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     ),
   }
-  # A body or leg collision is an explicit failed outcome.  Its moderate
-  # terminal cost is deliberately below the early takeoff/rotation discovery
-  # signal, but makes a nearly complete crash materially worse than the
-  # requested quiet one-turn recovery.  It contains no prescribed motion.
-  cfg.rewards["terminated"] = RewardTermCfg(
-    func=envs_mdp.is_terminated,
-    weight=-30.0,
-  )
+  # Collision still ends an episode immediately.  Do not charge a terminal
+  # scalar here: measured at a102/m100, that made literal idle preferable to
+  # every exploratory launch before a single recovery had been sampled.  The
+  # dominant completed-turn result above, together with the legal-touchdown
+  # bridge, distinguishes recovery from a crash once a physical landing is
+  # discovered without prescribing how the limbs should execute it.
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
   # and is therefore an event failure rather than a way to continue hopping.
