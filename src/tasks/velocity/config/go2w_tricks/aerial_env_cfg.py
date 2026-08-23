@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
@@ -130,7 +131,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # low, fast hops produced by the previous 15:20 height-to-radian ratio.
       # This is still the same measured wheel-free height outcome; it merely
       # gives PPO enough incentive to find the necessary launch.
-      weight=120.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -143,7 +144,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # The actor receives each *net* desired-axis radian once.  Undoing a
       # partial turn and repeating it cannot accumulate reward; only lasting
       # progress toward the requested full turn is valuable.
-      weight=20.0,
+      weight=15.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -153,9 +154,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "completed_turn": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      # A successful result dwarfs a partial flight, but the binary landing
-      # test itself remains exactly the command's physical completion test.
-      weight=60.0,
+      # A full revolution that returns to quiet four-wheel default control is
+      # the task result, not an optional bonus on top of a failed high hop.
+      # With the former scale a 0.9-turn body collision retained most of the
+      # clearance/rotation return, so PPO correctly preferred it over the
+      # extremely rare recovery event.  This remains a single endpoint score,
+      # with no reference pose, phase, or limb target.
+      weight=300.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -170,7 +175,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # once-only physical result materially outweigh another partial
         # airborne radian; it remains gated by turn fraction and legal
         # four-wheel contact below.
-        "soft_touchdown_reward": 4.0,
+        "soft_touchdown_reward": 20.0,
         # Grade that same once-only all-wheel touchdown by how close it is to
         # the existing strict landing velocity/attitude limits.  This is not a
         # new trajectory or phase reward: it only distinguishes a quiet
@@ -200,10 +205,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     ),
   }
-  # Body and leg contact are immediate physical failures via the inherited
-  # termination term.  Do not additionally assign a large scalar penalty:
-  # it overwhelms the small early takeoff/rotation evidence and makes
-  # "never leave the default stance" a local PPO optimum.
+  # A body or leg collision is an explicit failed outcome.  Its moderate
+  # terminal cost is deliberately below the early takeoff/rotation discovery
+  # signal, but makes a nearly complete crash materially worse than the
+  # requested quiet one-turn recovery.  It contains no prescribed motion.
+  cfg.rewards["terminated"] = RewardTermCfg(
+    func=envs_mdp.is_terminated,
+    weight=-30.0,
+  )
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
   # and is therefore an event failure rather than a way to continue hopping.
