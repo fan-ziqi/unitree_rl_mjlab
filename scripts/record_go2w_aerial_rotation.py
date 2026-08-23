@@ -39,6 +39,7 @@ class RecordConfig:
   critic_hidden_dims: tuple[int, ...] | None = None
   actor_class_name: str | None = None
   critic_class_name: str | None = None
+  observation_history_length: int | None = None
 
 
 def _fixed_reset_observation(
@@ -71,7 +72,7 @@ def _fixed_reset_observation(
     command_term._last_attempt_succeeded.zero_()
   else:
     _pin_mode(command_term, mode)
-  history_length = 10
+  history_length = base_env.cfg.observations["actor"].history_length or 1
   base_env.observation_manager._obs_buffer = None
   for _ in range(history_length):
     observations = base_env.observation_manager.compute(update_history=True)
@@ -97,6 +98,11 @@ def run(cfg: RecordConfig) -> Path:
   env_cfg = load_env_cfg(TASK_ID, play=True)
   env_cfg.seed = cfg.seed
   env_cfg.scene.num_envs = 1
+  if cfg.observation_history_length is not None:
+    if cfg.observation_history_length <= 0:
+      raise ValueError("observation_history_length must be positive")
+    for group_name in ("actor", "critic"):
+      env_cfg.observations[group_name].history_length = cfg.observation_history_length
   env_cfg.episode_length_s = cfg.duration_s + 0.5
   env_cfg.viewer.width = cfg.width
   env_cfg.viewer.height = cfg.height

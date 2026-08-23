@@ -48,6 +48,7 @@ class EvalConfig:
     # physical evaluation.
     actor_class_name: str | None = None
     critic_class_name: str | None = None
+    observation_history_length: int | None = None
     emit_metrics: bool = False
     output_path: Path | None = None
     quiet: bool = False
@@ -147,6 +148,11 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     torch.manual_seed(cfg.seed)
     env_cfg = load_env_cfg(cfg.task_id, play=True)
     env_cfg.scene.num_envs = cfg.num_envs
+    if cfg.observation_history_length is not None:
+        if cfg.observation_history_length <= 0:
+            raise ValueError("observation_history_length must be positive")
+        for group_name in ("actor", "critic"):
+            env_cfg.observations[group_name].history_length = cfg.observation_history_length
     # A trial's desired mode must not be replaced by the normal periodic command
     # sampler before its evaluation interval has elapsed.
     command_cfg = env_cfg.commands["trick"]
