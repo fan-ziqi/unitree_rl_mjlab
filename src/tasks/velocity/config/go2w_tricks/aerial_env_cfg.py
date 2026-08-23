@@ -61,12 +61,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # This is a new random-policy run.  The previous run's asymmetric
-      # sampling made it collapse onto one side flip despite sharing a single
-      # one-hot policy, so every requested axis receives equal discovery
-      # budget from reset.  It changes neither the command interface nor the
-      # strict whole-body landing condition.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Equal sampling confirmed that yaw is vastly easier: it consumed the
+      # shared actor's advantages while the four ballistic axes remained below
+      # one turn.  Keep yaw present in the same five-way policy but reserve the
+      # discovery batch for the unresolved front/back/left/right events.
+      # This changes neither the command interface nor the strict whole-body
+      # landing condition.
+      mode_probabilities=(0.24, 0.24, 0.24, 0.24, 0.04),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
