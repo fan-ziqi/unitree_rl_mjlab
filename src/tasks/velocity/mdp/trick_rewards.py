@@ -877,10 +877,10 @@ class AerialRotationCompletion:
     # A low hop at m500 was collecting the active-command touchdown signal at
     # only 0.22 turns, then displacing the useful 0.7--0.9 turn attempts.
     # The bridge is an endpoint result, not a generic landing bonus: require
-    # substantial signed turn progress whether the first wheel contact is
+    # near-complete signed turn progress whether the first wheel contact is
     # still active or has already exposed public idle.  Rotation progress and
     # airborne clearance remain dense discovery signals below this threshold.
-    landing_turn_eligible = self.progress >= 0.70 * target_angle
+    landing_turn_eligible = self.progress >= 0.95 * target_angle
     wheel_touchdown = (
       (active | post_landing_idle)
       & landing_turn_eligible

@@ -114,7 +114,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
-    cfg.observations[group_name].history_length = 10
+    # A flip lasts roughly 0.4--0.6 s at the 50 Hz policy rate.  Ten generic
+    # proprioceptive frames cover only part of that event; in particular they
+    # cannot disambiguate the start and end of a yaw revolution because both
+    # have the same projected gravity.  A 32-frame window still contains
+    # precisely the public observations below, but lets the actor infer its
+    # own ongoing event from measured motion and its recent actions instead
+    # of receiving a hidden phase, angle, or reference trajectory.
+    cfg.observations[group_name].history_length = 32
 
   # A flip is deliberately reduced to its observable physical result: gain
   # wheel-free height, accumulate desired-axis radians while airborne, then
