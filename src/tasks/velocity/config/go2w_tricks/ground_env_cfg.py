@@ -155,7 +155,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # A light physical gate keeps a fallen robot from being paid for a
         # coincidental root velocity; it is not a posture target.
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "gravity_power": 1.0,
+        # A front/rear command must not earn most of its velocity return by
+        # simply rolling in the ordinary four-wheel attitude.  At the normal
+        # pose its target-gravity alignment is 0.5; cubing the existing
+        # outcome gate reduces that bypass to 0.125 while preserving a smooth
+        # signal toward the requested two-wheel attitude.  No joint pose or
+        # transition timing is prescribed.
+        "gravity_power": 3.0,
       },
     ),
     "track_yaw": RewardTermCfg(
@@ -169,7 +175,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "command_name": "trick",
         "std": 0.35,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "gravity_power": 1.0,
+        # Apply the same mode-validity gate to yaw, otherwise rear mode can
+        # collect yaw return while visibly remaining a normal wheeled robot.
+        "gravity_power": 3.0,
       },
     ),
     # Four-wheel mode is not merely a legal contact mask: the requirement is
