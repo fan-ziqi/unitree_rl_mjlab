@@ -49,4 +49,9 @@ For each checkpoint under review:
 3. Extract 50-fps frames (or preserve the native frame rate if higher) around the fast turn/flight, then compare them against this archive.  A contact pivot must visibly remain local; aerials must visibly rotate in the commanded sign and land.
 4. Do not call a mode learned if a population mean, reward, or isolated seed passes while the video has mode collapse, body support, bicycle-like translation, or a rigid-leg bounce.
 
-Current command design remains compact: one five-way one-hot plus signed spin-rate.  Gravity targets, contacts, and support-centre checks are task-side outcome criteria; they are not extra actor observations or a reference trajectory.
+Current command design remains compact: one five-way one-hot plus spin-rate.
+Normal/front/rear interpret a nonzero signed rate as the dynamic pivot request;
+left/right deliberately ignore that channel and mean a quiet same-side support,
+because the clip provides no contrary evidence.  Gravity targets, contacts,
+and support-centre checks are task-side outcome criteria; they are not extra
+actor observations or a reference trajectory.
