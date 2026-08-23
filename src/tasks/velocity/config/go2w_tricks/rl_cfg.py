@@ -70,7 +70,11 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
     init_std=0.60,
-    entropy_coef=0.005,
+    # Front support otherwise becomes deterministic long before rear/side
+    # have sampled a legal transition from the common four-wheel reset.  Keep
+    # exploration alive across the five one-hots; the environment's generic
+    # action-rate cost still rejects high-frequency free-leg flailing.
+    entropy_coef=0.010,
     clip_actions=1.0,
   )
 
