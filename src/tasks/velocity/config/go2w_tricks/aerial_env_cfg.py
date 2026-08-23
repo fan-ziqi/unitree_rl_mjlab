@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
@@ -149,7 +150,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # The actor receives each *net* desired-axis radian once.  Undoing a
       # partial turn and repeating it cannot accumulate reward; only lasting
       # progress toward the requested full turn is valuable.
-      weight=20.0,
+      # A yaw-only strict event must not dominate the shared PPO batch while
+      # the harder pitch/roll commands are already making real net progress.
+      # Raise the same bounded per-radian result so all five one-hots retain a
+      # useful discovery gradient; success itself remains the strict endpoint.
+      weight=50.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -165,7 +170,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # clearance/rotation return, so PPO correctly preferred it over the
       # extremely rare recovery event.  This remains a single endpoint score,
       # with no reference pose, phase, or limb target.
-      weight=300.0,
+      # A full strict event remains substantially more valuable than a partial
+      # turn, but the former 15,000-step impulse let one easy yaw landing
+      # monopolise advantages for a five-command shared policy.  This only
+      # balances outcome scale across samples; it does not relax completion.
+      weight=75.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -219,13 +228,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "post_idle_settle_time": 0.60,
       },
     ),
+    # Colliding the trunk or a leg is already a physical failure.  Once the
+    # policy has discovered real multi-axis jumps, a modest terminal cost
+    # prevents a high-but-illegal partial turn from competing with a recoverable
+    # wheel landing.  Timeouts remain excluded by the standard termination
+    # reward function.
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-10.0),
   }
-  # Collision still ends an episode immediately.  Do not charge a terminal
-  # scalar here: measured at a102/m100, that made literal idle preferable to
-  # every exploratory launch before a single recovery had been sampled.  The
-  # dominant completed-turn result above, together with the legal-touchdown
-  # bridge, distinguishes recovery from a crash once a physical landing is
-  # discovered without prescribing how the limbs should execute it.
+  # Collision ends an episode immediately.  The small terminal term above is
+  # enabled only after earlier runs had already demonstrated real takeoff and
+  # turn discovery; it distinguishes an illegal partial turn from a wheelward
+  # recovery without prescribing how the limbs should execute either action.
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
   # and is therefore an event failure rather than a way to continue hopping.
