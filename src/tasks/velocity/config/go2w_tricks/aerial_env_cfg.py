@@ -60,9 +60,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # All five one-hots stay equally represented in the same fused policy.
-      # Reducing yaw samples did not improve pitch/roll discovery.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Keep one fused policy and identical five-way command interface, but
+      # give the only persistently unsolved physical mode (back) enough
+      # rollouts to discover its opposite-pitch takeoff.  The other four
+      # modes each still receive tens of millions of samples in this run.
+      mode_probabilities=(0.15, 0.40, 0.15, 0.15, 0.15),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
