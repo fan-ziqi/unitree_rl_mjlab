@@ -852,13 +852,17 @@ class AerialRotationCompletion:
     self.progress = torch.clamp_min(self.progress + increment, 0.0)
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
     # This is the learnable bridge to the exact five-frame settle event below.
-    # It deliberately records the *first* legal all-wheel recovery after a
-    # genuine flight, rather than waiting for a chance full turn.  Its value is
-    # smoothly scaled by the measured turn fraction below, so a low hop has no
-    # profitable landing shortcut while a 0.3--0.9-turn discovery already
-    # teaches the policy to restore its launch orientation.
+    # The command intentionally becomes public idle at its *first* wheel
+    # contact, so the default controller can recover instead of being asked to
+    # continue a flip.  A real four-wheel touchdown often arrives one or two
+    # frames later; limiting this result to ``active`` would silently throw
+    # away the only endpoint signal for that recovery.  Keep the same one-shot
+    # physical landing event alive through its immediate public-idle window.
+    # Its value remains scaled by measured turn fraction, contact, velocity,
+    # and whole-base orientation below—there is no pose, phase, or motion
+    # reference introduced here.
     wheel_touchdown = (
-      active
+      (active | post_landing_idle)
       & self.was_airborne
       & torch.all(contacts, dim=1)
       & legal
