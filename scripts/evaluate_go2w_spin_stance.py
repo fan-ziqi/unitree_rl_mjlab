@@ -75,10 +75,12 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Every one-hot uses the same signed world-down rotation rate."""
-  rates = torch.zeros_like(modes, dtype=torch.float32)
-  rates[:] = spin_rate
-  return rates
+  """Only normal/front/rear are dynamic; left/right are static supports."""
+  return torch.where(
+    modes <= 2,
+    torch.full_like(modes, spin_rate, dtype=torch.float32),
+    torch.zeros_like(modes, dtype=torch.float32),
+  )
 
 
 def _pin_modes(
@@ -90,7 +92,7 @@ def _pin_modes(
   """Pin one-hot targets, optionally reproducing the training-rate ramp."""
   command_term.command_buf.zero_()
   rates = _mode_rates(modes, spin_rate).to(command_term.command_buf.dtype)
-  active = rates.abs() > 0.20
+  active = torch.ones_like(modes, dtype=torch.bool)
   command_term.command_buf[
     torch.arange(command_term.num_envs, device=modes.device)[active], modes[active]
   ] = 1.0
@@ -272,7 +274,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       support_sum += valid.float() * support_ok.float()
       axle_coaxiality_sum += valid.float() * active_spin.float() * coaxiality
       rate_error_sum += valid.float() * rate_error
-      support_center_speed_sum += valid.float() * active_spin.float() * center_speed
+      support_center_speed_sum += valid.float() * center_speed
       nonwheel_sum += valid.float() * nonwheel.float()
       if (step + 1) * base_env.step_dt >= cfg.settle_s:
         steady_count += valid.float()

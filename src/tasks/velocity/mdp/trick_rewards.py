@@ -306,14 +306,13 @@ def _stance_spin_components(
 
 
 class StanceSpinPivotResult:
-  """Reward a high-rate five-mode local rotation.
+  """Reward the dynamic pivots and static side supports of one ground policy.
 
-  The supporting wheel centres, rather than root velocity, identify the
-  physical pivot.  This is instantaneous measured geometry: no anchor,
-  transition clock, reference path, or limb trajectory is retained in state.
-  A bicycle-like support translation is explicitly worse than no spin.  The
-  zero-speed branch is handled by default-idle action gating, so this term is
-  active only for a nonzero commanded rate.
+  Normal/front/rear use the supporting wheel centres, rather than root
+  velocity, to identify a high-rate local pivot.  Left/right instead reward
+  a quiet, correctly supported two-wheel stand.  Both are instantaneous
+  measured outcomes: no anchor, transition clock, reference path, or limb
+  trajectory is retained in state.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -332,10 +331,13 @@ class StanceSpinPivotResult:
     contact_masks: tuple[tuple[float, float, float, float], ...],
     sensor_name: str,
     pivot_speed_limit: float,
+    static_angular_velocity_scale: float,
     asset_cfg: SceneEntityCfg,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
+    if static_angular_velocity_scale <= 0.0:
+      raise ValueError("static_angular_velocity_scale must be positive.")
     asset, moving, rate_score, support_quality, pair, mode = _stance_spin_components(
       env,
       command_name,
@@ -376,7 +378,20 @@ class StanceSpinPivotResult:
     excess_translation = torch.clamp(translation_cost - 1.0, min=0.0, max=1.0)
     translation_penalty = 4.0 * mature_support * excess_translation
     dynamic_result = support_and_rate - translation_penalty
-    return moving.to(rate_score.dtype) * dynamic_result
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    static_side = active & (mode >= 3)
+    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    static_stillness = torch.clamp(
+      1.0 - angular_speed / static_angular_velocity_scale,
+      min=0.0,
+      max=1.0,
+    )
+    static_result = support_quality * static_stillness
+    return (
+      moving.to(rate_score.dtype) * dynamic_result
+      + static_side.to(rate_score.dtype) * static_result
+    )
 
 
 # ---------------------------------------------------------------------------
