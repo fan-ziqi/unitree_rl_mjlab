@@ -163,6 +163,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # to the unchanged five-frame strict settle event.  It supplies no
         # limb pose or time target.
         "soft_touchdown_reward": 1.0,
+        # Grade that same once-only all-wheel touchdown by how close it is to
+        # the existing strict landing velocity/attitude limits.  This is not a
+        # new trajectory or phase reward: it only distinguishes a quiet
+        # completed turn from a high-speed wheel graze.
+        "soft_touchdown_speed_scale": 4.0,
         "max_overrotation": 1.25,
         "landing_gravity_std": 0.30,
         "landing_settle_time": 0.10,

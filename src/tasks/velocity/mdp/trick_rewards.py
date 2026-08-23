@@ -693,6 +693,7 @@ class AerialRotationCompletion:
     axes: tuple[tuple[float, float, float], ...],
     target_angle: float = math.tau,
     soft_touchdown_reward: float = 1.0,
+    soft_touchdown_speed_scale: float = 4.0,
     landing_gravity_std: float = 0.3,
     landing_settle_time: float = 0.10,
     landing_linear_velocity_limit: float = 0.75,
@@ -702,6 +703,8 @@ class AerialRotationCompletion:
   ) -> torch.Tensor:
     if soft_touchdown_reward < 0.0:
       raise ValueError("soft_touchdown_reward must be non-negative.")
+    if soft_touchdown_speed_scale <= 0.0:
+      raise ValueError("soft_touchdown_speed_scale must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -777,6 +780,33 @@ class AerialRotationCompletion:
     )
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    # The original geometric touchdown bridge gave exactly the same credit to
+    # a quiet landing and a high-speed wheel graze.  Preserve the *same*
+    # one-shot outcome, but grade it continuously by the already public
+    # landing variables.  The multiplier keeps early full-turn discoveries
+    # informative; the unchanged strict five-frame event remains the only
+    # high-value completion reward.
+    touchdown_quality = (
+      torch.clamp(
+        1.0 - gravity_error / (soft_touchdown_speed_scale * landing_gravity_std),
+        min=0.0,
+        max=1.0,
+      )
+      * torch.clamp(
+        1.0
+        - linear_speed
+        / (soft_touchdown_speed_scale * landing_linear_velocity_limit),
+        min=0.0,
+        max=1.0,
+      )
+      * torch.clamp(
+        1.0
+        - angular_speed
+        / (soft_touchdown_speed_scale * landing_angular_velocity_limit),
+        min=0.0,
+        max=1.0,
+      )
+    )
     stable_landing = (
       active
       & self.was_airborne
@@ -803,6 +833,6 @@ class AerialRotationCompletion:
     self.previous_active = active
     self.previous_mode = torch.where(active, mode, self.previous_mode)
     return (
-      soft_touchdown_reward * touchdown_reward.float()
+      soft_touchdown_reward * touchdown_reward.float() * touchdown_quality
       + strict_reward.float() / env.step_dt
     )
