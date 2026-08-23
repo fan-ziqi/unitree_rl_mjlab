@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
@@ -171,10 +170,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_angular_velocity_limit": 1.5,
       },
     ),
-    # Body/leg contact still terminates the rollout; this moderate scalar cost
-    # does not make a safe small hop preferable to discovering a real flip.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-250.0),
   }
+  # Body and leg contact are immediate physical failures via the inherited
+  # termination term.  Do not additionally assign a large scalar penalty:
+  # it overwhelms the small early takeoff/rotation evidence and makes
+  # "never leave the default stance" a local PPO optimum.
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
   # and is therefore an event failure rather than a way to continue hopping.
