@@ -121,6 +121,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # four-leg silhouette as the untriggered Go2W, rather than spending policy
     # capacity on an unnecessary squat or leg swing.
     hold_default_position_mode_index=0,
+    # Normal is explicitly the model-default leg pose even while wheels move.
+    # A missing reset-time contact frame otherwise releases that invariant and
+    # produces the unwanted squatting normal gait.
+    hold_default_position_requires_physical_idle=False,
   )
   _use_history(cfg, "trick")
 
