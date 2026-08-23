@@ -90,13 +90,21 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # genuine in-episode one-hot transition without making a mode a separate
       # task or changing the policy interface.
       resampling_time_range=(4.0, 4.0),
-      mode_probabilities=(0.30, 0.35, 0.35),
+      # Rear has demonstrated the static rise, while front still needs
+      # comparable discovery mass.  Keep normal in the fused domain, but put
+      # most samples on the two public upright commands that must learn x/yaw
+      # response from the ordinary four-wheel reset.
+      mode_probabilities=(0.20, 0.40, 0.40),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
       # but supplied too few moving samples for either that pose or its rear
       # counterpart to learn the requested controls.  This is only command
       # coverage; it introduces no reset stance, target posture, or phase.
-      mode_idle_probabilities=(0.35, 0.45, 0.45),
+      # The previous 45% stationary share found a rear handstand, then left
+      # it nearly unresponsive to non-zero x/yaw requests.  Retain genuine
+      # balance examples, but make motion the usual front/rear command so the
+      # one policy cannot treat a two-wheel one-hot as merely a static pose.
+      mode_idle_probabilities=(0.25, 0.15, 0.15),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -216,7 +224,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # samples and produced exactly the observed collapse: those poses made
       # progress while normal/left/right did not.  Keep every public one-hot
       # at the same 20% probability from the first PPO update.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Front has discovered the tall local pivot; increase the still-missing
+      # normal/rear/side command coverage without splitting the policy or
+      # altering the public five-one-hot command.  Front remains represented
+      # throughout so its valid pivot is retained in the same actor.
+      mode_probabilities=(0.25, 0.15, 0.25, 0.175, 0.175),
       spin_idle_probability=0.25,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,

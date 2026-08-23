@@ -85,7 +85,12 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # MLP is still inexpensive compared with 8,192 parallel physics worlds.
     hidden_dims=(512, 512, 256),
     init_std=0.60,
-    entropy_coef=0.005,
+    # The former entropy pressure grew the scalar Gaussian standard deviation
+    # past 1.7 despite the clipped action envelope.  That continually knocked
+    # a discovered rear support out of balance and prevented x/yaw response
+    # from consolidating.  Initial exploration is unchanged; this only lets
+    # PPO reduce noise once a physical stance is found.
+    entropy_coef=0.002,
     clip_actions=1.0,
   )
 
