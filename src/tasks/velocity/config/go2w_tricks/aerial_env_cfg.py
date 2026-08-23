@@ -61,8 +61,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # All five one-hots remain equally represented in the fused policy.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Yaw obtains a usable airborne rotation much earlier than the four
+      # pitch/roll branches.  Equal draws consequently let its larger PPO
+      # advantages dominate a shared actor before the hard axes can discover
+      # a turn.  Keep every one-hot in the same policy, but allocate more
+      # first-pass rollouts to the four still-required hard directions.
+      mode_probabilities=(0.22, 0.22, 0.22, 0.22, 0.12),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
