@@ -168,7 +168,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # A correct one-turn, all-wheel touchdown is an informative precursor
         # to the unchanged five-frame strict settle event.  It supplies no
         # limb pose or time target.
-        "soft_touchdown_reward": 1.0,
+        # Full-turn wheel touch-downs now exist reliably, but V98 still
+        # accepts a visibly changed final heading.  Make this existing,
+        # once-only physical result materially outweigh another partial
+        # airborne radian; it remains gated by turn fraction and legal
+        # four-wheel contact below.
+        "soft_touchdown_reward": 4.0,
         # Grade that same once-only all-wheel touchdown by how close it is to
         # the existing strict landing velocity/attitude limits.  This is not a
         # new trajectory or phase reward: it only distinguishes a quiet
@@ -183,6 +188,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # first landing exactly equivalent, so PPO had no return gradient
         # toward restoring the launch heading.
         "soft_touchdown_orientation_floor": 0.0,
+        "soft_touchdown_orientation_exponent": 6.0,
         # A partial but real flight may receive a *graded* first-touchdown
         # signal, so orientation recovery is observable before a policy has
         # ever happened to achieve a perfect full turn.  Squaring the turn

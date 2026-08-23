@@ -745,6 +745,7 @@ class AerialRotationCompletion:
     landing_angular_velocity_limit: float = 1.5,
     landing_orientation_dot_min: float = 0.995,
     soft_touchdown_orientation_floor: float = 0.50,
+    soft_touchdown_orientation_exponent: float = 1.0,
     soft_touchdown_turn_exponent: float = 2.0,
     post_idle_settle_time: float = 0.40,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -761,6 +762,8 @@ class AerialRotationCompletion:
       )
     if soft_touchdown_turn_exponent <= 0.0:
       raise ValueError("soft_touchdown_turn_exponent must be positive.")
+    if soft_touchdown_orientation_exponent <= 0.0:
+      raise ValueError("soft_touchdown_orientation_exponent must be positive.")
     if post_idle_settle_time <= 0.0:
       raise ValueError("post_idle_settle_time must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
@@ -875,11 +878,14 @@ class AerialRotationCompletion:
         min=0.0,
         max=1.0,
       )
-      * torch.clamp(
-        (orientation_similarity - soft_touchdown_orientation_floor)
-        / (1.0 - soft_touchdown_orientation_floor),
-        min=0.0,
-        max=1.0,
+      * torch.pow(
+        torch.clamp(
+          (orientation_similarity - soft_touchdown_orientation_floor)
+          / (1.0 - soft_touchdown_orientation_floor),
+          min=0.0,
+          max=1.0,
+        ),
+        soft_touchdown_orientation_exponent,
       )
       * torch.pow(
         torch.clamp(self.progress / target_angle, min=0.0, max=1.0),
