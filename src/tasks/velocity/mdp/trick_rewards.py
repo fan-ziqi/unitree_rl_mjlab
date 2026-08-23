@@ -287,15 +287,11 @@ def _stance_spin_components(
   # The normal high-speed branch deliberately has no baseline: otherwise
   # ordinary four-wheel steering is a profitable local optimum and the policy
   # never changes its rotation centre.
-  # V45 demonstrated that a linear attitude factor leaves a lucrative local
-  # optimum: the named wheels become coaxial and spin in place while the
-  # trunk remains roughly half-way to its requested vertical axis.  Squaring
-  # helped, and V40's fourth power found the correct axle, local centre, and
-  # rate, but still converged to a 0.89--0.91 alignment slanted arch.  The
-  # eighth power is the same measured support outcome, not a pose target: it
-  # preserves a nonzero discovery gradient from four-wheel default while
-  # decisively ranking the observed slanted solution below a near-vertical
-  # support.
+  # Squaring ranks a fully established support above a slanted form while
+  # retaining a practical discovery signal from the ordinary four-wheel
+  # reset.  The former eighth power was too sparse for normal and side modes:
+  # their policy received effectively zero return until contact, attitude,
+  # axle geometry, and rate all changed at once.
   coaxial_factor = torch.where(
     mode == 0,
     coaxiality,
@@ -305,7 +301,7 @@ def _stance_spin_components(
       torch.ones_like(coaxiality),
     ),
   )
-  support_quality = contact_score * torch.pow(alignment, 8) * height_score * coaxial_factor
+  support_quality = contact_score * torch.square(alignment) * height_score * coaxial_factor
   return asset, moving, rate_score, support_quality, support_pair, mode
 
 
@@ -361,12 +357,13 @@ class StanceSpinPivotResult:
     )
     centre_speed = torch.linalg.vector_norm(centre_velocity, dim=1)
     translation_cost = torch.clamp(centre_speed / pivot_speed_limit, min=0.0, max=2.0)
-    # Before a tall support exists, random wheel velocity is part of finding
-    # the transition and must not overwhelm the small support-improvement
-    # signal.  Once support is high, the squared gate reaches one, so the
-    # identical physical centre-speed penalty rejects bicycle translation.
-    support_and_rate = support_quality * (0.35 + 0.65 * rate_score)
-    translation_penalty = torch.square(support_quality) * translation_cost
+    # The same outcome term first values a real support geometry, then values
+    # the requested rate on that support.  Its local-centre cost is linear in
+    # support quality: a bicycle-like circle is therefore worse than pausing
+    # to reshape the axle, including in normal mode.  No transition phase or
+    # joint-space target is encoded here.
+    support_and_rate = support_quality * (0.50 + rate_score)
+    translation_penalty = 2.0 * support_quality * translation_cost
     dynamic_result = support_and_rate - translation_penalty
     return moving.to(rate_score.dtype) * dynamic_result
 
@@ -694,7 +691,10 @@ class AerialRotationCompletion:
     self.previous_mode = torch.full(
       (env.num_envs,), -1, dtype=torch.long, device=env.device
     )
-    self.landing_settle_time = torch.zeros(env.num_envs, device=env.device)
+    self.post_idle_settle_time = torch.zeros(env.num_envs, device=env.device)
+    self.pre_idle_complete = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
     self.launch_axis_w = torch.zeros(env.num_envs, 3, device=env.device)
     self.launch_root_quat_w = torch.zeros(env.num_envs, 4, device=env.device)
     self.airborne_time = torch.zeros(env.num_envs, device=env.device)
@@ -711,7 +711,8 @@ class AerialRotationCompletion:
     self.awarded[env_ids] = False
     self.previous_active[env_ids] = False
     self.previous_mode[env_ids] = -1
-    self.landing_settle_time[env_ids] = 0.0
+    self.post_idle_settle_time[env_ids] = 0.0
+    self.pre_idle_complete[env_ids] = False
     self.launch_axis_w[env_ids] = 0.0
     self.launch_root_quat_w[env_ids] = 0.0
     self.airborne_time[env_ids] = 0.0
@@ -729,12 +730,12 @@ class AerialRotationCompletion:
     soft_touchdown_reward: float = 1.0,
     soft_touchdown_speed_scale: float = 4.0,
     landing_gravity_std: float = 0.3,
-    landing_settle_time: float = 0.10,
     landing_linear_velocity_limit: float = 0.75,
     landing_angular_velocity_limit: float = 1.5,
     landing_orientation_dot_min: float = 0.995,
     soft_touchdown_orientation_floor: float = 0.50,
-    max_overrotation: float = 0.75,
+    soft_touchdown_turn_exponent: float = 2.0,
+    post_idle_settle_time: float = 0.40,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if soft_touchdown_reward < 0.0:
@@ -747,6 +748,10 @@ class AerialRotationCompletion:
       raise ValueError(
         "soft_touchdown_orientation_floor must be non-negative and below the strict threshold."
       )
+    if soft_touchdown_turn_exponent <= 0.0:
+      raise ValueError("soft_touchdown_turn_exponent must be positive.")
+    if post_idle_settle_time <= 0.0:
+      raise ValueError("post_idle_settle_time must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -755,13 +760,23 @@ class AerialRotationCompletion:
     new_skill = active & (
       (~self.previous_active) | (mode != self.previous_mode) | reset
     )
-    clear = new_skill | reset | (~active)
+    # After a first landing, the command term clears the public one-hot and
+    # hands control to literal default idle.  Keep the landing state through
+    # that final window so the reward can reject a pose that looked correct at
+    # touchdown but drifts after the maneuver has supposedly ended.
+    command_term = env.command_manager.get_term(command_name)
+    landing_started = getattr(
+      command_term, "_landing_started", torch.zeros_like(active)
+    )
+    post_landing_idle = (~active) & landing_started
+    clear = new_skill | reset | ((~active) & (~post_landing_idle))
     self.progress[clear] = 0.0
     self.was_airborne[clear] = False
     self.has_grounded[clear] = False
     self.touchdown_awarded[clear] = False
     self.awarded[clear] = False
-    self.landing_settle_time[clear] = 0.0
+    self.post_idle_settle_time[clear] = 0.0
+    self.pre_idle_complete[clear] = False
     self.airborne_time[clear] = 0.0
     self.flight_qualified[clear] = False
     self.flight_rotation[clear] = 0.0
@@ -775,7 +790,6 @@ class AerialRotationCompletion:
     self.launch_root_quat_w[new_skill] = asset.data.root_link_quat_w[new_skill]
     axis_rate = torch.sum(asset.data.root_link_ang_vel_w * self.launch_axis_w, dim=1)
     contacts = _wheel_contacts(env, sensor_name)
-    command_term = env.command_manager.get_term(command_name)
     (
       self.has_grounded,
       self.airborne_time,
@@ -795,18 +809,16 @@ class AerialRotationCompletion:
     )
     self.was_airborne |= self.flight_qualified
     self.progress = torch.clamp_min(self.progress + increment, 0.0)
-    full_turn = (self.progress >= target_angle) & (
-      self.progress <= target_angle + max_overrotation
-    )
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    # This is the learnable bridge to the exact five-frame settle event below:
-    # after a genuine full turn, touching down on all four wheels is already a
-    # useful geometric outcome even if residual velocity prevents immediate
-    # strict completion.  It is paid once and never accepts body/leg support.
+    # This is the learnable bridge to the exact five-frame settle event below.
+    # It deliberately records the *first* legal all-wheel recovery after a
+    # genuine flight, rather than waiting for a chance full turn.  Its value is
+    # smoothly scaled by the measured turn fraction below, so a low hop has no
+    # profitable landing shortcut while a 0.3--0.9-turn discovery already
+    # teaches the policy to restore its launch orientation.
     wheel_touchdown = (
       active
       & self.was_airborne
-      & full_turn
       & torch.all(contacts, dim=1)
       & legal
     )
@@ -858,10 +870,21 @@ class AerialRotationCompletion:
         min=0.0,
         max=1.0,
       )
+      * torch.pow(
+        torch.clamp(self.progress / target_angle, min=0.0, max=1.0),
+        soft_touchdown_turn_exponent,
+      )
     )
-    stable_landing = (
-      active
-      & self.was_airborne
+    # ``AerialRotationCommand`` latches this only on the final active landing
+    # frame, so a transient early stable pose does not get grandfathered into
+    # the default-idle check below.
+    command_completed = getattr(
+      command_term, "_last_attempt_succeeded", torch.zeros_like(active)
+    )
+    self.pre_idle_complete |= command_completed
+    idle_stable = (
+      post_landing_idle
+      & self.pre_idle_complete
       & torch.all(contacts, dim=1)
       & legal
       & (gravity_error < landing_gravity_std)
@@ -869,18 +892,14 @@ class AerialRotationCompletion:
       & (linear_speed < landing_linear_velocity_limit)
       & (angular_speed < landing_angular_velocity_limit)
     )
-    self.landing_settle_time = torch.where(
-      stable_landing,
-      self.landing_settle_time + env.step_dt,
-      torch.zeros_like(self.landing_settle_time),
+    self.post_idle_settle_time = torch.where(
+      idle_stable,
+      self.post_idle_settle_time + env.step_dt,
+      torch.zeros_like(self.post_idle_settle_time),
     )
-    # Match ``AerialRotationCommand`` exactly: five 20-ms stable control
-    # frames are the requested 0.10 s even when float32 summation represents
-    # their total just below the decimal threshold.
-    settled_long_enough = (
-      self.landing_settle_time + 0.5 * env.step_dt >= landing_settle_time
+    completed = idle_stable & (
+      self.post_idle_settle_time + 0.5 * env.step_dt >= post_idle_settle_time
     )
-    completed = stable_landing & full_turn & settled_long_enough
     strict_reward = completed & (~self.awarded)
     self.awarded |= completed
     self.previous_active = active

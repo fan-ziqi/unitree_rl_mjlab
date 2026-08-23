@@ -73,6 +73,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Require five consecutive 50-Hz control steps: a transient wheel graze
       # must never count as a completed normal-wheel landing.
       landing_settle_time=0.10,
+      # A flip only passes when its final base orientation is effectively the
+      # launch orientation, including yaw.  The continuous landing signal
+      # below makes this tight endpoint learnable without a reference motion.
+      landing_orientation_dot_min=0.999,
       # A one-hot still owns exactly one ballistic interval, but must retain
       # ordinary actuator authority briefly after its first touchdown.  An
       # immediate jump to the default controller removes the only chance to
@@ -86,7 +90,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     entity_name="robot",
     actuator_names=GO2W_LEG_JOINTS,
     scale={
-      r".*_hip_joint": 0.45,
+      # This reaches the model's existing hip torque limit at the edge of the
+      # residual range.  It neither raises that limit nor stiffens the
+      # actuator, but avoids making a one-revolution jump physically
+      # unreachable while the calf alone provides the launch impulse.
+      r".*_hip_joint": 0.55,
       r".*_thigh_joint": 0.55,
       r".*_calf_joint": 0.55,
     },
@@ -121,7 +129,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       func=trick_rewards.aerial_airborne_clearance,
       # A small takeoff signal makes the first part of a flip discoverable,
       # but is far below a turn or completed landing.
-      weight=15.0,
+      # A complete revolution needs appreciably more ballistic time than the
+      # low, fast hops produced by the previous 15:20 height-to-radian ratio.
+      # This is still the same measured wheel-free height outcome; it merely
+      # gives PPO enough incentive to find the necessary launch.
+      weight=120.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -162,9 +174,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # new trajectory or phase reward: it only distinguishes a quiet
         # completed turn from a high-speed wheel graze.
         "soft_touchdown_speed_scale": 4.0,
-        "max_overrotation": 1.25,
         "landing_gravity_std": 0.30,
-        "landing_orientation_dot_min": 0.995,
+        "landing_orientation_dot_min": 0.999,
         # The landing must still pass the strict 0.995 completion threshold,
         # but a legal full-turn wheel touchdown receives a continuous
         # orientation-quality signal all the way from zero similarity.  The
@@ -172,9 +183,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # first landing exactly equivalent, so PPO had no return gradient
         # toward restoring the launch heading.
         "soft_touchdown_orientation_floor": 0.0,
-        "landing_settle_time": 0.10,
+        # A partial but real flight may receive a *graded* first-touchdown
+        # signal, so orientation recovery is observable before a policy has
+        # ever happened to achieve a perfect full turn.  Squaring the turn
+        # fraction keeps a small hop far below an almost-complete flip.
+        "soft_touchdown_turn_exponent": 2.0,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
+        # The strict bonus is paid only if the all-zero/default controller
+        # keeps that same landing intact through this final physical window.
+        "post_idle_settle_time": 0.40,
       },
     ),
   }
