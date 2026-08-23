@@ -117,11 +117,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # A flip lasts roughly 0.4--0.6 s at the 50 Hz policy rate.  Ten generic
     # proprioceptive frames cover only part of that event; in particular they
     # cannot disambiguate the start and end of a yaw revolution because both
-    # have the same projected gravity.  A 32-frame window still contains
-    # precisely the public observations below, but lets the actor infer its
-    # own ongoing event from measured motion and its recent actions instead
-    # of receiving a hidden phase, angle, or reference trajectory.
-    cfg.observations[group_name].history_length = 32
+    # have the same projected gravity.  Twenty frames retain nearly a whole
+    # compact launch while avoiding the slow full-turn discovery seen when
+    # this unprivileged input was expanded to 32 frames.
+    cfg.observations[group_name].history_length = 20
 
   # A flip is deliberately reduced to its observable physical result: gain
   # wheel-free height, accumulate desired-axis radians while airborne, then
@@ -199,7 +198,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # first landing exactly equivalent, so PPO had no return gradient
         # toward restoring the launch heading.
         "soft_touchdown_orientation_floor": 0.0,
-        "soft_touchdown_orientation_exponent": 6.0,
+        # Grade whole-base heading more sharply than a simple near-upright
+        # landing: a yaw turn that visibly finishes at a changed heading is
+        # still a poor endpoint, while the strict threshold below remains the
+        # only completion criterion.
+        "soft_touchdown_orientation_exponent": 20.0,
         # A partial but real flight may receive a *graded* first-touchdown
         # signal, so orientation recovery is observable before a policy has
         # ever happened to achieve a perfect full turn.  Squaring the turn
