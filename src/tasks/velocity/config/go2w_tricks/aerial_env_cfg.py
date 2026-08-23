@@ -75,12 +75,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Require five consecutive 50-Hz control steps: a transient wheel graze
       # must never count as a completed normal-wheel landing.
       landing_settle_time=0.10,
-      # The physical controller becomes default idle at first contact.  Keep
-      # the *training* event window short: the 400-ms verdict delayed the
-      # already sparse pitch/roll learning signal.  Evaluation extends this
-      # same action-gated window to verify passive settling, so one-hot still
-      # means exactly one jump in both cases.
-      post_landing_hold_time=0.10,
+      # A one-hot still owns exactly one ballistic interval, but must retain
+      # ordinary actuator authority briefly after its first touchdown.  An
+      # immediate jump to the default controller removes the only chance to
+      # brake residual rotation and absorb the landing.  This is an outcome
+      # window, not a landing pose or reference trajectory.
+      post_landing_hold_time=0.40,
       debug_vis=False,
     )
   }
@@ -108,10 +108,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     stationary_command_start_index=0,
     command_deadband=0.5,
     idle_contact_sensor_name=wheel_contact_cfg.name,
-    # Aerial commands are one-shot: immediately after their first landing,
-    # the specified controller state is four-wheel model-default idle.  A
-    # later ballistic interval is separately rejected as a relaunch.
-    default_after_first_landing=True,
   )
   for group_name in ("actor", "critic"):
     cfg.observations[group_name].terms["commands"].params["command_name"] = "trick"
@@ -191,18 +187,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     },
   )
   if not play:
-    # A one-hot is a single event, not an instruction to remain idle for the
-    # unused tail of a fixed three-second rollout.  Command clearing occurs
-    # only after the first landing window and the separate result term has
-    # received its public-idle settling interval.  Mark this reset as a
-    # truncation so PPO bootstraps it normally rather than treating a
-    # completed attempt as a fall.  The evaluator deliberately keeps the
-    # world alive for its full three-second passive-settling audit.
+    # One jump closes after its controlled landing window, then presents the
+    # literal all-zero/default controller.  The short idle interval is enough
+    # to test that it actually settles without spending an entire 3-s rollout
+    # on a finished event.
     cfg.terminations["aerial_event_finished"] = TerminationTermCfg(
       func=AerialEventFinished,
       params={
         "command_name": "trick",
-        "post_idle_settle_time_s": 0.20,
+        "post_idle_settle_time_s": 0.40,
       },
       time_out=True,
     )

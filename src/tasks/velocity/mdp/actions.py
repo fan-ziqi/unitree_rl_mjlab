@@ -92,7 +92,6 @@ class DefaultIdleGatedJointPositionActionCfg(JointPositionActionCfg):
   command_deadband: float = 0.05
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
-  default_after_first_landing: bool = False
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointPositionAction:
     return DefaultIdleGatedJointPositionAction(self, env)
@@ -108,7 +107,6 @@ class DefaultIdleGatedJointVelocityActionCfg(JointVelocityActionCfg):
   command_deadband: float = 0.05
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
-  default_after_first_landing: bool = False
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointVelocityAction:
     return DefaultIdleGatedJointVelocityAction(self, env)
@@ -188,19 +186,6 @@ class _DefaultIdleGate:
     # transiently misses a contact.
     self._idle_latched |= requested_idle & self._physical_idle_mask()
     idle = requested_idle & self._idle_latched
-    if self.cfg.default_after_first_landing:
-      # Aerial commands are one-shot events: the first post-flight wheel
-      # contact ends the maneuver, so its remaining controller state is the
-      # public all-zero/default idle.  Without this hand-off, a low crouch
-      # after touchdown can never meet ``_physical_idle_mask`` and the actor
-      # retains arbitrary residual actions forever.  This supplies only the
-      # literal default idle target, never a takeoff or landing trajectory.
-      landed = getattr(
-        self._idle_command,
-        "_landing_started",
-        torch.zeros(self._env.num_envs, dtype=torch.bool, device=self._env.device),
-      )
-      idle |= landed
     if isinstance(self._offset, torch.Tensor):
       self._processed_actions[idle] = self._offset[idle]
     else:
