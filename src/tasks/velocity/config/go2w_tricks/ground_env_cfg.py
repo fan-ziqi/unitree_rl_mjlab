@@ -92,13 +92,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
-      # An 8-s rollout with an 8-s resample interval only ever sees one mode
-      # per physical episode.  Re-sample once halfway through so normal,
-      # front, and rear are actually trained as a fused switching skill rather
-      # than merely evaluated as independent fixed poses.  This changes no
-      # observation or target: it simply presents the existing one-hot at a
-      # real, non-reset state.
-      resampling_time_range=(4.0, 4.0),
+      # The prior 4-s interval creates just one change in an 8-s episode.
+      # That can train normal->front, but never a full
+      # normal->front->rear->normal recovery such as the physical evaluator.
+      # Keep the short, efficient 8-s horizon and expose the existing one-hot
+      # at two to three real (non-reset) states instead.  This is command
+      # coverage, not a staged pose/transition target.
+      resampling_time_range=(2.0, 3.0),
       mode_probabilities=(0.30, 0.35, 0.35),
       # Normal rolling is present from update zero.  Front/rear get a mostly
       # static distribution without a hidden reset pose or a timed curriculum.
