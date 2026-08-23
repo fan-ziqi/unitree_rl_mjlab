@@ -78,24 +78,19 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
-      # The prior 4-s interval creates just one change in an 8-s episode.
-      # That can train normal->front, but never a full
-      # normal->front->rear->normal recovery such as the physical evaluator.
-      # Keep the short, efficient 8-s horizon and expose the existing one-hot
-      # at two to three real (non-reset) states instead.  This is command
-      # coverage, not a staged pose/transition target.
-      # A normal-reset-to-upright transition needs a full physical window.
-      # Two seconds was long enough to switch commands again but not to
-      # establish either two-wheel balance; four seconds still exposes one
-      # genuine in-episode one-hot transition without making a mode a separate
-      # task or changing the policy interface.
-      resampling_time_range=(4.0, 4.0),
-      # Front/rear now reliably discover their two-wheel support, while the
-      # normal four-wheel yaw command remains under-trained.  Give the same
-      # fused actor equal total dynamic exposure to normal versus the two
-      # already-established upright branches combined; no mode receives a
-      # separate reset, network, or action interface.
-      mode_probabilities=(0.40, 0.30, 0.30),
+      # First establish a full physical transition from the required normal
+      # four-wheel reset to the commanded support.  The measured m400 policy
+      # still had not reached its front support after eight seconds; changing
+      # one-hots halfway through that first attempt only shortens the useful
+      # outcome horizon.  A later command-switch robustness pass can reuse
+      # this same fused policy, but this discovery run keeps every sampled
+      # command present from the ordinary default state for the whole episode.
+      resampling_time_range=(8.0, 8.0),
+      # Four-wheel rolling is already supplied deterministically by the idle
+      # action gate.  Spend more of the shared PPO batch on the two outstanding
+      # normal-reset-to-upright outcomes, while still retaining normal rolling
+      # requests in the same command and policy.
+      mode_probabilities=(0.20, 0.40, 0.40),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
       # but supplied too few moving samples for either that pose or its rear
@@ -108,7 +103,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Literal normal idle is a deterministic action gate, not a skill PPO
       # needs to spend samples rediscovering.  Keep static examples only for
       # the two upright forms, whose balance still benefits from them.
-      mode_idle_probabilities=(0.0, 0.45, 0.45),
+      mode_idle_probabilities=(0.0, 0.50, 0.50),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -135,7 +130,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      weight=24.0,
+      weight=36.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -148,7 +143,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # the trunk above its transverse support axle; without this existing
         # support-outcome geometry, V1 found a low front crouch with the right
         # two contacts but not the requested inverted stand.
-        "minimum_root_clearance": (0.18, 0.45, 0.45),
+        # The previous linear 0.45-m scale paid most of the support return to
+        # a visibly crouched 0.35-m result.  This remains a measured trunk to
+        # wheel-axle clearance, not a leg pose, but makes the requested
+        # extended two-wheel support the substantially better outcome.
+        "minimum_root_clearance": (0.18, 0.52, 0.52),
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -157,7 +156,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Support discovery is already established by the measured wheel
       # contact/attitude outcome above.  Give the public x command enough
       # importance that a fixed forward roll cannot outscore command response.
-      weight=5.0,
+      # Before a legal two-wheel support exists, a velocity error mostly
+      # encourages a fast four-wheel escape.  Keep x response in this single
+      # policy, but make the physical support result the dominant discovery
+      # return; command tracking remains active throughout the same rollout.
+      weight=3.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -181,7 +184,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # existing public-command outcome large enough to compete with the
       # always-available support score; it still contains no posture, wheel
       # target, phase, or transition prescription.
-      weight=20.0,
+      weight=8.0,
       params={
         "command_name": "trick",
         "std": 0.60,
@@ -191,7 +194,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # turning.  Front/rear retain the previous effective scale until
         # their two-wheel form is established, preventing a normal-pose yaw
         # response from displacing the requested inverted support.
-        "mode_weights": (1.0, 0.2, 0.2),
+        "mode_weights": (1.0, 0.15, 0.15),
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 3.0,
@@ -227,10 +230,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Every active one-hot carries a rate and has equal probability.  The
-      # all-zero default is enforced by the action gate rather than consuming
-      # a fifth of the PPO batch.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Fixed-command m500 validation shows front is already reliable whereas
+      # normal, rear, left, and right remain incomplete.  Keep all five
+      # requests in the same actor, but allocate its rollout budget to the
+      # unresolved physical pivots instead of letting the easy front outcome
+      # dominate their advantages.
+      mode_probabilities=(0.26, 0.08, 0.24, 0.21, 0.21),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
