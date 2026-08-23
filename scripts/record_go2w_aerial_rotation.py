@@ -37,6 +37,8 @@ class RecordConfig:
   post_landing_hold_time: float = 0.40
   actor_hidden_dims: tuple[int, ...] | None = None
   critic_hidden_dims: tuple[int, ...] | None = None
+  actor_class_name: str | None = None
+  critic_class_name: str | None = None
 
 
 def _fixed_reset_observation(
@@ -117,6 +119,10 @@ def run(cfg: RecordConfig) -> Path:
     if not cfg.critic_hidden_dims or any(dim <= 0 for dim in cfg.critic_hidden_dims):
       raise ValueError("critic_hidden_dims must contain positive dimensions.")
     agent_cfg.critic.hidden_dims = cfg.critic_hidden_dims
+  if cfg.actor_class_name is not None:
+    agent_cfg.actor.class_name = cfg.actor_class_name
+  if cfg.critic_class_name is not None:
+    agent_cfg.critic.class_name = cfg.critic_class_name
   base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device, render_mode="rgb_array")
   num_steps = round(cfg.duration_s / base_env.step_dt)
   recorder = VideoRecorder(

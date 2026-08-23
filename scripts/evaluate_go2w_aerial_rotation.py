@@ -43,6 +43,11 @@ class EvalConfig:
     # wider training run without changing its fixed-command physics.
     actor_hidden_dims: tuple[int, ...] | None = None
     critic_hidden_dims: tuple[int, ...] | None = None
+    # Kept optional so ordinary MLP checkpoints remain the default, while a
+    # recurrent PPO checkpoint can be reconstructed for the same fixed-command
+    # physical evaluation.
+    actor_class_name: str | None = None
+    critic_class_name: str | None = None
     emit_metrics: bool = False
     output_path: Path | None = None
     quiet: bool = False
@@ -162,6 +167,10 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
         if not cfg.critic_hidden_dims or any(dim <= 0 for dim in cfg.critic_hidden_dims):
             raise ValueError("critic_hidden_dims must contain positive dimensions.")
         agent_cfg.critic.hidden_dims = cfg.critic_hidden_dims
+    if cfg.actor_class_name is not None:
+        agent_cfg.actor.class_name = cfg.actor_class_name
+    if cfg.critic_class_name is not None:
+        agent_cfg.critic.class_name = cfg.critic_class_name
     base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device)
     env = RslRlVecEnvWrapper(base_env, clip_actions=agent_cfg.clip_actions)
     runner_cls = load_runner_cls(cfg.task_id) or MjlabOnPolicyRunner
