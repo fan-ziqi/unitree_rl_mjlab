@@ -278,6 +278,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _support_wheels(),
       },
     ),
+    # A generic temporal regularizer keeps the non-supporting legs from
+    # accumulating high-frequency exploratory flailing once a local pivot is
+    # found.  It supplies no joint posture, contact sequence, or reference
+    # trajectory, and remains small compared with the measured pivot result.
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   cfg.curriculum = {}
