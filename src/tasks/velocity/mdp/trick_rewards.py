@@ -71,6 +71,8 @@ def mode_support_score(
   num_modes: int = 5,
   extra_contact_discount: float = 0.75,
   minimum_root_clearance: float | tuple[float, ...] | None = None,
+  orientation_power: float = 1.0,
+  clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
   command_deadband: float = 0.0,
   static_angular_velocity_scale: float | None = None,
@@ -84,6 +86,8 @@ def mode_support_score(
   """
   if not 0.0 <= extra_contact_discount <= 1.0:
     raise ValueError("extra_contact_discount must be in [0, 1].")
+  if orientation_power <= 0.0 or clearance_power <= 0.0:
+    raise ValueError("orientation_power and clearance_power must be positive.")
   if minimum_root_clearance is not None:
     clearance_values = (
       (minimum_root_clearance,)
@@ -109,8 +113,11 @@ def mode_support_score(
 
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
-  orientation = torch.clamp(
-    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+  orientation = torch.pow(
+    torch.clamp(
+      0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+    ),
+    orientation_power,
   )
   contacts = _wheel_contacts(env, sensor_name).float()
   masks = torch.tensor(contact_masks, dtype=contacts.dtype, device=env.device)
@@ -137,10 +144,14 @@ def mode_support_score(
       clearance_target = clearance_target.expand(len(gravity_targets))
     if clearance_target.numel() != len(gravity_targets):
       raise ValueError("minimum_root_clearance must be scalar or cover every mode.")
-    clearance = torch.clamp(
-      (asset.data.root_link_pos_w[:, 2] - support_height) / clearance_target[mode],
-      min=0.0,
-      max=1.0,
+    clearance = torch.pow(
+      torch.clamp(
+        (asset.data.root_link_pos_w[:, 2] - support_height)
+        / clearance_target[mode],
+        min=0.0,
+        max=1.0,
+      ),
+      clearance_power,
     )
   # Static one-hots (including left/right dual-wheel support) mean a held
   # support, not an unspecified spin.  Keep this inside the existing support

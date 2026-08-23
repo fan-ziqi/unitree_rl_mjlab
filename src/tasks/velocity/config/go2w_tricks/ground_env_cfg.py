@@ -148,6 +148,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # wheel-axle clearance, not a leg pose, but makes the requested
         # extended two-wheel support the substantially better outcome.
         "minimum_root_clearance": (0.18, 0.52, 0.52),
+        # This remains the same measured contact/attitude/clearance result,
+        # but m600 showed that a linear score accepts a 0.90-aligned, folded
+        # front stance as nearly as valuable as the requested upright support.
+        # Sharpening its existing physical factors gives PPO a direct outcome
+        # gradient toward an actually tall, vertical wheel pair.
+        "orientation_power": 4.0,
+        "clearance_power": 2.0,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -160,7 +167,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=3.0,
+      weight=10.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -184,7 +191,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # existing public-command outcome large enough to compete with the
       # always-available support score; it still contains no posture, wheel
       # target, phase, or transition prescription.
-      weight=8.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "std": 0.60,
@@ -194,7 +201,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # turning.  Front/rear retain the previous effective scale until
         # their two-wheel form is established, preventing a normal-pose yaw
         # response from displacing the requested inverted support.
-        "mode_weights": (1.0, 0.15, 0.15),
+        "mode_weights": (1.0, 1.0, 1.0),
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 3.0,
