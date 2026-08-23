@@ -162,6 +162,23 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_clearance": 0.45,
       },
     ),
+    "terminal_orientation_progress": RewardTermCfg(
+      func=trick_rewards.AerialTerminalOrientationProgress,
+      # The actual acceptance condition below remains a quiet, four-wheel
+      # landing at the launch orientation.  This is its only dense precursor:
+      # while the robot is still airborne and has completed most of the turn,
+      # pay a new improvement toward that same launch frame.  It carries no
+      # joint, phase, time, or reference-motion target.
+      weight=100.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "target_angle": math.tau,
+        "min_turn_fraction": 0.55,
+        "max_overrotation": 0.50,
+      },
+    ),
     "completed_turn": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
       # A full revolution that returns to quiet four-wheel default control is

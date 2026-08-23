@@ -682,6 +682,101 @@ class AerialNetRotationProgress:
     )
 
 
+class AerialTerminalOrientationProgress:
+  """Reward only new progress toward the launch frame near a full turn.
+
+  The maneuver contract has one endpoint: after a signed 2π turn, the whole
+  base frame must return to the orientation at launch.  Waiting until a
+  simultaneous four-wheel touchdown to communicate that objective leaves PPO
+  no useful signal while it is deciding when to stop rotating in flight.
+
+  This is intentionally a monotonic endpoint potential, not a trajectory:
+  it has no desired joint pose, action, height, time, or intermediate base
+  orientation.  It pays at most once for each improvement of the *final*
+  whole-base orientation after the turn is substantially under way.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.peak_quality = torch.zeros(env.num_envs, device=env.device)
+    self.previous_active = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_quality[env_ids] = 0.0
+    self.previous_active[env_ids] = False
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    sensor_name: str,
+    nonwheel_sensor_name: str,
+    target_angle: float,
+    min_turn_fraction: float,
+    max_overrotation: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if target_angle <= 0.0:
+      raise ValueError("target_angle must be positive.")
+    if not 0.0 < min_turn_fraction < 1.0:
+      raise ValueError("min_turn_fraction must be in (0, 1).")
+    if max_overrotation <= 0.0:
+      raise ValueError("max_overrotation must be positive.")
+
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    reset = (~active) | (active & (~self.previous_active)) | (
+      env.episode_length_buf == 0
+    )
+    self.peak_quality[reset] = 0.0
+
+    command_term = env.command_manager.get_term(command_name)
+    progress = torch.clamp_min(
+      getattr(
+        command_term,
+        "_rotation_progress",
+        torch.zeros(env.num_envs, device=env.device),
+      ),
+      0.0,
+    )
+    launch_quat = getattr(command_term, "_launch_root_quat_w", None)
+    if launch_quat is None:
+      raise AttributeError(
+        "AerialTerminalOrientationProgress requires the aerial command launch orientation."
+      )
+    asset: Entity = env.scene[asset_cfg.name]
+    orientation_similarity = torch.abs(
+      torch.sum(asset.data.root_link_quat_w * launch_quat, dim=1)
+    )
+    turn_window = torch.clamp(
+      (progress - min_turn_fraction * target_angle)
+      / ((1.0 - min_turn_fraction) * target_angle),
+      min=0.0,
+      max=1.0,
+    )
+    overrotation_quality = torch.clamp(
+      1.0 - torch.clamp_min(progress - target_angle, 0.0) / max_overrotation,
+      min=0.0,
+      max=1.0,
+    )
+    quality = turn_window * overrotation_quality * orientation_similarity
+    increment = torch.clamp(quality - self.peak_quality, min=0.0)
+    self.peak_quality = torch.where(
+      active,
+      torch.maximum(self.peak_quality, quality),
+      torch.zeros_like(self.peak_quality),
+    )
+    self.previous_active = active
+
+    airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    return active.to(increment.dtype) * airborne.to(increment.dtype) * legal.to(
+      increment.dtype
+    ) * increment
+
+
 
 
 def _advance_qualified_aerial_rotation(
