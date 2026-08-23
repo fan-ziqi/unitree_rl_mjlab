@@ -218,9 +218,16 @@ def run(cfg: RecordConfig) -> Path:
         continue
       mode = sequence_modes[sequence_next]
       _pin_mode(command_term, mode)
-      # Keep RNN state continuous, but append the new public command right
-      # away so the next policy action responds to the trigger rather than a
-      # stale all-zero observation.
+      # Training closes each one-shot event as an environment episode, which
+      # clears the recurrent actor state.  The real-time sequence preserves
+      # physics but reproduces that same command-event boundary for the LSTM;
+      # otherwise an idle-period hidden state is an out-of-distribution input
+      # that never appeared at a training event's first control step.
+      if getattr(policy, "is_recurrent", False):
+        policy.reset()
+      # Append the new public command right away so the next policy action
+      # responds to the trigger rather than a stale all-zero observation.
+      # Physical state is never reset here.
       obs = _append_current_observation(base_env)
       trigger_log.append(
         {"mode": MODE_NAMES[mode], "step": step + 1, "time_s": (step + 1) * base_env.step_dt}
