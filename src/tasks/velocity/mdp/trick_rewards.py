@@ -870,8 +870,17 @@ class AerialRotationCompletion:
     # Its value remains scaled by measured turn fraction, contact, velocity,
     # and whole-base orientation below—there is no pose, phase, or motion
     # reference introduced here.
+    # While the one-hot remains active, a partial legal touchdown is still a
+    # useful ordinary discovery sample.  After the public command has become
+    # idle, however, only an almost-complete event may use that delayed
+    # landing bridge.  Otherwise a low hop can clear to idle, touch down on
+    # four wheels, and collect recovery credit without ever exploring the
+    # requested revolution.
+    delayed_landing_eligible = post_landing_idle & (
+      self.progress >= 0.75 * target_angle
+    )
     wheel_touchdown = (
-      (active | post_landing_idle)
+      (active | delayed_landing_eligible)
       & self.was_airborne
       & torch.all(contacts, dim=1)
       & legal
