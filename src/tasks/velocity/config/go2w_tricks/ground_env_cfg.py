@@ -186,6 +186,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "command_name": "trick",
         "std": 0.60,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        # Normal needs the stronger yaw signal: its default four-wheel
+        # support is already valid, so no stance discovery competes with
+        # turning.  Front/rear retain the previous effective scale until
+        # their two-wheel form is established, preventing a normal-pose yaw
+        # response from displacing the requested inverted support.
+        "mode_weights": (1.0, 0.4, 0.4),
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 3.0,

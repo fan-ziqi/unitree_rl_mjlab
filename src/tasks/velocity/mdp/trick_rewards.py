@@ -510,6 +510,7 @@ def stance_locomotion_yaw_rate_exp(
   std: float,
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
   gravity_power: float = 0.0,
+  mode_weights: tuple[float, ...] | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Track world-up yaw rate without an error-saturation dead zone."""
@@ -520,9 +521,17 @@ def stance_locomotion_yaw_rate_exp(
   mode = torch.argmax(command[:, :3], dim=1)
   error = torch.abs(command[:, 4] - asset.data.root_link_ang_vel_w[:, 2])
   score = 1.0 - error / std
-  return score * _locomotion_alignment(
+  result = score * _locomotion_alignment(
     env, asset, mode, gravity_targets, gravity_power
   )
+  if mode_weights is not None:
+    if len(mode_weights) != command.shape[1] - 2 or any(
+      weight < 0.0 for weight in mode_weights
+    ):
+      raise ValueError("mode_weights must be non-negative and match locomotion modes.")
+    weights = torch.tensor(mode_weights, dtype=result.dtype, device=env.device)
+    result = result * weights[mode]
+  return result
 
 
 def normal_leg_default_pose_exp(
