@@ -224,12 +224,14 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # samples and produced exactly the observed collapse: those poses made
       # progress while normal/left/right did not.  Keep every public one-hot
       # at the same 20% probability from the first PPO update.
-      # Front has discovered the tall local pivot; increase the still-missing
-      # normal/rear/side command coverage without splitting the policy or
-      # altering the public five-one-hot command.  Front remains represented
-      # throughout so its valid pivot is retained in the same actor.
-      mode_probabilities=(0.25, 0.15, 0.25, 0.175, 0.175),
-      spin_idle_probability=0.25,
+      # The former non-uniform draw still collapsed the static left/right
+      # forms: right retained a partial two-wheel contact, left received
+      # almost none.  Every requested one-hot gets equal fused-policy
+      # coverage.  The public all-zero default is already enforced by the
+      # idle-action gate, so withholding a quarter of all PPO samples for an
+      # action the policy cannot change only starves the five real skills.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
       debug_vis=False,
