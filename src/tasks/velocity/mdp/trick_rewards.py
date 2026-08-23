@@ -75,6 +75,8 @@ def mode_support_score(
   clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
   command_deadband: float = 0.0,
+  moving_command_start_index: int | None = None,
+  moving_command_scale: float = 1.0,
   static_angular_velocity_scale: float | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
@@ -100,6 +102,11 @@ def mode_support_score(
     clearance_values = ()
   if stationary_command_index is not None and command_deadband < 0.0:
     raise ValueError("command_deadband must be non-negative.")
+  if moving_command_start_index is not None:
+    if moving_command_start_index < 0:
+      raise ValueError("moving_command_start_index must be non-negative.")
+    if not 0.0 <= moving_command_scale <= 1.0:
+      raise ValueError("moving_command_scale must be in [0, 1].")
   if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
     raise ValueError("static_angular_velocity_scale must be positive.")
 
@@ -165,7 +172,32 @@ def mode_support_score(
       min=0.0,
       max=1.0,
     )
-  return active.to(orientation.dtype) * orientation * support * clearance * stillness
+  # A stopped two-wheel command must first discover and keep its support.
+  # Once the public x/yaw channels ask it to move, retaining a fixed support
+  # outcome must not outweigh every signed command response.  This is a scale
+  # on the same measured support result—not a second reward, target pose, or
+  # transition schedule—and it remains zero until the physical support is
+  # actually present.
+  moving_scale = torch.ones_like(orientation)
+  if moving_command_start_index is not None:
+    if moving_command_start_index >= command.shape[1]:
+      raise ValueError("moving_command_start_index is outside the command tensor.")
+    moving = torch.linalg.vector_norm(
+      command[:, moving_command_start_index :], dim=1
+    ) > command_deadband
+    moving_scale = torch.where(
+      moving,
+      torch.full_like(orientation, moving_command_scale),
+      moving_scale,
+    )
+  return (
+    active.to(orientation.dtype)
+    * orientation
+    * support
+    * clearance
+    * stillness
+    * moving_scale
+  )
 
 
 def _stance_spin_components(

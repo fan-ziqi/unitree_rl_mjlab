@@ -172,6 +172,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # gradient toward an actually tall, vertical wheel pair.
         "orientation_power": 4.0,
         "clearance_power": 2.0,
+        # Static front/rear commands should primarily establish a legal
+        # upright support.  A non-zero public x/yaw command needs that exact
+        # support but cannot be allowed to make a fixed, wrong-direction roll
+        # just as valuable as tracking it.  Scale this existing outcome while
+        # moving; the velocity rewards below then decide the signed response.
+        "moving_command_start_index": 3,
+        "moving_command_scale": 0.25,
         "asset_cfg": _support_wheels(),
       },
     ),
