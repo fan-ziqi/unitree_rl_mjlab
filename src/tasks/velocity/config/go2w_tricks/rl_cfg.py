@@ -70,11 +70,10 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
     init_std=0.60,
-    # Front support otherwise becomes deterministic long before rear/side
-    # have sampled a legal transition from the common four-wheel reset.  Keep
-    # exploration alive across the five one-hots; the environment's generic
-    # action-rate cost still rejects high-frequency free-leg flailing.
-    entropy_coef=0.010,
+    # Keep the initial 0.60 Gaussian exploration, but do not continually
+    # widen it after a support has been discovered. The former high entropy
+    # erased normal's precise co-axial pivot while chasing other modes.
+    entropy_coef=0.002,
     clip_actions=1.0,
   )
 
@@ -136,10 +135,8 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # launch, whereas +/- 1.0 repeatedly plateaued at safe 0.2--0.5-turn
     # hops before a full ballistic turn was ever sampled.
     clip_actions=1.5,
-    # V140's outcome reward is physically well behaved but its scalar action
-    # standard deviation contracts from 0.45 to about 0.26 before pitch/roll
-    # has sampled a full event.  A middle entropy pressure preserves
-    # coordinated launch exploration across all five one-hots without
-    # returning to the high-variance, permanently noisy landing regime.
-    entropy_coef=0.003,
+    # The initial exploration is ample across 8,192 worlds. A small entropy
+    # pressure lets PPO consolidate a smooth landing once it is discovered,
+    # rather than retaining the late-training flailing of the previous run.
+    entropy_coef=0.001,
   )

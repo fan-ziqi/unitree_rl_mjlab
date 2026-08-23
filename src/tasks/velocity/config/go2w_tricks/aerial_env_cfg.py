@@ -61,13 +61,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # Equal sampling confirmed that yaw is vastly easier: it consumed the
-      # shared actor's advantages while the four ballistic axes remained below
-      # one turn.  Keep yaw present in the same five-way policy but reserve the
-      # discovery batch for the unresolved front/back/left/right events.
-      # This changes neither the command interface nor the strict whole-body
-      # landing condition.
-      mode_probabilities=(0.08, 0.31, 0.30, 0.30, 0.01),
+      # Every outcome needs enough on-policy data to preserve both its launch
+      # and its idle recovery. Hard-axis bias made the shared policy forget
+      # learned branches and turn into large colliding joint excursions.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -250,6 +247,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "post_idle_settle_time": 0.60,
       },
     ),
+    # This generic temporal regularizer rejects high-frequency flailing but
+    # does not choose a pose, phase, or reference action for the maneuver.
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.01),
     # Colliding the trunk or a leg is already a physical failure.  Once the
     # policy has discovered real multi-axis jumps, a modest terminal cost
     # prevents a high-but-illegal partial turn from competing with a recoverable

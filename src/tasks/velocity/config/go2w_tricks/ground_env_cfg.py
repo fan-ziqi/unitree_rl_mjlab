@@ -103,7 +103,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Literal normal idle is a deterministic action gate, not a skill PPO
       # needs to spend samples rediscovering.  Keep static examples only for
       # the two upright forms, whose balance still benefits from them.
-      mode_idle_probabilities=(0.0, 0.50, 0.50),
+      # Static balance is already discoverable; devote most upright samples
+      # to the requested x/yaw response while retaining balance examples.
+      mode_idle_probabilities=(0.0, 0.25, 0.25),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -180,7 +182,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=10.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -209,7 +211,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # existing public-command outcome large enough to compete with the
       # always-available support score; it still contains no posture, wheel
       # target, phase, or transition prescription.
-      weight=20.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "std": 0.60,
@@ -257,11 +259,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Equal sampling established front almost immediately, but its much
-      # larger return then starved normal/rear/right of useful advantages.
-      # Retain front in the same policy while spending this fresh discovery run
-      # on the unresolved pivots and the near-complete left side support.
-      mode_probabilities=(0.25, 0.05, 0.30, 0.20, 0.20),
+      # Preserve every mode while learning the shared controller. The prior
+      # hard-axis bias caused normal to be forgotten as rear/side examples
+      # dominated PPO updates; a balanced batch needs no mode-specific hint.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
