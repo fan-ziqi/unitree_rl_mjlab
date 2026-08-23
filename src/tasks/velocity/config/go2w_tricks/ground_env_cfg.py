@@ -261,10 +261,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Preserve every mode while learning the shared controller. The prior
-      # hard-axis bias caused normal to be forgotten as rear/side examples
-      # dominated PPO updates; a balanced batch needs no mode-specific hint.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # The balanced run preserved normal/front but stopped improving the
+      # physically harder rear and side forms once its scalar exploration
+      # collapsed. Give those forms a modest majority while retaining over a
+      # third of samples for the established normal/front pivots.
+      mode_probabilities=(0.20, 0.15, 0.30, 0.20, 0.15),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,

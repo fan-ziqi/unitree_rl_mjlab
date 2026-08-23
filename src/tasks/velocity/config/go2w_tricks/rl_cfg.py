@@ -70,10 +70,11 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
     init_std=0.60,
-    # Keep the initial 0.60 Gaussian exploration, but do not continually
-    # widen it after a support has been discovered. The former high entropy
-    # erased normal's precise co-axial pivot while chasing other modes.
-    entropy_coef=0.002,
+    # Keep enough exploration for rear/side discovery after normal/front
+    # become accurate, without returning to the 0.010 regime that erased the
+    # co-axial pivot. This middle value is paired with a nonzero sampling
+    # floor for every mode above.
+    entropy_coef=0.004,
     clip_actions=1.0,
   )
 
