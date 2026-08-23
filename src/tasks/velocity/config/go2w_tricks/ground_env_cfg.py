@@ -130,7 +130,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      weight=36.0,
+      # The m400 policy genuinely finds the commanded two-wheel contacts,
+      # but visual replay shows a low folded support.  Put the same measured
+      # outcome ahead of velocity tracking until it is a visibly extended
+      # stand; this adds neither a joint target nor a transition schedule.
+      weight=50.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -147,7 +151,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # a visibly crouched 0.35-m result.  This remains a measured trunk to
         # wheel-axle clearance, not a leg pose, but makes the requested
         # extended two-wheel support the substantially better outcome.
-        "minimum_root_clearance": (0.18, 0.52, 0.52),
+        "minimum_root_clearance": (0.18, 0.62, 0.62),
         # This remains the same measured contact/attitude/clearance result,
         # but m600 showed that a linear score accepts a 0.90-aligned, folded
         # front stance as nearly as valuable as the requested upright support.
