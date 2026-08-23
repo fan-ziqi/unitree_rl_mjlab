@@ -100,9 +100,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # coverage, not a staged pose/transition target.
       resampling_time_range=(2.0, 3.0),
       mode_probabilities=(0.30, 0.35, 0.35),
-      # Normal rolling is present from update zero.  Front/rear get a mostly
-      # static distribution without a hidden reset pose or a timed curriculum.
-      mode_idle_probabilities=(0.35, 0.85, 0.85),
+      # Every mode needs both a stopped balance and a real x/yaw response.
+      # The old 85% front/rear static share let an upright front pose emerge,
+      # but supplied too few moving samples for either that pose or its rear
+      # counterpart to learn the requested controls.  This is only command
+      # coverage; it introduces no reset stance, target posture, or phase.
+      mode_idle_probabilities=(0.35, 0.45, 0.45),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,

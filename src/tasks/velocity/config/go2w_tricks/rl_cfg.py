@@ -65,6 +65,10 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # remains far below an episode and keeps updates fast on the flat scene.
     num_steps_per_env=64,
     gamma=0.995,
+    # Five visibly distinct contact outcomes share one command-conditioned
+    # policy.  Match the aerial policy capacity so the easy normal branch
+    # cannot exhaust a narrow latent before front/rear/side supports form.
+    hidden_dims=(512, 512, 256),
     init_std=0.60,
     entropy_coef=0.005,
     clip_actions=1.0,
@@ -76,6 +80,10 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     "go2w_stance_locomotion",
     num_steps_per_env=64,
     gamma=0.995,
+    # Normal/front/rear transitions and their x/yaw responses are a genuinely
+    # multimodal mapping from a ten-frame proprioceptive history.  The wider
+    # MLP is still inexpensive compared with 8,192 parallel physics worlds.
+    hidden_dims=(512, 512, 256),
     init_std=0.60,
     entropy_coef=0.005,
     clip_actions=1.0,
