@@ -311,6 +311,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # Circle-running is not an acceptable approximation to the reference
         # pivot.  The support axle midpoint must be nearly stationary.
         "pivot_speed_limit": 0.12,
+        # Front/rear must establish the same physical two-wheel support
+        # before a high-rate pivot is possible.  Keep that discovery signal
+        # inside the existing outcome; most of its value still requires rate,
+        # axle geometry, and a stationary support centre.
+        "upright_support_weight": 0.20,
         "asset_cfg": _support_wheels(),
       },
     ),

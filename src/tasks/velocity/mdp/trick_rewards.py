@@ -399,9 +399,12 @@ class StanceSpinPivotResult:
     sensor_name: str,
     pivot_speed_limit: float,
     asset_cfg: SceneEntityCfg,
+    upright_support_weight: float = 0.20,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
+    if not 0.0 <= upright_support_weight < 1.0:
+      raise ValueError("upright_support_weight must be in [0, 1).")
     (
       asset,
       active,
@@ -439,7 +442,24 @@ class StanceSpinPivotResult:
     # at the required 0.12-m/s local centre speed.
     pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
     dynamic_modes = mode <= 2  # normal/front/rear: real high-rate pivots.
-    dynamic_result = support_quality * coaxial_factor * rate_score * pivot_stillness
+    dynamic_quality = coaxial_factor * rate_score * pivot_stillness
+    # Front/rear starts at the ordinary four-wheel reset with near-zero
+    # commanded-rate score.  Multiplying that zero by every support factor
+    # gives PPO no path to discover the physically reachable two-wheel form.
+    # Preserve the same one-term physical result, but reserve a small fraction
+    # for the measured upright support itself; the remaining value still
+    # requires the co-axial, commanded-rate, stationary-centre pivot.  Normal
+    # receives no such shortcut because its default four-wheel support is not
+    # the reference high-speed geometry.
+    upright_mode = (mode == 1) | (mode == 2)
+    discovery_weight = torch.where(
+      upright_mode,
+      torch.full_like(support_quality, upright_support_weight),
+      torch.zeros_like(support_quality),
+    )
+    dynamic_result = support_quality * (
+      discovery_weight + (1.0 - discovery_weight) * dynamic_quality
+    )
 
     # Side support is the remaining two requested one-hots, not a failed
     # version of a pivot.  Once the base has rolled onto a left/right pair,
