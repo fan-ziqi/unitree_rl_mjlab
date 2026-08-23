@@ -92,7 +92,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
-      resampling_time_range=(8.0, 8.0),
+      # An 8-s rollout with an 8-s resample interval only ever sees one mode
+      # per physical episode.  Re-sample once halfway through so normal,
+      # front, and rear are actually trained as a fused switching skill rather
+      # than merely evaluated as independent fixed poses.  This changes no
+      # observation or target: it simply presents the existing one-hot at a
+      # real, non-reset state.
+      resampling_time_range=(4.0, 4.0),
       mode_probabilities=(0.30, 0.35, 0.35),
       # Normal rolling is present from update zero.  Front/rear get a mostly
       # static distribution without a hidden reset pose or a timed curriculum.
@@ -151,7 +157,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      weight=3.0,
+      # The final m999 audit retained the requested normal form and x
+      # tracking, but under-tracked a normal yaw-rate command.  Raise the
+      # already existing command-tracking outcome rather than introducing a
+      # posture or wheel-action target.
+      weight=5.0,
       params={
         "command_name": "trick",
         "std": 0.35,
