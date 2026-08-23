@@ -184,6 +184,8 @@ def _stance_spin_components(
   torch.Tensor,
   torch.Tensor,
   torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
 ]:
   """Measure a commanded five-mode world-down rotation."""
   if rate_std <= 0.0:
@@ -195,10 +197,10 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Every non-idle one-hot tracks the same world-down rate.  Normal retains
-  # four wheel contacts, but at speed it must first bring each front/rear
-  # wheel pair onto a common axle; front/rear/left/right use their named
-  # support pair.
+  # Normal/front/rear track a world-down rate.  Normal retains four wheel
+  # contacts, but at speed it must first bring each front/rear wheel pair onto
+  # a common axle; front/rear use their named support pair.  Left/right share
+  # the input layout but are evaluated as static side supports below.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -319,8 +321,23 @@ def _stance_spin_components(
     torch.pow(alignment, 4.0),
     torch.square(alignment),
   )
-  support_quality = contact_score * alignment_score * height_score * coaxial_factor
-  return asset, moving, rate_score, support_quality, support_pair, mode
+  # Co-axiality is meaningful only where the support wheels can actually
+  # roll about a horizontal common axle.  In a left/right side stand the
+  # wheel axles point vertically: demanding this measurement there made the
+  # policy chase an impossible "pivot" by travelling in a circle.  Keep the
+  # basic measured support result separate so the caller can use static side
+  # support without inventing a joint or trajectory target.
+  support_quality = contact_score * alignment_score * height_score
+  return (
+    asset,
+    active,
+    moving,
+    rate_score,
+    support_quality,
+    coaxial_factor,
+    support_pair,
+    mode,
+  )
 
 
 class StanceSpinPivotResult:
@@ -352,7 +369,16 @@ class StanceSpinPivotResult:
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
-    asset, moving, rate_score, support_quality, pair, mode = _stance_spin_components(
+    (
+      asset,
+      active,
+      moving,
+      rate_score,
+      support_quality,
+      coaxial_factor,
+      pair,
+      mode,
+    ) = _stance_spin_components(
       env,
       command_name,
       speed_deadband,
@@ -379,8 +405,21 @@ class StanceSpinPivotResult:
     # but a 0.40-m/s travelling pair receives only 8% of the result available
     # at the required 0.12-m/s local centre speed.
     pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
-    dynamic_result = support_quality * rate_score * pivot_stillness
-    return moving.to(rate_score.dtype) * dynamic_result
+    dynamic_modes = mode <= 2  # normal/front/rear: real high-rate pivots.
+    dynamic_result = support_quality * coaxial_factor * rate_score * pivot_stillness
+
+    # Side support is the remaining two requested one-hots, not a failed
+    # version of a pivot.  Once the base has rolled onto a left/right pair,
+    # those wheel axles are vertical, so spin_rate is intentionally ignored.
+    # Reward the same measured support geometry while asking it to be still;
+    # this is the physically faithful result shown in the reference rather
+    # than a hidden target posture or a prescribed transition.
+    body_angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    static_stillness = 1.0 / (1.0 + torch.square(body_angular_speed / 1.0))
+    static_result = support_quality * static_stillness
+    return active.to(rate_score.dtype) * torch.where(
+      dynamic_modes, moving.to(rate_score.dtype) * dynamic_result, static_result
+    )
 
 
 # ---------------------------------------------------------------------------

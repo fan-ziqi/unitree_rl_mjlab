@@ -230,9 +230,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
   video's all-wheel in-place yaw spin after front/rear wheel axles are
-  co-linear; the other four one-hots request the corresponding two-wheel
-  local pivot.  All five modes therefore use the same one-hot plus signed
-  spin-rate command interface.
+  co-linear; front/rear one-hots request their two-wheel local pivots.  The
+  left/right one-hots are the physically distinct, static side supports: once
+  side-on, their wheel axes are vertical, so their spin-rate input is ignored.
+  All five modes still share exactly the same one-hot plus signed-rate command
+  interface and one policy.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
@@ -249,9 +251,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # dominate their advantages.
       # At m600 rear is the only reliable upright pivot and normal has a
       # usable near-coaxial rate, whereas the side pairs have not yet
-      # discovered their support geometry.  Retain every command in the same
-      # policy, but spend the next zero-start rollout predominantly on the
-      # unresolved left/right pivots.
+      # discovered their static support geometry.  Retain every command in
+      # the same policy, but spend the next zero-start rollout predominantly
+      # on the unresolved left/right side supports.
       mode_probabilities=(0.16, 0.04, 0.15, 0.325, 0.325),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
@@ -274,11 +276,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # One outcome term: normal tracks a four-wheel local yaw spin only once
-      # its front/rear axles are co-linear; each other mode tracks its upright
-      # local pivot.  This prevents a normal command from collapsing to
-      # ordinary differential steering around a floor circle without adding a
-      # second policy or a motion reference.
+      # One outcome term: normal/front/rear track their local yaw pivots only
+      # with physically valid horizontal wheel axles; left/right are still
+      # two-wheel side supports because their vertical wheel axles cannot
+      # produce that pivot.  This prevents the normal or side modes from
+      # collapsing to ordinary circle-driving without a second policy or a
+      # motion reference.
       weight=18.0,
       params={
         "command_name": "trick",

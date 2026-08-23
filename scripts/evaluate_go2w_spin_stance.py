@@ -32,6 +32,7 @@ CONTACT_MASKS = (
   (1, 0, 1, 0),
   (0, 1, 0, 1),
 )
+DYNAMIC_PIVOT_MODES = (0, 1, 2)
 
 
 def _pair_coaxiality(
@@ -75,8 +76,18 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Every non-idle one-hot is a signed high-rate local pivot request."""
+  """Keep the public rate input present for every one-hot in the batch."""
   return torch.full_like(modes, spin_rate, dtype=torch.float32)
+
+
+def _expected_down_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
+  """Only normal/front/rear are physical high-rate pivots.
+
+  Left/right retain the same public command layout but are static two-wheel
+  side supports; their rate channel is deliberately ignored by the task.
+  """
+  requested = _mode_rates(modes, spin_rate)
+  return torch.where(modes <= 2, requested, torch.zeros_like(requested))
 
 
 def _pin_modes(
@@ -157,8 +168,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   support_pairs = torch.tensor(
     ((0, 1), (0, 1), (2, 3), (0, 2), (1, 3)), device=base_env.device
   )
-  rates = _mode_rates(modes, cfg.spin_rate).to(base_env.device)
-  active_spin = rates.abs() > 0.20
+  expected_rates = _expected_down_rates(modes, cfg.spin_rate).to(base_env.device)
+  dynamic_pivot = modes <= 2
+  active_spin = dynamic_pivot & (expected_rates.abs() > 0.20)
   trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
   failed = torch.zeros_like(trial_open)
   sample_count = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -192,7 +204,12 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       # term.  Measure against the actual public command seen by the actor at
       # this frame, not its eventual target, so default validation is not an
       # out-of-distribution 0 -> 8 rad/s step.
-      rate_error = torch.abs(down_rate - command_term.command[:, 5])
+      expected_rate = torch.where(
+        dynamic_pivot,
+        command_term.command[:, 5],
+        torch.zeros_like(command_term.command[:, 5]),
+      )
+      rate_error = torch.abs(down_rate - expected_rate)
       support_pair = support_pairs[effective_modes]
       wheel_xy = robot.data.site_pos_w[:, wheel_site_ids, :2]
       batch = torch.arange(cfg.num_envs, device=base_env.device)
@@ -246,13 +263,10 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         normal_coaxiality,
         pair_coaxiality_for_mode,
       )
-      rate_ok = torch.where(active_spin, rate_error < 0.75, torch.ones_like(active_spin))
+      total_angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
+      rate_ok = torch.where(active_spin, rate_error < 0.75, total_angular_speed < 1.0)
       pose_ok = target_alignment >= 0.97
-      pivot_ok = torch.where(
-        active_spin,
-        same_pair & (center_speed < 0.12),
-        torch.ones_like(active_spin),
-      )
+      pivot_ok = same_pair & (center_speed < 0.12)
       axle_ok = torch.where(
         active_spin, coaxiality >= 0.90, torch.ones_like(active_spin)
       )
@@ -279,7 +293,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       "mode": MODE_NAMES[mode],
       "mode_index": float(mode),
       "num_envs": float(mask.sum().item()),
-      "spin_rate": _mode_rates(
+      "spin_rate": _expected_down_rates(
         torch.tensor([mode], device=base_env.device), cfg.spin_rate
       ).item(),
       "mean_gravity_alignment": (alignment_sum[mask] / denom).mean().item(),
