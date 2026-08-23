@@ -416,7 +416,11 @@ class StanceSpinPivotResult:
     # than a hidden target posture or a prescribed transition.
     body_angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
     static_stillness = 1.0 / (1.0 + torch.square(body_angular_speed / 1.0))
-    static_result = support_quality * static_stillness
+    # Static means no support-centre travel as well as no body rotation.  The
+    # same local-centre measurement already rejects a travelling dynamic
+    # pivot; applying it here prevents a side mode from looking balanced while
+    # quietly driving away on one wheel pair.
+    static_result = support_quality * static_stillness * pivot_stillness
     return active.to(rate_score.dtype) * torch.where(
       dynamic_modes, moving.to(rate_score.dtype) * dynamic_result, static_result
     )
