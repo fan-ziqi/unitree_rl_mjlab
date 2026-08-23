@@ -108,11 +108,12 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # a 393k-sample PPO batch remains ample).
     num_steps_per_env=48,
     gamma=0.997,
-    # Five physically distinct launch/landing mappings share this policy.  A
-    # wider middle layer is inexpensive relative to MuJoCo collection at 8192
-    # environments and prevents the easy yaw branch from monopolising a small
-    # latent representation.
-    hidden_dims=(512, 512, 256),
+    # Five physically distinct launch/landing mappings share a 10-frame
+    # proprioceptive history. The previous 512/512/256 MLP visibly traded a
+    # learned front flip for yaw progress between checkpoints; widen the
+    # shared representation instead of splitting policies or adding motion
+    # references.
+    hidden_dims=(1024, 1024, 512),
     # This leaves initial exploration inside the physically tested compact
     # position-residual envelope while still exposing coordinated launch
     # pulses in the large parallel batch.
