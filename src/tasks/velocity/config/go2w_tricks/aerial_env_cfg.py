@@ -179,11 +179,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # the existing strict landing velocity/attitude limits.  This is not a
         # new trajectory or phase reward: it only distinguishes a quiet
         # completed turn from a high-speed wheel graze.
-        # m300 found one-turn wheel landings, but at m400 it could retain
-        # reward while arriving too fast to hold the launch attitude.  Tighten
-        # the quality of the same touchdown outcome rather than adding a
-        # landing trajectory or a posture reference.
-        "soft_touchdown_speed_scale": 2.0,
+        # Keep this discovery bridge broad until the policy reliably samples
+        # full-turn wheel landings.  The strict completion below is still the
+        # sole acceptance criterion for final orientation and quiet recovery.
+        "soft_touchdown_speed_scale": 4.0,
         "landing_gravity_std": 0.30,
         "landing_orientation_dot_min": 0.999,
         # The landing must still pass the strict 0.995 completion threshold,
@@ -193,7 +192,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # first landing exactly equivalent, so PPO had no return gradient
         # toward restoring the launch heading.
         "soft_touchdown_orientation_floor": 0.0,
-        "soft_touchdown_orientation_exponent": 12.0,
+        "soft_touchdown_orientation_exponent": 6.0,
         # A partial but real flight may receive a *graded* first-touchdown
         # signal, so orientation recovery is observable before a policy has
         # ever happened to achieve a perfect full turn.  Squaring the turn

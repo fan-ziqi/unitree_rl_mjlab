@@ -132,9 +132,5 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # has sampled a full event.  A middle entropy pressure preserves
     # coordinated launch exploration across all five one-hots without
     # returning to the high-variance, permanently noisy landing regime.
-    # m300 discovered a near-complete front turn, but the still-broad action
-    # distribution erased it before a strict quiet landing could be sampled.
-    # Keep enough exploration for the other one-hots while letting a genuine
-    # landing consolidate under the unchanged physical outcome rewards.
-    entropy_coef=0.002,
+    entropy_coef=0.003,
   )
