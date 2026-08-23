@@ -69,7 +69,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # attempt is allowed to use the rest of its three-second episode to
       # recover instead of being cut off mid-brake.
       target_angle=math.tau,
-      max_overrotation=1.25,
+      # One command means one revolution.  A modest 29-degree tolerance keeps
+      # float/contact noise from making discovery binary, but a 450-degree
+      # rebound is no longer treated as the same endpoint.
+      max_overrotation=0.50,
       # Require five consecutive 50-Hz control steps: a transient wheel graze
       # must never count as a completed normal-wheel landing.
       landing_settle_time=0.10,
@@ -188,7 +191,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # ever happened to achieve a perfect full turn.  Squaring the turn
         # fraction keeps a small hop far below an almost-complete flip.
         "soft_touchdown_turn_exponent": 2.0,
-        "max_overrotation": 1.25,
+        "max_overrotation": 0.50,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         # The strict bonus is paid only if the all-zero/default controller

@@ -776,8 +776,8 @@ class AerialRotationCompletion:
       raise ValueError("soft_touchdown_turn_exponent must be positive.")
     if soft_touchdown_orientation_exponent <= 0.0:
       raise ValueError("soft_touchdown_orientation_exponent must be positive.")
-    if max_overrotation < 0.0:
-      raise ValueError("max_overrotation must be non-negative.")
+    if max_overrotation <= 0.0:
+      raise ValueError("max_overrotation must be positive.")
     if post_idle_settle_time <= 0.0:
       raise ValueError("post_idle_settle_time must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
@@ -871,6 +871,20 @@ class AerialRotationCompletion:
     # landing variables.  The multiplier keeps early full-turn discoveries
     # informative; the unchanged strict five-frame event remains the only
     # high-value completion reward.
+    # Before one turn, the existing power gives a smooth discovery signal.
+    # After one turn, however, clamping it to one would make a 450-degree
+    # bounce just as profitable as a 360-degree flip.  Multiply the same
+    # first-touchdown outcome by a continuous final-angle quality instead.
+    # This is an endpoint measurement, not a phase/reference trajectory.
+    turn_fraction = torch.clamp(self.progress / target_angle, min=0.0, max=1.0)
+    overrotation = torch.clamp(
+      (self.progress - target_angle) / max_overrotation,
+      min=0.0,
+      max=1.0,
+    )
+    turn_quality = torch.pow(turn_fraction, soft_touchdown_turn_exponent) * (
+      1.0 - overrotation
+    )
     touchdown_quality = (
       torch.clamp(
         1.0 - gravity_error / (soft_touchdown_speed_scale * landing_gravity_std),
@@ -900,10 +914,7 @@ class AerialRotationCompletion:
         ),
         soft_touchdown_orientation_exponent,
       )
-      * torch.pow(
-        torch.clamp(self.progress / target_angle, min=0.0, max=1.0),
-        soft_touchdown_turn_exponent,
-      )
+      * turn_quality
     )
     # The command clears on the first wheel contact.  From then on this same
     # reward owns the entire measured outcome: it must have completed one
