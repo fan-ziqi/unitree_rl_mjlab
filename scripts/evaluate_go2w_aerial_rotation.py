@@ -149,7 +149,14 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
         )
 
     torch.manual_seed(cfg.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(cfg.seed)
     env_cfg = load_env_cfg(cfg.task_id, play=True)
+    # The event/startup randomizers draw through the environment's own seed,
+    # not only PyTorch's global RNG.  Without this assignment two CLI runs
+    # with the same ``--seed`` can evaluate different contact/friction draws
+    # and make a strict one-shot landing rate look non-reproducible.
+    env_cfg.seed = cfg.seed
     env_cfg.scene.num_envs = cfg.num_envs
     if cfg.observation_history_length is not None:
         if cfg.observation_history_length <= 0:
