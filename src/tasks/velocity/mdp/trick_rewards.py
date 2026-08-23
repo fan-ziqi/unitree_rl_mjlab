@@ -301,14 +301,14 @@ def _stance_spin_components(
       torch.ones_like(coaxiality),
     ),
   )
-  # Once a front/rear or side mode has discovered its correct wheel pair, a
-  # broad squared attitude score admits the visibly slanted 0.7--0.8-aligned
-  # form as a stable local optimum.  Sharpen only those non-normal modes so
-  # their instantaneous physical result continues to improve toward the
-  # commanded two-wheel gravity direction.  Normal remains squared because
-  # its upright four-wheel form is already the desired result.
+  # A broad squared attitude score admits a visibly slanted front/rear pivot
+  # as a local optimum.  Sharpen only those dynamic upright modes; the static
+  # side supports retain the denser squared signal needed to discover their
+  # 90-degree balance from the ordinary reset.
   alignment_score = torch.where(
-    mode == 0, torch.square(alignment), torch.pow(alignment, 4.0)
+    upright_pivot,
+    torch.pow(alignment, 4.0),
+    torch.square(alignment),
   )
   support_quality = contact_score * alignment_score * height_score * coaxial_factor
   return asset, moving, rate_score, support_quality, support_pair, mode
@@ -386,7 +386,12 @@ class StanceSpinPivotResult:
     # is visibly established, only *excess* centre speed is harmful.  Keep the
     # whole sub-limit region free so a true local pivot is not overdamped, but
     # make a 0.25-m/s floor circle decisively worse than a 0.12-m/s pivot.
-    mature_support = torch.clamp((support_quality - 0.45) / 0.30, min=0.0, max=1.0)
+    # At m200 a visibly travelling front/rear pair achieved support quality
+    # around 0.35, just below the previous 0.45 start threshold.  That made
+    # a floor circle receive *no* local-pivot penalty.  Begin rejecting
+    # translation as soon as a recognizable two-wheel support exists, while
+    # retaining a zero penalty during the initial four-wheel rise.
+    mature_support = torch.clamp((support_quality - 0.25) / 0.30, min=0.0, max=1.0)
     excess_translation = torch.clamp(translation_cost - 1.0, min=0.0, max=1.0)
     translation_penalty = 4.0 * mature_support * excess_translation
     dynamic_result = support_and_rate - translation_penalty
