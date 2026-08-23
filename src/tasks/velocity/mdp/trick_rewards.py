@@ -357,13 +357,17 @@ class StanceSpinPivotResult:
     )
     centre_speed = torch.linalg.vector_norm(centre_velocity, dim=1)
     translation_cost = torch.clamp(centre_speed / pivot_speed_limit, min=0.0, max=2.0)
-    # The same outcome term first values a real support geometry, then values
-    # the requested rate on that support.  Its local-centre cost is linear in
-    # support quality: a bicycle-like circle is therefore worse than pausing
-    # to reshape the axle, including in normal mode.  No transition phase or
-    # joint-space target is encoded here.
-    support_and_rate = support_quality * (0.50 + rate_score)
-    translation_penalty = 2.0 * support_quality * translation_cost
+    # A four-wheel-to-two-wheel rise necessarily shifts its eventual support
+    # centre before the target contact/attitude geometry exists.  Penalizing
+    # that transient displacement (as V98 did) made every front/rear/side
+    # attempt fail before it could establish support.  Therefore this same
+    # outcome term starts charging local-centre drift only after the measured
+    # support is already substantially formed.  At a mature support, a floor
+    # circle is still strictly worse than a local pivot; no phase, trajectory,
+    # or joint target is introduced.
+    support_and_rate = support_quality * (1.0 + rate_score)
+    mature_support = torch.clamp((support_quality - 0.65) / 0.35, min=0.0, max=1.0)
+    translation_penalty = 1.5 * mature_support * translation_cost
     dynamic_result = support_and_rate - translation_penalty
     return moving.to(rate_score.dtype) * dynamic_result
 
