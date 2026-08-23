@@ -70,15 +70,16 @@ def _configure_command(cfg, evaluation: EvalConfig) -> None:
 
 
 def _fixed_reset_observation(base_env: ManagerBasedRlEnv) -> TensorDict:
-  """Build the 10-frame initial history after pinning a fixed command.
+  """Build the complete configured history after pinning a fixed command.
 
-  Replacing only the most recent reset observation leaves nine random one-hots
+  Replacing only the most recent reset observation leaves stale one-hots
   in the actor input, which makes a per-mode evaluation test the reset sampler
   rather than the requested command.
   """
   base_env.observation_manager._obs_buffer = None
   observations = None
-  for _ in range(10):
+  history_length = base_env.cfg.observations["actor"].history_length or 1
+  for _ in range(history_length):
     observations = base_env.observation_manager.compute(update_history=True)
   assert observations is not None
   base_env.obs_buf = observations

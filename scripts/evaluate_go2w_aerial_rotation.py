@@ -103,12 +103,13 @@ def _fixed_reset_observation(
 ) -> TensorDict:
     """Pin one command per environment and rebuild the observation-history window.
 
-    The aerial actor consumes ten consecutive observations.  ``env.reset()``
+    The aerial actor consumes a configurable consecutive observation history.
+    ``env.reset()``
     necessarily constructs that history using the command sampled by the normal
     reset path; simply overwriting the command afterwards therefore evaluates a
-    policy that sees nine stale one-hots.  A stationary pre-roll at the same
-    physical reset state gives the requested command its proper 200-ms history
-    without changing simulation state or granting privileged information.
+    policy that sees stale one-hots.  A stationary pre-roll at the same
+    physical reset state gives the requested command its complete configured
+    history without changing simulation state or granting privileged information.
     """
     command_term = base_env.command_manager.get_term("trick")
     if isinstance(modes, int):
@@ -117,7 +118,8 @@ def _fixed_reset_observation(
         _pin_modes(command_term, modes)
     base_env.observation_manager._obs_buffer = None
     observations = None
-    for _ in range(10):
+    history_length = base_env.cfg.observations["actor"].history_length or 1
+    for _ in range(history_length):
         observations = base_env.observation_manager.compute(update_history=True)
     assert observations is not None
     base_env.obs_buf = observations

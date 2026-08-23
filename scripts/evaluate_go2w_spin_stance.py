@@ -104,7 +104,8 @@ def _pin_modes(
 def _fixed_reset_observation(base_env: ManagerBasedRlEnv) -> TensorDict:
   base_env.observation_manager._obs_buffer = None
   observations = None
-  for _ in range(10):
+  history_length = base_env.cfg.observations["actor"].history_length or 1
+  for _ in range(history_length):
     observations = base_env.observation_manager.compute(update_history=True)
   assert observations is not None
   base_env.obs_buf = observations
