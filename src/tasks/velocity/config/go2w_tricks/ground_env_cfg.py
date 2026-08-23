@@ -87,10 +87,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # command present from the ordinary default state for the whole episode.
       resampling_time_range=(8.0, 8.0),
       # Four-wheel rolling is already supplied deterministically by the idle
-      # action gate.  Spend more of the shared PPO batch on the two outstanding
-      # normal-reset-to-upright outcomes, while still retaining normal rolling
-      # requests in the same command and policy.
-      mode_probabilities=(0.20, 0.40, 0.40),
+      # action gate.  Keep normal x/yaw requests in this fused policy, but
+      # devote most fresh-policy discovery to the two normal-reset-to-upright
+      # outcomes rather than their trivial four-wheel support.
+      mode_probabilities=(0.15, 0.425, 0.425),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
       # but supplied too few moving samples for either that pose or its rear
@@ -137,7 +137,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       weight=50.0,
       params={
         "command_name": "trick",
-        "modes": (0, 1, 2),
+        # Normal's default four-wheel support is supplied by the action gate.
+        # Paying the same support return there let it dominate the harder
+        # upright modes before either had found a valid two-wheel result.
+        # Normal remains trained through its x/yaw commands below; this term
+        # is reserved for the two outcomes that actually need discovery.
+        "modes": (1, 2),
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
