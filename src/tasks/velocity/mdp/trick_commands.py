@@ -123,6 +123,7 @@ class StanceSpinCommand(CommandTerm):
     mode_probabilities: tuple[float, float, float, float, float] | None = None,
     spin_idle_probability: float | None = None,
     spin_rate_range: tuple[float, float] | None = None,
+    resampling_time_range: tuple[float, float] | None = None,
   ) -> None:
     """Update sampling difficulty without changing the actor command layout."""
     if mode_probabilities is not None:
@@ -142,6 +143,13 @@ class StanceSpinCommand(CommandTerm):
       if spin_rate_range[0] <= 0.0 or spin_rate_range[0] > spin_rate_range[1]:
         raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
       self.cfg.spin_rate_range = spin_rate_range
+    if resampling_time_range is not None:
+      if (
+        resampling_time_range[0] <= 0.0
+        or resampling_time_range[0] > resampling_time_range[1]
+      ):
+        raise ValueError("resampling_time_range must be positive and ordered.")
+      self.cfg.resampling_time_range = resampling_time_range
 
 
 @dataclass(kw_only=True)

@@ -15,6 +15,7 @@ from mjlab.utils.lab_api.math import quat_apply
 from tensordict import TensorDict
 
 from src.tasks.velocity.mdp.trick_commands import StanceSpinCommandCfg
+from src.tasks.velocity.mdp.trick_rewards import normal_four_wheel_axle_layout
 
 TASK_ID = "Unitree-Go2W-Spin-Stance-Flat"
 MODE_NAMES = ("normal", "front", "rear", "left", "right")
@@ -168,9 +169,6 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   target_contacts = torch.tensor(
     CONTACT_MASKS, device=base_env.device, dtype=torch.bool
   )
-  support_pairs = torch.tensor(
-    ((0, 1), (0, 1), (2, 3), (0, 2), (1, 3)), device=base_env.device
-  )
   expected_rates = _expected_down_rates(modes, cfg.spin_rate).to(base_env.device)
   dynamic_pivot = modes <= 2
   active_spin = dynamic_pivot & (expected_rates.abs() > 0.20)
@@ -180,6 +178,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   alignment_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   axle_coaxiality_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  normal_front_inside_delta_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   nonwheel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -225,26 +224,15 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       ).expand(wheel_quat.shape[0], -1)
       wheel_axles = quat_apply(wheel_quat, local_axle).reshape(cfg.num_envs, 4, 3)
       wheel_positions = robot.data.site_pos_w[:, wheel_site_ids]
-      # A high-rate normal command is the video's two-wheel balance-like
-      # pivot.  Select whichever front/rear pair has actually become the
-      # common axle; do not incorrectly demand all four wheel contacts.
-      left_coaxiality = _pair_coaxiality(wheel_axles, wheel_positions, 0, 2)
-      right_coaxiality = _pair_coaxiality(wheel_axles, wheel_positions, 1, 3)
-      normal_coaxiality, normal_pair_index = torch.max(
-        torch.stack((left_coaxiality, right_coaxiality), dim=1), dim=1
+      normal_coaxiality, _, normal_front_inside_delta = normal_four_wheel_axle_layout(
+        wheel_axles, wheel_positions
       )
-      longitudinal_pairs = torch.tensor(
-        ((0, 2), (1, 3)), device=base_env.device
+      support_masks = target_contacts[effective_modes]
+      normal_support_mask = torch.ones_like(support_masks)
+      support_mask = torch.where(
+        (effective_modes == 0).unsqueeze(1), normal_support_mask, support_masks
       )
-      normal_support_pair = longitudinal_pairs[normal_pair_index]
-      support_pair = torch.where(
-        (effective_modes == 0).unsqueeze(1),
-        normal_support_pair,
-        support_pairs[effective_modes],
-      )
-      normal_support_ok = contacts[batch, support_pair[:, 0]] & contacts[
-        batch, support_pair[:, 1]
-      ]
+      normal_support_ok = torch.all(contacts, dim=1)
       exact_non_normal_support = torch.all(
         contacts == target_contacts[effective_modes], dim=1
       )
@@ -252,9 +240,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         effective_modes == 0, normal_support_ok, exact_non_normal_support
       )
       wheel_xy = wheel_positions[:, :, :2]
-      center = 0.5 * (
-        wheel_xy[batch, support_pair[:, 0]] + wheel_xy[batch, support_pair[:, 1]]
-      )
+      center = (wheel_xy * support_mask.unsqueeze(2)).sum(dim=1) / support_mask.sum(
+        dim=1, keepdim=True
+      ).clamp_min(1.0)
       raw_center_speed = torch.linalg.vector_norm(
         (center - previous_center) / base_env.step_dt, dim=1
       )
@@ -266,7 +254,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       center_speed = torch.where(
         center_initialized, raw_center_speed, torch.zeros_like(raw_center_speed)
       )
-      same_pair = center_initialized
+      center_measured = center_initialized
       previous_center.copy_(center)
       center_initialized[:] = True
       pair_coaxiality_for_mode = torch.stack(
@@ -287,9 +275,14 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       total_angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
       rate_ok = torch.where(active_spin, rate_error < 0.75, total_angular_speed < 1.0)
       pose_ok = target_alignment >= 0.97
-      pivot_ok = same_pair & (center_speed < 0.12)
+      pivot_ok = center_measured & (center_speed < 0.12)
+      normal_layout_ok = (normal_coaxiality >= 0.90) & (
+        normal_front_inside_delta >= 0.05
+      )
       axle_ok = torch.where(
-        active_spin, coaxiality >= 0.90, torch.ones_like(active_spin)
+        active_spin,
+        torch.where(modes == 0, normal_layout_ok, coaxiality >= 0.90),
+        torch.ones_like(active_spin),
       )
       success = support_ok & rate_ok & pose_ok & pivot_ok & axle_ok & ~nonwheel
 
@@ -297,6 +290,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       alignment_sum += valid.float() * target_alignment
       support_sum += valid.float() * support_ok.float()
       axle_coaxiality_sum += valid.float() * active_spin.float() * coaxiality
+      normal_front_inside_delta_sum += (
+        valid.float() * (modes == 0).float() * normal_front_inside_delta
+      )
       rate_error_sum += valid.float() * rate_error
       support_center_speed_sum += valid.float() * center_speed
       nonwheel_sum += valid.float() * nonwheel.float()
@@ -320,6 +316,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       "mean_gravity_alignment": (alignment_sum[mask] / denom).mean().item(),
       "mean_support_match_rate": (support_sum[mask] / denom).mean().item(),
       "mean_axle_coaxiality": (axle_coaxiality_sum[mask] / denom).mean().item(),
+      "mean_normal_front_inside_delta_m": (
+        normal_front_inside_delta_sum[mask] / denom
+      ).mean().item(),
       "mean_spin_rate_abs_error": (rate_error_sum[mask] / denom).mean().item(),
       "mean_support_center_speed_m_s": (support_center_speed_sum[mask] / denom)
       .mean()

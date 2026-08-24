@@ -299,11 +299,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # All five outcomes remain in one fused policy.  The fixed m400 audit
-      # shows that front has converged while the normal co-axial and rear
-      # pivots have not; rear must therefore not receive only 10% of fresh
-      # episodes.  This changes sample coverage only--not the public command,
-      # an observation, a pose target, or a reward term.
+      # Favor the two unresolved dynamic forms without splitting the policy.
       mode_probabilities=(0.30, 0.10, 0.30, 0.15, 0.15),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
@@ -326,12 +322,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # One outcome term: normal/front/rear track their local yaw pivots only
-      # with physically valid horizontal wheel axles; left/right are still
-      # two-wheel side supports because their vertical wheel axles cannot
-      # produce that pivot.  This prevents the normal or side modes from
-      # collapsing to ordinary circle-driving without a second policy or a
-      # motion reference.
+      # Normal is a folded four-wheel common-axis pivot, not wheel-steering.
       weight=18.0,
       params={
         "command_name": "trick",
@@ -340,32 +331,41 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
-        # Circle-running is not an acceptable approximation to the reference
-        # pivot.  The support axle midpoint must be nearly stationary.
         "pivot_speed_limit": 0.12,
-        # Front/rear must establish the same physical two-wheel support
-        # before a high-rate pivot is possible.  Keep that discovery signal
-        # inside the existing outcome; most of its value still requires rate,
-        # axle geometry, and a stationary support centre.
         "upright_support_weight": 0.20,
-        # A side stand is static only at its completed physical outcome.  Give
-        # its valid contact/attitude geometry a small discovery bridge while
-        # it is settling; the measured stillness remains the majority of the
-        # score and the evaluator keeps the final static requirement strict.
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
-        # Normal's precursor is stricter than ordinary four-wheel standing:
-        # it pays only the selected co-axial two-wheel, stationary geometry.
         "normal_coaxial_weight": 0.15,
         "asset_cfg": _support_wheels(),
       },
     ),
-    # A generic temporal regularizer keeps the non-supporting legs from
-    # accumulating high-frequency exploratory flailing once a local pivot is
-    # found.  It supplies no joint posture, contact sequence, or reference
-    # trajectory, and remains small compared with the measured pivot result.
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  cfg.curriculum = {}
+  cfg.curriculum = {
+    "spin_commands": CurriculumTermCfg(
+      func=trick_curriculums.stance_spin_command_stages,
+      params={
+        "command_name": "trick",
+        "stages": (
+          {
+            "step": 0,
+            "mode_probabilities": (0.30, 0.10, 0.30, 0.15, 0.15),
+            "spin_idle_probability": 0.0,
+            "spin_rate_range": (4.0, 8.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # After support discovery, expose the same actor to real changes:
+            # active form -> another form -> all-zero four-wheel idle.
+            "step": 12_800,
+            "mode_probabilities": (0.30, 0.10, 0.30, 0.15, 0.15),
+            "spin_idle_probability": 0.20,
+            "spin_rate_range": (4.0, 8.0),
+            "resampling_time_range": (2.0, 3.0),
+          },
+        ),
+      },
+    )
+  }
   return cfg
