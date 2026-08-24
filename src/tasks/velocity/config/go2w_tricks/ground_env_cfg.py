@@ -235,26 +235,38 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (8.0, 8.0),
           },
           {
-            # Add moving samples only after both supports have long-horizon
-            # balance practice; the actor and its public command do not change.
+            # First attach a small, physically recoverable x/yaw response to
+            # each fixed support.  The m900 audit showed that directly using
+            # the final range destabilised the discovered two-wheel balance.
             # At 64 control steps per PPO update this starts at m400, leaving
-            # a full fixed-command movement stage before transitions begin.
+            # 400 updates of low-speed fixed-form practice.
             "step": 25_600,
             "mode_probabilities": (0.15, 0.45, 0.40),
-            "mode_idle_probabilities": (0.0, 0.40, 0.40),
+            "mode_idle_probabilities": (0.20, 0.45, 0.45),
+            "lin_vel_x_range": (-0.10, 0.10),
+            "yaw_rate_range": (-0.15, 0.15),
+            "resampling_time_range": (8.0, 8.0),
+          },
+          {
+            # Only then expose the requested full x/yaw range, still with one
+            # mode for a whole episode so the command-response mapping cannot
+            # be confused with a support transition.
+            # This m800 boundary gives another 400 fixed-form updates before
+            # transitions start.
+            "step": 51_200,
+            "mode_probabilities": (0.20, 0.40, 0.40),
+            "mode_idle_probabilities": (0.20, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (8.0, 8.0),
           },
           {
-            # Train normal/front/rear transitions only after the individual
-            # normal-reset-to-support outcomes have a full episode to settle.
-            # Start actual one-hot changes at m800.  The previous m1200
-            # boundary lay beyond the 1000-update discovery run, so that run
-            # could never train the requested continuous transition.
-            "step": 51_200,
+            # Train actual normal/front/rear changes only after each mode has
+            # both a static support and a full-range velocity response.  m1200
+            # leaves 400 updates of transition data in a 1600-update run.
+            "step": 76_800,
             "mode_probabilities": (0.40, 0.30, 0.30),
-            "mode_idle_probabilities": (0.0, 0.25, 0.25),
+            "mode_idle_probabilities": (0.20, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (2.0, 3.0),
