@@ -208,7 +208,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # once-only physical result materially outweigh another partial
         # airborne radian; it remains gated by turn fraction and legal
         # four-wheel contact below.
-        "soft_touchdown_reward": 20.0,
+        # The m300 diagnostic now returns to four wheels but regularly stops
+        # several degrees short of the launch frame.  Keep this as the same
+        # one-shot touchdown outcome, but make a nearly-correct landing
+        # meaningfully less valuable than the exact endpoint below.
+        "soft_touchdown_reward": 40.0,
         # Grade that same once-only all-wheel touchdown by how close it is to
         # the existing strict landing velocity/attitude limits.  This is not a
         # new trajectory or phase reward: it only distinguishes a quiet
@@ -230,7 +234,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # landing: a yaw turn that visibly finishes at a changed heading is
         # still a poor endpoint, while the strict threshold below remains the
         # only completion criterion.
-        "soft_touchdown_orientation_exponent": 6.0,
+        # ``dot=0.986`` (the observed yaw landing) is visually close yet
+        # still fails the 0.999 contract.  A sharper continuous grade keeps
+        # early legal touch-downs informative while preserving a usable
+        # gradient throughout the final orientation error; it is not a pose
+        # target or a reference trajectory.
+        "soft_touchdown_orientation_exponent": 16.0,
         # A partial but real flight may receive a *graded* first-touchdown
         # signal, so orientation recovery is observable before a policy has
         # ever happened to achieve a perfect full turn.  Squaring the turn
