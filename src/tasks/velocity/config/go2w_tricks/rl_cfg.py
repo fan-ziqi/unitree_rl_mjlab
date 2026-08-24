@@ -114,11 +114,6 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # needs evidence that it improves all five modes, not just a hypothesis
     # about mode interference.
     hidden_dims=(512, 512, 256),
-    # A128 demonstrated real front/right strict landings, but its scalar
-    # Gaussian std collapsed to 0.18 and it forgot the remaining one-hots.
-    # Keep all five commands in one policy and preserve bounded exploration
-    # long enough for their equally physical launches to coexist.
-    init_std=0.60,
     # Position-action scales below are intended as a compact mechanical
     # envelope.  Make +/- one a real bound so exploration cannot turn a
     # nominal 0.55-rad calf residual into a multi-radian joint target.
@@ -127,10 +122,12 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # launch, whereas +/- 1.0 repeatedly plateaued at safe 0.2--0.5-turn
     # hops before a full ballistic turn was ever sampled.
     clip_actions=1.5,
-    # The initial exploration is ample across 8,192 worlds. A small entropy
-    # pressure lets PPO consolidate a smooth landing once it is discovered,
-    # rather than retaining the late-training flailing of the previous run.
-    entropy_coef=0.003,
+    # The 0.003 setting drove the scalar standard deviation to 2.12, beyond
+    # the clipped envelope: every mode learned a noisy saturated hop rather
+    # than a coherent net rotation.  Keep initial sampling broad but let PPO
+    # consolidate the already-discovered ballistic launch and tucking motion.
+    init_std=0.60,
+    entropy_coef=0.001,
     # The large batch already produces a low-variance PPO gradient.  A
     # smaller actor step prevents a rare successful mode from overwriting
     # still-exploring command branches between checkpoints.
