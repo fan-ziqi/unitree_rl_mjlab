@@ -368,33 +368,32 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Once the nested four-wheel geometry is established, retain it
-            # as the majority of samples while introducing the other physical
-            # stances and the working spin-rate range.  This remains one
-            # actor, one one-hot-plus-rate interface and ordinary default
-            # resets--only the sampled command distribution changes.
-            "step": 51_200,
-            # Keep normal overwhelmingly represented until it can hold the
-            # folded geometry at a real working rate.  The other one-hots are
-            # still present in this same actor, but cannot dilute the common
-            # axle before it is dynamically stable.
-            "mode_probabilities": (0.85, 0.04, 0.06, 0.025, 0.025),
+            # Do not jump directly from the m400 low-rate pivot to 4--6 rad/s:
+            # that jump repeatedly destroyed the discovered common axle.  The
+            # same normal one-hot first learns an intermediate rate band.
+            "step": 38_400,
+            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            "spin_idle_probability": 0.0,
+            "spin_rate_range": (2.0, 4.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Raise the very same fixed normal form to the reference's working
+            # range before any other stance can dilute its geometry.
+            "step": 76_800,
+            "mode_probabilities": (0.90, 0.025, 0.025, 0.025, 0.025),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (4.0, 6.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Broaden fixed-form coverage only after the high-rate normal
-            # pivot is stable; it is still deliberately not a transition
-            # stage, because the m800 audit showed switches could destroy the
-            # only partially learned common-axle form.
-            # With 64 control steps per PPO update this is m1600: a 2000-step
-            # run can now cover every fixed physical form rather than ending
-            # during the normal-pivot-only stage.
-            "step": 102_400,
+            # Broaden only fixed-form coverage after high-rate normal has had
+            # its own full stage.  The rate cap remains the demonstrated
+            # 6-rad/s target rather than adding an unvalidated 8-rad/s demand.
+            "step": 115_200,
             "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (4.0, 8.0),
+            "spin_rate_range": (4.0, 6.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -402,12 +401,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the requested real transitions, including the all-zero default
             # idle command.  Mixing transitions before normal geometry was
             # valid simply trained the policy to step around the floor.
-            # Reserve the final 600 updates of a 3000-update run for genuine
-            # five-mode and idle transitions, after both fixed-form stages.
             "step": 153_600,
             "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
-            "spin_rate_range": (4.0, 8.0),
+            "spin_rate_range": (4.0, 6.0),
             "resampling_time_range": (2.0, 3.0),
           },
         ),
