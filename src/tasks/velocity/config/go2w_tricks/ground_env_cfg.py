@@ -372,30 +372,41 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Find the normal four-wheel common-axis pivot from default idle.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.0,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Direct normal/front/rear one-hot changes retain one signed
-            # world-z rate; left/right are introduced only after this family.
+            # First discover front/rear as legal, still two-wheel supports
+            # using their existing zero-rate command value.  The second
+            # segment of an episode can still be dynamic, so this also gives
+            # PPO normal-to-stance transition examples without an artificial
+            # pose or phase target.
             "step": 38_400,
+            "mode_probabilities": (0.25, 0.375, 0.375, 0.0, 0.0),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.75,
+            "spin_rate_range": (3.0, 6.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Remove most static examples and require slow signed pivots once
+            # those two supports have a discovery route.
+            "step": 76_800,
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.25,
             "spin_rate_range": (5.0, 10.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 76_800,
-            "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
-            "spin_idle_probability": 0.0,
-            "spin_rate_range": (10.0, 18.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # The final fused policy includes the static left/right supports.
+            # Final direct normal/front/rear switching keeps one signed world
+            # z-rate throughout; only the separate left/right modes remain
+            # static.
             "step": 115_200,
             "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.0,
             "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
           },

@@ -40,12 +40,16 @@ def stance_spin_command_stages(
   command.set_curriculum(
     mode_probabilities=stage.get("mode_probabilities"),
     spin_idle_probability=stage.get("spin_idle_probability"),
+    upright_static_probability=stage.get("upright_static_probability"),
     spin_rate_range=stage.get("spin_rate_range"),
     resampling_time_range=stage.get("resampling_time_range"),
   )
   return {
     "spin_rate_max": torch.tensor(command.cfg.spin_rate_range[1]),
     "spin_idle_probability": torch.tensor(command.cfg.spin_idle_probability),
+    "upright_static_probability": torch.tensor(
+      command.cfg.upright_static_probability
+    ),
     "spin_command_time": torch.tensor(command.cfg.resampling_time_range[1]),
   }
 

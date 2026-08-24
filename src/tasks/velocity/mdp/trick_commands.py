@@ -49,6 +49,8 @@ class StanceSpinCommand(CommandTerm):
       raise ValueError("mode_probabilities must have positive total mass.")
     if not 0.0 <= cfg.spin_idle_probability <= 1.0:
       raise ValueError("spin_idle_probability must be in [0, 1].")
+    if not 0.0 <= cfg.upright_static_probability <= 1.0:
+      raise ValueError("upright_static_probability must be in [0, 1].")
     if cfg.spin_rate_range[0] <= 0.0 or cfg.spin_rate_range[0] > cfg.spin_rate_range[1]:
       raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
     if cfg.spin_rate_ramp_rate <= 0.0:
@@ -138,6 +140,27 @@ class StanceSpinCommand(CommandTerm):
       self._next_scheduled_spin_rate[dynamic_ids[second_dynamic]] = signed_rate[
         second_dynamic
       ]
+      # Front/rear high-rate pivots are only useful after their legal
+      # two-wheel supports have been discovered.  ``spin_rate == 0`` already
+      # has a natural public meaning: hold the requested one-hot without a
+      # rotation request.  Use that existing command value for a temporary
+      # curriculum of front/rear support discovery, then set this probability
+      # back to zero for the final continuous-rate switching task.  Normal
+      # is deliberately never zeroed here: its zero-rate behaviour remains
+      # the all-zero/default idle command.
+      if self.cfg.upright_static_probability > 0.0:
+        first_upright = (modes[dynamic] == 1) | (modes[dynamic] == 2)
+        second_upright = (next_modes[dynamic] == 1) | (next_modes[dynamic] == 2)
+        first_static = first_upright & (
+          torch.rand(len(dynamic_ids), device=self.device)
+          < self.cfg.upright_static_probability
+        )
+        second_static = second_upright & (
+          torch.rand(len(dynamic_ids), device=self.device)
+          < self.cfg.upright_static_probability
+        )
+        self._scheduled_spin_rate[dynamic_ids[first_static]] = 0.0
+        self._next_scheduled_spin_rate[dynamic_ids[second_static]] = 0.0
 
     # A physical reset is already the literal four-wheel idle.  Do not insert
     # an uncommanded idle interval before an externally valid one-hot: it
@@ -188,6 +211,7 @@ class StanceSpinCommand(CommandTerm):
     *,
     mode_probabilities: tuple[float, float, float, float, float] | None = None,
     spin_idle_probability: float | None = None,
+    upright_static_probability: float | None = None,
     spin_rate_range: tuple[float, float] | None = None,
     resampling_time_range: tuple[float, float] | None = None,
   ) -> None:
@@ -205,6 +229,10 @@ class StanceSpinCommand(CommandTerm):
       if not 0.0 <= spin_idle_probability <= 1.0:
         raise ValueError("spin_idle_probability must be in [0, 1].")
       self.cfg.spin_idle_probability = spin_idle_probability
+    if upright_static_probability is not None:
+      if not 0.0 <= upright_static_probability <= 1.0:
+        raise ValueError("upright_static_probability must be in [0, 1].")
+      self.cfg.upright_static_probability = upright_static_probability
     if spin_rate_range is not None:
       if spin_rate_range[0] <= 0.0 or spin_rate_range[0] > spin_rate_range[1]:
         raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
@@ -231,6 +259,10 @@ class StanceSpinCommandCfg(CommandTermCfg):
     0.10,
   )
   spin_idle_probability: float = 0.55
+  # A zero rate on an active front/rear one-hot asks for a static two-wheel
+  # support.  It is a curriculum sampling probability, not another command
+  # component; final dynamic-switch stages set it to zero.
+  upright_static_probability: float = 0.0
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0
   transition_active_time: float = 4.2
