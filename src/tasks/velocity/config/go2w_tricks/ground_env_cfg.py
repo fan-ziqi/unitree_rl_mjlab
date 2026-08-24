@@ -90,7 +90,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # action gate.  Keep normal x/yaw requests in this fused policy, but
       # devote most fresh-policy discovery to the two normal-reset-to-upright
       # outcomes rather than their trivial four-wheel support.
-      mode_probabilities=(0.15, 0.425, 0.425),
+      mode_probabilities=(0.25, 0.375, 0.375),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
       # but supplied too few moving samples for either that pose or its rear
@@ -103,11 +103,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Literal normal idle is a deterministic action gate, not a skill PPO
       # needs to spend samples rediscovering.  Keep static examples only for
       # the two upright forms, whose balance still benefits from them.
-      # A front/rear controller needs many successful no-motion supports
-      # before x/yaw reward can improve its wheel motion. Reducing this share
-      # prematurely made both upright modes reset before they ever became a
-      # controllable base, so retain half the samples as static balance.
-      mode_idle_probabilities=(0.0, 0.50, 0.50),
+      # The measured supports now discover reliably from the ordinary reset.
+      # Keep a static subset for balance, but devote most stance samples to
+      # the requested x/yaw response rather than converging on a stationary
+      # two-wheel local optimum.
+      mode_idle_probabilities=(0.0, 0.25, 0.25),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -184,7 +184,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=30.0,
+      weight=45.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -215,7 +215,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # existing public-command outcome large enough to compete with the
       # always-available support score; it still contains no posture, wheel
       # target, phase, or transition prescription.
-      weight=30.0,
+      weight=45.0,
       params={
         "command_name": "trick",
         "std": 0.60,
