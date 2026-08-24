@@ -59,7 +59,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     1: (-0.01, 0.01),
     2: (-0.01, 0.01),
   }
-  cfg.episode_length_s = 3.0 if not play else cfg.episode_length_s
+  cfg.episode_length_s = 3.5 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": AerialRotationCommandCfg(
       entity_name="robot",
@@ -73,8 +73,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # while front/back/yaw collapse.  Retain side coverage in the same
       # policy, but allocate most fresh rollouts to the three lagging public
       # one-hots; this changes sampling only, never the command interface.
-      mode_probabilities=(0.28, 0.28, 0.12, 0.12, 0.20),
-      resampling_time_range=(3.0, 3.0),
+      mode_probabilities=(0.25, 0.25, 0.22, 0.22, 0.06),
+      resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
       # Completion remains an exact one-turn event even though a failed

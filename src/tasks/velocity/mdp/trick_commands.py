@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import torch
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.sensor import ContactSensor
-from mjlab.utils.lab_api.math import quat_apply, quat_from_euler_xyz
+from mjlab.utils.lab_api.math import quat_apply
 
 
 class StanceSpinCommand(CommandTerm):
@@ -53,9 +53,19 @@ class StanceSpinCommand(CommandTerm):
       raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
     if cfg.spin_rate_ramp_rate <= 0.0:
       raise ValueError("spin_rate_ramp_rate must be positive.")
+    if cfg.transition_idle_time <= 0.0 or cfg.transition_active_time <= 0.0:
+      raise ValueError("spin transition durations must be positive.")
 
     self.command_buf = torch.zeros(self.num_envs, 6, device=self.device)
     self._target_spin_rate = torch.zeros(self.num_envs, device=self.device)
+    self._scheduled_command = torch.zeros_like(self.command_buf)
+    self._scheduled_spin_rate = torch.zeros(self.num_envs, device=self.device)
+    self._next_scheduled_command = torch.zeros_like(self.command_buf)
+    self._next_scheduled_spin_rate = torch.zeros(self.num_envs, device=self.device)
+    self._transition_phase = torch.zeros(
+      self.num_envs, dtype=torch.int8, device=self.device
+    )
+    self._transition_time = torch.zeros(self.num_envs, device=self.device)
     self._mode_probabilities = torch.tensor(
       cfg.mode_probabilities, dtype=torch.float32, device=self.device
     )
@@ -75,8 +85,19 @@ class StanceSpinCommand(CommandTerm):
       return
 
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
+    next_probabilities = self._mode_probabilities.expand(count, -1).clone()
+    next_probabilities[torch.arange(count, device=self.device), modes] = 0.0
+    no_alternative = next_probabilities.sum(dim=1) == 0.0
+    next_probabilities[no_alternative] = self._mode_probabilities
+    next_modes = torch.multinomial(next_probabilities, 1).squeeze(1)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
+    self._scheduled_command[env_ids] = 0.0
+    self._scheduled_spin_rate[env_ids] = 0.0
+    self._next_scheduled_command[env_ids] = 0.0
+    self._next_scheduled_spin_rate[env_ids] = 0.0
+    self._transition_phase[env_ids] = 0
+    self._transition_time[env_ids] = 0.0
     non_idle = (
       torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
     )
@@ -84,7 +105,8 @@ class StanceSpinCommand(CommandTerm):
     # all-zero command remains default four-wheel idle.
     active_ids = env_ids[non_idle]
     if len(active_ids) > 0:
-      self.command_buf[active_ids, modes[non_idle]] = 1.0
+      self._scheduled_command[active_ids, modes[non_idle]] = 1.0
+      self._next_scheduled_command[active_ids, next_modes[non_idle]] = 1.0
 
     # Side stands are static physical outcomes: their wheel axes are vertical
     # in the target pose, so a world-down spin rate is semantically
@@ -92,22 +114,62 @@ class StanceSpinCommand(CommandTerm):
     # arbitrarily branch its side balance on an input the task ignores.  Use
     # the canonical zero representation for both training and external
     # command updates; normal/front/rear retain the full signed-rate command.
-    moving = non_idle & (modes <= 2)
-    moving_ids = env_ids[moving]
-    if len(moving_ids) == 0:
-      return
-    magnitude = torch.empty(len(moving_ids), device=self.device).uniform_(
-      *self.cfg.spin_rate_range
-    )
-    sign = torch.where(
-      torch.rand(len(moving_ids), device=self.device) < 0.5,
-      -torch.ones_like(magnitude),
-      torch.ones_like(magnitude),
-    )
-    self._target_spin_rate[moving_ids] = sign * magnitude
+    dynamic = non_idle & ((modes <= 2) | (next_modes <= 2))
+    dynamic_ids = env_ids[dynamic]
+    if len(dynamic_ids) > 0:
+      magnitude = torch.empty(len(dynamic_ids), device=self.device).uniform_(
+        *self.cfg.spin_rate_range
+      )
+      sign = torch.where(
+        torch.rand(len(dynamic_ids), device=self.device) < 0.5,
+        -torch.ones_like(magnitude),
+        torch.ones_like(magnitude),
+      )
+      signed_rate = sign * magnitude
+      first_dynamic = modes[dynamic] <= 2
+      second_dynamic = next_modes[dynamic] <= 2
+      self._scheduled_spin_rate[dynamic_ids[first_dynamic]] = signed_rate[first_dynamic]
+      self._next_scheduled_spin_rate[dynamic_ids[second_dynamic]] = signed_rate[
+        second_dynamic
+      ]
 
   def _update_command(self) -> None:
-    """Ramp only the continuous rate channel; stance one-hots switch directly."""
+    """Issue idle, then two directly switching one-hot segments."""
+    pending = self._transition_phase < 3
+    self._transition_time[pending] += self._env.step_dt
+    start = (
+      (self._transition_phase == 0)
+      & (self._transition_time >= self.cfg.transition_idle_time)
+    )
+    if torch.any(start):
+      self.command_buf[start] = self._scheduled_command[start]
+      self._target_spin_rate[start] = self._scheduled_spin_rate[start]
+      self._transition_phase[start] = 1
+    second_start = (
+      (self._transition_phase == 1)
+      & (
+        self._transition_time
+        >= self.cfg.transition_idle_time + 0.5 * self.cfg.transition_active_time
+      )
+    )
+    if torch.any(second_start):
+      self.command_buf[second_start] = self._next_scheduled_command[second_start]
+      self._target_spin_rate[second_start] = self._next_scheduled_spin_rate[
+        second_start
+      ]
+      self._transition_phase[second_start] = 2
+    finish = (
+      (self._transition_phase == 2)
+      & (
+        self._transition_time
+        >= self.cfg.transition_idle_time + self.cfg.transition_active_time
+      )
+    )
+    if torch.any(finish):
+      self.command_buf[finish] = 0.0
+      self._target_spin_rate[finish] = 0.0
+      self._transition_phase[finish] = 3
+
     active = torch.sum(self.command_buf[:, :5], dim=1) > 0.5
     side_support = active & (torch.argmax(self.command_buf[:, :5], dim=1) >= 3)
     self._target_spin_rate[side_support] = 0.0
@@ -168,6 +230,8 @@ class StanceSpinCommandCfg(CommandTermCfg):
   spin_idle_probability: float = 0.55
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0
+  transition_idle_time: float = 0.8
+  transition_active_time: float = 4.2
 
   def build(self, env) -> StanceSpinCommand:
     return StanceSpinCommand(self, env)
@@ -197,8 +261,16 @@ class StanceLocomotionCommand(CommandTerm):
       self._validate_mode_idle_probabilities(cfg.mode_idle_probabilities)
     self._validate_range("lin_vel_x_range", cfg.lin_vel_x_range)
     self._validate_range("yaw_rate_range", cfg.yaw_rate_range)
+    if cfg.transition_idle_time <= 0.0 or cfg.transition_active_time <= 0.0:
+      raise ValueError("locomotion transition durations must be positive.")
 
     self.command_buf = torch.zeros(self.num_envs, 5, device=self.device)
+    self._scheduled_command = torch.zeros_like(self.command_buf)
+    self._next_scheduled_command = torch.zeros_like(self.command_buf)
+    self._transition_phase = torch.zeros(
+      self.num_envs, dtype=torch.int8, device=self.device
+    )
+    self._transition_time = torch.zeros(self.num_envs, device=self.device)
     self._mode_probabilities = torch.tensor(
       cfg.mode_probabilities, dtype=torch.float32, device=self.device
     )
@@ -276,8 +348,13 @@ class StanceLocomotionCommand(CommandTerm):
     if count == 0:
       return
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
-    self.command_buf[env_ids] = 0.0
-    self.command_buf[env_ids, modes] = 1.0
+    next_probabilities = self._mode_probabilities.expand(count, -1).clone()
+    next_probabilities[torch.arange(count, device=self.device), modes] = 0.0
+    no_alternative = next_probabilities.sum(dim=1) == 0.0
+    next_probabilities[no_alternative] = self._mode_probabilities
+    next_modes = torch.multinomial(next_probabilities, 1).squeeze(1)
+    sampled = torch.zeros(count, 5, device=self.device)
+    sampled[torch.arange(count, device=self.device), modes] = 1.0
     # The fused actor needs normal rolling examples from its first update, but
     # front/rear commands first need to discover legal static two-wheel
     # balance.  Sampling that distinction here changes neither the command
@@ -290,80 +367,63 @@ class StanceLocomotionCommand(CommandTerm):
     # dimension in isolation.  Keep the external command exactly
     # ``one-hot + x + yaw``, but give PPO an explicit and balanced internal
     # distribution of x-only, yaw-only, and combined requests.
-    moving_ids = env_ids[~idle]
-    if len(moving_ids) > 0:
-      request_type = torch.randint(0, 3, (len(moving_ids),), device=self.device)
+    moving_rows = torch.nonzero(~idle, as_tuple=False).squeeze(1)
+    if len(moving_rows) > 0:
+      request_type = torch.randint(0, 3, (len(moving_rows),), device=self.device)
       x_active = request_type != 1  # x-only or combined.
       yaw_active = request_type != 0  # yaw-only or combined.
-      x_ids = moving_ids[x_active]
-      yaw_ids = moving_ids[yaw_active]
-      if len(x_ids) > 0:
-        self.command_buf[x_ids, 3] = self._sample_active_axis(
-          self.cfg.lin_vel_x_range, len(x_ids)
+      x_rows = moving_rows[x_active]
+      yaw_rows = moving_rows[yaw_active]
+      if len(x_rows) > 0:
+        sampled[x_rows, 3] = self._sample_active_axis(
+          self.cfg.lin_vel_x_range, len(x_rows)
         )
-      if len(yaw_ids) > 0:
-        self.command_buf[yaw_ids, 4] = self._sample_active_axis(
-          self.cfg.yaw_rate_range, len(yaw_ids)
+      if len(yaw_rows) > 0:
+        sampled[yaw_rows, 4] = self._sample_active_axis(
+          self.cfg.yaw_rate_range, len(yaw_rows)
         )
-
-    # A front/rear two-wheel task begins near the commanded body orientation
-    # rather than requiring a sparse 90-degree transition from four-wheel
-    # standing.  It deliberately writes only the floating-base state: neither
-    # reset nor action space specifies any leg configuration.
-    if self.cfg.initialize_stance_on_reset:
-      first_command = self.command_counter[env_ids] == 0
-      initial_ids = env_ids[first_command]
-      if len(initial_ids) > 0:
-        self._initialize_stance_reset(initial_ids, modes[first_command])
-
-  def _initialize_stance_reset(
-    self, env_ids: torch.Tensor, modes: torch.Tensor
-  ) -> None:
-    """Place front/rear commands near their physical two-wheel support pose."""
-    stance = modes > 0
-    stance_ids = env_ids[stance]
-    if len(stance_ids) == 0:
-      return
-
-    robot = self._env.scene[self.cfg.entity_name]
-    # Pitch +pi/2 puts the front wheels below the trunk; -pi/2 does the same
-    # for the rear wheels.  The low root height is obtained from the actual
-    # wheel geometry, so both support wheels begin at the floor rather than
-    # the policy having to discover a jump/fall transition first.
-    pitch = torch.where(
-      modes[stance] == 1,
-      torch.full((len(stance_ids),), torch.pi / 2.0, device=self.device),
-      torch.full((len(stance_ids),), -torch.pi / 2.0, device=self.device),
-    )
-    pitch += torch.empty_like(pitch).uniform_(
-      -self.cfg.stance_reset_pitch_noise, self.cfg.stance_reset_pitch_noise
-    )
-    yaw = torch.empty_like(pitch).uniform_(-0.20, 0.20)
-    zeros = torch.zeros_like(pitch)
-    orientation = quat_from_euler_xyz(zeros, pitch, yaw)
-
-    pose = robot.data.default_root_state[stance_ids, :7].clone()
-    pose[:, :2] += self._env.scene.env_origins[stance_ids, :2]
-    pose[:, :2] += torch.empty(
-      len(stance_ids), 2, device=self.device, dtype=pose.dtype
-    ).uniform_(-0.25, 0.25)
-    height = torch.where(
-      modes[stance] == 1,
-      torch.full((len(stance_ids),), self.cfg.front_reset_height, device=self.device),
-      torch.full((len(stance_ids),), self.cfg.rear_reset_height, device=self.device),
-    )
-    pose[:, 2] = height + torch.empty_like(height).uniform_(
-      -self.cfg.stance_reset_height_noise, self.cfg.stance_reset_height_noise
-    )
-    pose[:, 3:7] = orientation
-    robot.write_root_link_pose_to_sim(pose, env_ids=stance_ids)
-    robot.write_root_link_velocity_to_sim(
-      torch.zeros(len(stance_ids), 6, device=self.device, dtype=pose.dtype),
-      env_ids=stance_ids,
-    )
+    next_sampled = sampled.clone()
+    next_sampled[:, :3] = 0.0
+    next_sampled[torch.arange(count, device=self.device), next_modes] = 1.0
+    self.command_buf[env_ids] = 0.0
+    self.command_buf[env_ids, 0] = 1.0
+    self._scheduled_command[env_ids] = sampled
+    self._next_scheduled_command[env_ids] = next_sampled
+    self._transition_phase[env_ids] = 0
+    self._transition_time[env_ids] = 0.0
 
   def _update_command(self) -> None:
-    pass
+    """Start from normal idle, then switch directly between two modes."""
+    pending = self._transition_phase < 3
+    self._transition_time[pending] += self._env.step_dt
+    start = (
+      (self._transition_phase == 0)
+      & (self._transition_time >= self.cfg.transition_idle_time)
+    )
+    if torch.any(start):
+      self.command_buf[start] = self._scheduled_command[start]
+      self._transition_phase[start] = 1
+    second_start = (
+      (self._transition_phase == 1)
+      & (
+        self._transition_time
+        >= self.cfg.transition_idle_time + 0.5 * self.cfg.transition_active_time
+      )
+    )
+    if torch.any(second_start):
+      self.command_buf[second_start] = self._next_scheduled_command[second_start]
+      self._transition_phase[second_start] = 2
+    finish = (
+      (self._transition_phase == 2)
+      & (
+        self._transition_time
+        >= self.cfg.transition_idle_time + self.cfg.transition_active_time
+      )
+    )
+    if torch.any(finish):
+      self.command_buf[finish] = 0.0
+      self.command_buf[finish, 0] = 1.0
+      self._transition_phase[finish] = 3
 
   def set_curriculum(
     self,
@@ -423,14 +483,8 @@ class StanceLocomotionCommandCfg(CommandTermCfg):
   lin_vel_x_range: tuple[float, float] = (-0.4, 0.4)
   yaw_rate_range: tuple[float, float] = (-0.4, 0.4)
   command_deadband: float = 0.05
-  initialize_stance_on_reset: bool = True
-  # These heights are calibrated against the actual MuJoCo collision geometry
-  # together with the folded front/rear support-leg poses above.  They put the
-  # support wheel centres at their 8.6 cm radius without a thigh/calf contact.
-  front_reset_height: float = 0.392
-  rear_reset_height: float = 0.340
-  stance_reset_pitch_noise: float = 0.02
-  stance_reset_height_noise: float = 0.003
+  transition_idle_time: float = 0.8
+  transition_active_time: float = 4.2
 
   def build(self, env) -> StanceLocomotionCommand:
     return StanceLocomotionCommand(self, env)
@@ -468,8 +522,9 @@ class AerialRotationCommand(CommandTerm):
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
       or cfg.min_ballistic_time <= 0.0
+      or cfg.trigger_idle_time <= 0.0
     ):
-      raise ValueError("landing limits and min_ballistic_time must be positive.")
+      raise ValueError("aerial event durations and limits must be positive.")
 
     self.command_buf = torch.zeros(self.num_envs, 5, device=self.device)
     self._mode_probabilities = torch.tensor(
@@ -501,6 +556,13 @@ class AerialRotationCommand(CommandTerm):
     # turn axis: it never enters the policy observation.
     self._launch_root_quat_w = torch.zeros(self.num_envs, 4, device=self.device)
     self._new_skill = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+    self._pending_mode = torch.zeros(
+      self.num_envs, dtype=torch.long, device=self.device
+    )
+    self._pending_trigger = torch.zeros(
+      self.num_envs, dtype=torch.bool, device=self.device
+    )
+    self._trigger_time = torch.zeros(self.num_envs, device=self.device)
 
   @property
   def command(self) -> torch.Tensor:
@@ -524,6 +586,9 @@ class AerialRotationCommand(CommandTerm):
     self._launch_axis_w[env_ids] = 0.0
     self._launch_root_quat_w[env_ids] = 0.0
     self._new_skill[env_ids] = False
+    self._pending_mode[env_ids] = 0
+    self._pending_trigger[env_ids] = False
+    self._trigger_time[env_ids] = 0.0
     active = torch.rand(count, device=self.device) > self.cfg.idle_probability
     active_ids = env_ids[active]
     if len(active_ids) == 0:
@@ -531,8 +596,8 @@ class AerialRotationCommand(CommandTerm):
     modes = torch.multinomial(
       self._mode_probabilities, len(active_ids), replacement=True
     )
-    self.command_buf[active_ids, modes] = 1.0
-    self._new_skill[active_ids] = True
+    self._pending_mode[active_ids] = modes
+    self._pending_trigger[active_ids] = True
 
   def _update_command(self) -> None:
     """Finish exactly one aerial attempt, then return to idle.
@@ -544,6 +609,17 @@ class AerialRotationCommand(CommandTerm):
     is no need to keep a flip request alive for braking.  Clearing at the
     first contact prevents that one-hot from asking for a rebound.
     """
+    pending = self._pending_trigger
+    self._trigger_time[pending] += self._env.step_dt
+    trigger = pending & (self._trigger_time >= self.cfg.trigger_idle_time)
+    if torch.any(trigger):
+      self.command_buf[trigger] = 0.0
+      self.command_buf[
+        trigger, self._pending_mode[trigger]
+      ] = 1.0
+      self._new_skill[trigger] = True
+      self._pending_trigger[trigger] = False
+
     active = torch.sum(self.command_buf, dim=1) > 0.5
     if not torch.any(active):
       # Preserve the final attempt state until the next resample.  The fixed
@@ -686,5 +762,6 @@ class AerialRotationCommandCfg(CommandTermCfg):
   min_ballistic_time: float = 0.08
   target_angle: float = math.tau
   max_overrotation: float = 0.75
+  trigger_idle_time: float = 0.5
   def build(self, env) -> AerialRotationCommand:
     return AerialRotationCommand(self, env)

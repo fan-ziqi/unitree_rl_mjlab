@@ -79,22 +79,21 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
-  cfg.episode_length_s = 8.0 if not play else cfg.episode_length_s
+  cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       # Establish the two upright supports from the required normal four-wheel
       # reset before asking for command changes inside a rollout.
-      resampling_time_range=(8.0, 8.0),
+      resampling_time_range=(6.0, 6.0),
       # Normal four-wheel rolling is action-gated to the default pose, so
       # early samples concentrate on the two support forms.  The prior 50/50
       # stationary/moving split switched to short commands before the front
       # form had ever been found; keep most of these discovery samples static.
-      mode_probabilities=(0.05, 0.65, 0.30),
-      mode_idle_probabilities=(0.0, 0.70, 0.65),
-      lin_vel_x_range=(-0.20, 0.20),
-      yaw_rate_range=(-0.30, 0.30),
-      initialize_stance_on_reset=False,
+      mode_probabilities=(0.25, 0.375, 0.375),
+      mode_idle_probabilities=(0.10, 0.25, 0.25),
+      lin_vel_x_range=(-0.10, 0.10),
+      yaw_rate_range=(-0.15, 0.15),
       debug_vis=False,
     )
   }
@@ -232,11 +231,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.05, 0.65, 0.30),
-            "mode_idle_probabilities": (0.0, 0.70, 0.65),
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (8.0, 8.0),
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
+            "lin_vel_x_range": (-0.10, 0.10),
+            "yaw_rate_range": (-0.15, 0.15),
+            "resampling_time_range": (6.0, 6.0),
           },
           {
             # First attach a small, physically recoverable x/yaw response to
@@ -245,11 +244,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # At 64 control steps per PPO update this starts at m400, leaving
             # 400 updates of low-speed fixed-form practice.
             "step": 25_600,
-            "mode_probabilities": (0.15, 0.45, 0.40),
-            "mode_idle_probabilities": (0.20, 0.45, 0.45),
-            "lin_vel_x_range": (-0.10, 0.10),
-            "yaw_rate_range": (-0.15, 0.15),
-            "resampling_time_range": (8.0, 8.0),
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+            "resampling_time_range": (6.0, 6.0),
           },
           {
             # Only then expose the requested full x/yaw range, still with one
@@ -258,43 +257,43 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # This m800 boundary gives another 400 fixed-form updates before
             # transitions start.
             "step": 51_200,
-            "mode_probabilities": (0.20, 0.40, 0.40),
-            "mode_idle_probabilities": (0.20, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (8.0, 8.0),
+            "resampling_time_range": (6.0, 6.0),
           },
           {
             # First expose exactly one late, long-horizon switch.  The prior
             # direct 8-s -> 2-s jump reset as soon as front/rear was selected,
             # so its policy never saw a recoverable transition trajectory.
             "step": 76_800,
-            "mode_probabilities": (0.40, 0.30, 0.30),
-            "mode_idle_probabilities": (0.20, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (5.0, 6.0),
+            "resampling_time_range": (6.0, 6.0),
           },
           {
             # Shorten only after that first transition can land in the next
             # supported mode; this remains the identical one-hot command and
             # policy, merely a less abrupt sampling curriculum.
             "step": 102_400,
-            "mode_probabilities": (0.40, 0.30, 0.30),
-            "mode_idle_probabilities": (0.20, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (3.0, 4.0),
+            "resampling_time_range": (6.0, 6.0),
           },
           {
             # The final public interface changes every 2--3 s, including
             # normal/front/rear one-hot changes in one continuous rollout.
             "step": 128_000,
-            "mode_probabilities": (0.40, 0.30, 0.30),
-            "mode_idle_probabilities": (0.20, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (2.0, 3.0),
+            "resampling_time_range": (6.0, 6.0),
           },
         ),
       },
@@ -334,7 +333,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # a high-rate yaw pivot and the later switch to the other one-hots; an
       # early mixture had only 50% normal samples and instead converged on a
       # four-wheel stepping turn.
-      mode_probabilities=(1.0, 0.0, 0.0, 0.0, 0.0),
+      mode_probabilities=(0.35, 0.25, 0.25, 0.075, 0.075),
       spin_idle_probability=0.0,
       # The physical layout is found before asking its first pass to sustain
       # the final maximum rate.  This is a range curriculum over the existing
@@ -412,7 +411,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # horizontal axle first.  Holding a single one-hot for the whole
             # 6-s episode makes the only high-return solution a stationary
             # four-wheel pivot, rather than a transient stepping yaw.
-            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
@@ -423,7 +422,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # that jump repeatedly destroyed the discovered common axle.  The
             # same normal one-hot first learns an intermediate rate band.
             "step": 38_400,
-            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (5.0, 10.0),
             "resampling_time_range": (6.0, 6.0),
@@ -432,7 +431,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Raise the very same fixed normal form to the reference's working
             # range before any other stance can dilute its geometry.
             "step": 76_800,
-            "mode_probabilities": (0.90, 0.025, 0.025, 0.025, 0.025),
+            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
@@ -441,7 +440,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Broaden only fixed-form coverage after high-rate normal has had
             # its own full stage while retaining the reference-speed range.
             "step": 115_200,
-            "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
+            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
@@ -452,10 +451,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # idle command.  Mixing transitions before normal geometry was
             # valid simply trained the policy to step around the floor.
             "step": 153_600,
-            "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
-            "spin_idle_probability": 0.20,
+            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
+            "spin_idle_probability": 0.0,
             "spin_rate_range": (10.0, 18.0),
-            "resampling_time_range": (2.0, 3.0),
+            "resampling_time_range": (6.0, 6.0),
           },
         ),
       },
