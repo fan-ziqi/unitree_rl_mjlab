@@ -90,7 +90,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # action gate.  Keep normal x/yaw requests in this fused policy, but
       # devote most fresh-policy discovery to the two normal-reset-to-upright
       # outcomes rather than their trivial four-wheel support.
-      mode_probabilities=(0.25, 0.375, 0.375),
+      mode_probabilities=(0.15, 0.425, 0.425),
       # Every mode needs both a stopped balance and a real x/yaw response.
       # The old 85% front/rear static share let an upright front pose emerge,
       # but supplied too few moving samples for either that pose or its rear
@@ -103,11 +103,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Literal normal idle is a deterministic action gate, not a skill PPO
       # needs to spend samples rediscovering.  Keep static examples only for
       # the two upright forms, whose balance still benefits from them.
-      # The measured supports now discover reliably from the ordinary reset.
-      # Keep a static subset for balance, but devote most stance samples to
-      # the requested x/yaw response rather than converging on a stationary
-      # two-wheel local optimum.
-      mode_idle_probabilities=(0.0, 0.25, 0.25),
+      # A front/rear controller needs successful stopped supports before an
+      # x/yaw score can improve its wheel motion.  The more motion-heavy
+      # a140 distribution failed its fixed-command stance audit at m200, so
+      # retain half of each upright mode as support discovery in this fresh
+      # run.  Motion remains the other half of the same policy, not a second
+      # staged controller.
+      mode_idle_probabilities=(0.0, 0.50, 0.50),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -177,14 +179,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_x_and_zero_lateral": RewardTermCfg(
       func=trick_rewards.stance_locomotion_linear_velocity_exp,
-      # Support discovery is already established by the measured wheel
-      # contact/attitude outcome above.  Give the public x command enough
-      # importance that a fixed forward roll cannot outscore command response.
+      # Support discovery is the prerequisite for useful public x control.
       # Before a legal two-wheel support exists, a velocity error mostly
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=45.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "std": 0.45,
@@ -210,12 +210,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      # Fixed-command audits showed normal x control and default posture were
-      # recovered while yaw-only commands stayed near zero rate.  Make this
-      # existing public-command outcome large enough to compete with the
-      # always-available support score; it still contains no posture, wheel
-      # target, phase, or transition prescription.
-      weight=45.0,
+      # Yaw stays in the same outcome-conditioned policy, but cannot displace
+      # the still-undiscovered upright support.
+      weight=30.0,
       params={
         "command_name": "trick",
         "std": 0.60,
