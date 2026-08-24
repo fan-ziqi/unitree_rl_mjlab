@@ -69,11 +69,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # Keep all five branches in one actor, but do not let the already-easy
-      # yaw success monopolise its PPO advantages.  The four pitch/roll
-      # directions receive equal discovery coverage; yaw remains present so
-      # its compact one-turn landing is retained by the same policy.
-      mode_probabilities=(0.24, 0.24, 0.24, 0.24, 0.04),
+      # Fixed-command evaluation showed that the two side flips now dominate
+      # while front/back/yaw collapse.  Retain side coverage in the same
+      # policy, but allocate most fresh rollouts to the three lagging public
+      # one-hots; this changes sampling only, never the command interface.
+      mode_probabilities=(0.28, 0.28, 0.12, 0.12, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
