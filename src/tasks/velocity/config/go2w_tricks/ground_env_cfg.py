@@ -299,12 +299,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # All five outcomes remain in the same fused policy.  The a142 audit
-      # established rear but left front and both static side supports below
-      # their final stance.  Reallocate only command samples from that mature
-      # rear branch to the unresolved one-hots; no contact sequence, pose,
-      # reference action, or second policy is introduced.
-      mode_probabilities=(0.25, 0.25, 0.10, 0.20, 0.20),
+      # All five outcomes remain in one fused policy.  The fixed m400 audit
+      # shows that front has converged while the normal co-axial and rear
+      # pivots have not; rear must therefore not receive only 10% of fresh
+      # episodes.  This changes sample coverage only--not the public command,
+      # an observation, a pose target, or a reward term.
+      mode_probabilities=(0.30, 0.10, 0.30, 0.15, 0.15),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
