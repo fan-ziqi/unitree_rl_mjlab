@@ -4,14 +4,12 @@ from copy import deepcopy
 from pathlib import Path
 
 import mujoco
-
 from mjlab.actuator import BuiltinPositionActuatorCfg, BuiltinVelocityActuatorCfg
 from mjlab.entity import Entity, EntityArticulationInfoCfg, EntityCfg
 from mjlab.utils.os import update_assets
 from mjlab.utils.spec_config import CollisionCfg
 
 from src import SRC_PATH
-
 
 # Derived directly from rl_sar_zoo's correctly oriented Go2W MJCF.  Its visual
 # bodies are intact; its collision meshes/cylinders were replaced in this static
@@ -119,6 +117,11 @@ GO2W_FOUR_FOOT_INIT_STATE = EntityCfg.InitialStateCfg(
 )
 
 _WHEEL_REGEX = r"^[FR][LR]_wheel_collision$"
+# Keep the robot's compact primitive collision hulls mutually active.  The
+# previous ``conaffinity=0`` only retained robot--world collisions, allowing
+# a learnt policy to pass a wheel or a leg through another link.  MuJoCo still
+# filters a geom against itself and directly welded neighbours; the remaining
+# contacts are the physically meaningful non-adjacent/self-leg contacts.
 GO2W_FULL_COLLISION = CollisionCfg(
   geom_names_expr=(r".*_collision",),
   condim={_WHEEL_REGEX: 3, r".*_collision": 1},
@@ -126,7 +129,7 @@ GO2W_FULL_COLLISION = CollisionCfg(
   friction={_WHEEL_REGEX: (0.8,)},
   solimp={_WHEEL_REGEX: (0.9, 0.95, 0.023)},
   contype=1,
-  conaffinity=0,
+  conaffinity=1,
 )
 
 GO2W_ARTICULATION = EntityArticulationInfoCfg(
