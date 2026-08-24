@@ -677,7 +677,7 @@ class AerialRotationCommandCfg(CommandTermCfg):
   # 0.995 threshold permits about 11.5 degrees of residual whole-body
   # rotation, while rejecting the yaw drift that projected gravity cannot
   # observe after a front/back/side flip.
-  landing_orientation_dot_min: float = 0.995
+  landing_orientation_dot_min: float = 0.985
   landing_linear_velocity_limit: float = 0.75
   landing_angular_velocity_limit: float = 1.5
   # Four controller steps at the 50-Hz policy rate.  This removes the

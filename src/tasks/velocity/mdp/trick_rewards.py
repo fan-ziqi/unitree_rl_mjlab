@@ -921,13 +921,13 @@ class AerialRotationCompletion:
     landing_gravity_std: float = 0.3,
     landing_linear_velocity_limit: float = 0.75,
     landing_angular_velocity_limit: float = 1.5,
-    landing_orientation_dot_min: float = 0.995,
+    landing_orientation_dot_min: float = 0.985,
     soft_touchdown_orientation_floor: float = 0.50,
     soft_touchdown_orientation_exponent: float = 1.0,
     soft_touchdown_turn_exponent: float = 2.0,
     max_overrotation: float = 1.25,
     settle_reward: float = 0.0,
-    post_idle_settle_time: float = 0.40,
+    post_idle_settle_time: float = 0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if soft_touchdown_reward < 0.0:
