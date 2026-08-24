@@ -296,7 +296,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # prevents a high-but-illegal partial turn from competing with a recoverable
     # wheel landing.  Timeouts remain excluded by the standard termination
     # reward function.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-25.0),
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
   }
   # Collision ends an episode immediately.  The small terminal term above is
   # enabled only after earlier runs had already demonstrated real takeoff and
