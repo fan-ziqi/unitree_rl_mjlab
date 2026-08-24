@@ -197,10 +197,12 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Normal/front/rear track a world-down rate.  Normal retains four wheel
-  # contacts, but at speed it must first bring each front/rear wheel pair onto
-  # a common axle; front/rear use their named support pair.  Left/right share
-  # the input layout but are evaluated as static side supports below.
+  # Normal/front/rear track a world-down rate.  At speed, normal is the
+  # reference video's *two-wheel* balance-like pivot: either the left or
+  # right front/rear wheel pair may become the common support axle.  It is
+  # deliberately not a four-wheel steering turn.  Front/rear use their named
+  # support pair.  Left/right share the input layout but are evaluated as
+  # static side supports below.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -227,32 +229,7 @@ def _stance_spin_components(
   alignment = torch.clamp(
     0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
   )
-  pair_ids = torch.tensor(((0, 1), (0, 1), (2, 3), (0, 2), (1, 3)), device=env.device)
-  support_pair = pair_ids[mode]
   batch = torch.arange(env.num_envs, device=env.device)
-  wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
-  fixed_height = 0.5 * (
-    wheel_height[batch, support_pair[:, 0]] + wheel_height[batch, support_pair[:, 1]]
-  )
-  height_score = torch.clamp(
-    # The former 0.35-m target admitted the low, visibly diagonal support
-    # measured at m300/m400.  This remains a base-to-wheel geometric outcome,
-    # not a leg configuration or reference posture; it simply requires the
-    # intended upright pivot to stand clear of its supporting axle.
-    (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.45,
-    min=0.0,
-    max=1.0,
-  )
-  # Every non-normal mode is a two-wheel pivot.  Normal also needs enough
-  # trunk-to-axle clearance to rule out the low crouch that can otherwise
-  # spin while keeping four wheel contacts, but it deliberately has a looser
-  # requirement than an upright two-wheel balance.
-  upright_pivot = mode != 0
-  height_score = torch.where(
-    upright_pivot,
-    height_score,
-    torch.clamp(height_score * (0.45 / 0.28), min=0.0, max=1.0),
-  )
 
   # Wheel-joint local Y is the cylinder axle.  Wheel spin itself is a
   # rotation about that axis, so transforming this basis through each site
@@ -288,18 +265,51 @@ def _stance_spin_components(
     ),
     dim=1,
   )[batch, mode]
-  # The reference's normal high-speed spin is not ordinary four-wheel yaw
-  # steering.  It first draws the front/rear wheels into two co-linear axle
-  # tracks.  This product gives PPO a continuous geometry score while making
-  # a bicycle-like floor circle strictly inferior to the intended pivot.
-  normal_coaxiality = pair_coaxiality(0, 2) * pair_coaxiality(1, 3)
+  # The normal high-speed spin chooses one physically established
+  # longitudinal support pair.  Requiring *both* pairs to be co-axial was a
+  # structural error: it asks the policy for four wheel contact while the
+  # intended behaviour is a two-wheel balance-like pivot.  The max is a
+  # measured symmetry choice, not an additional command or a pose target.
+  normal_pair_coaxialities = torch.stack(
+    (pair_coaxiality(0, 2), pair_coaxiality(1, 3)), dim=1
+  )
+  normal_coaxiality, normal_pair_index = torch.max(
+    normal_pair_coaxialities, dim=1
+  )
+  longitudinal_pairs = torch.tensor(((0, 2), (1, 3)), device=env.device)
+  normal_support_pair = longitudinal_pairs[normal_pair_index]
+  pair_ids = torch.tensor(
+    ((0, 1), (0, 1), (2, 3), (0, 2), (1, 3)), device=env.device
+  )
+  support_pair = torch.where(
+    (mode == 0).unsqueeze(1), normal_support_pair, pair_ids[mode]
+  )
+  # Normal accepts either completed longitudinal pair.  Extra wheel contact
+  # is not penalized: a transient four-wheel touch is physically harmless,
+  # but only the selected two-wheel axle earns its support score.
+  normal_contact_score = contacts[batch, normal_support_pair[:, 0]] * contacts[
+    batch, normal_support_pair[:, 1]
+  ]
+  contact_score = torch.where(mode == 0, normal_contact_score, contact_score)
   coaxiality = torch.where(
     mode == 0,
     normal_coaxiality,
     pair_coaxiality_for_mode,
   )
+  wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+  fixed_height = 0.5 * (
+    wheel_height[batch, support_pair[:, 0]] + wheel_height[batch, support_pair[:, 1]]
+  )
+  height_score = torch.clamp(
+    # This remains a base-to-wheel geometric outcome, not a leg
+    # configuration or reference posture; it simply requires the intended
+    # pivot to stand clear of its supporting axle.
+    (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.45,
+    min=0.0,
+    max=1.0,
+  )
   # A small baseline keeps the physical contact/rate signal alive while the
-  # normal branch first moves its two longitudinal wheel pairs together.  The
+  # normal branch first moves one longitudinal wheel pair together.  The
   # full co-axial form is still twenty times more valuable, and the local
   # support-centre requirement below rejects ordinary four-wheel circle
   # steering as a substitute for the video's pivot geometry.
@@ -353,7 +363,7 @@ def _stance_spin_components(
 class StanceSpinPivotResult:
   """Reward one fused policy's dynamic pivots and static side supports.
 
-  Normal uses the four-wheel centre and front/rear axle co-linearity;
+  Normal chooses its most co-axial front/rear wheel pair as the support axle;
   front/rear use their named horizontal support axle.  Left/right are static
   side supports because those wheel axes are vertical in the commanded pose.
   Every result is an instantaneous physical measurement: no anchor,
@@ -416,11 +426,10 @@ class StanceSpinPivotResult:
     pair_centre_velocity = 0.5 * (
       wheel_velocity[batch, pair[:, 0]] + wheel_velocity[batch, pair[:, 1]]
     )
-    all_wheel_centre_velocity = wheel_velocity.mean(dim=1)
-    centre_velocity = torch.where(
-      (mode == 0).unsqueeze(1), all_wheel_centre_velocity, pair_centre_velocity
-    )
-    centre_speed = torch.linalg.vector_norm(centre_velocity, dim=1)
+    # ``pair`` is also the dynamically selected normal support.  Measuring
+    # the four-wheel average here would permit a bicycle-like circle to
+    # cancel itself numerically instead of requiring a local two-wheel pivot.
+    centre_speed = torch.linalg.vector_norm(pair_centre_velocity, dim=1)
     # The old late, subtractive penalty permitted a high-rate front/rear form
     # to score while its support axle travelled around a broad floor circle.
     # A local pivot is an inseparable outcome: score rate *and* a stationary

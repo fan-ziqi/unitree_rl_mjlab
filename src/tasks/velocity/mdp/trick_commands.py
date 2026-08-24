@@ -26,13 +26,13 @@ class StanceSpinCommand(CommandTerm):
   """Sample the complete five-one-hot continuous-contact trick command.
 
   The public layout is ``[normal, front, rear, left, right, spin_rate]``.
-  Its literal all-zero value is the normal four-wheel idle.  A nonzero rate
-  requests a local world-down rotation in one of the five contact modes.
-  ``normal`` is the four-wheel in-place yaw spin, but a nonzero rate must
-  bring the front/rear wheel axles onto co-linear tracks first; front/rear are
-  the upright two-wheel pivots and left/right are their side-wheel
-  equivalents.  The side supports canonicalize their irrelevant rate channel
-  to zero; normal/front/rear carry the signed rotation request.
+  Its literal all-zero value is the normal four-wheel idle.  A nonzero normal
+  rate requests a local world-down rotation in one of the five contact modes.
+  ``normal`` is the reference's two-wheel in-place pivot: the policy may form
+  either co-linear front/rear wheel pair as its support axle.  Front/rear are
+  their named upright two-wheel pivots and left/right are static side-wheel
+  supports.  The side supports canonicalize their irrelevant rate channel to
+  zero; normal/front/rear carry the signed rotation request.
   No command carries a pose, phase, or limb target.
   """
 

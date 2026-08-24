@@ -201,7 +201,6 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       gravity = torch.nn.functional.normalize(robot.data.projected_gravity_b, dim=1)
       effective_modes = modes
       target_alignment = 0.5 * (1.0 + torch.sum(gravity * targets[effective_modes], dim=1))
-      support_ok = torch.all(contacts == target_contacts[effective_modes], dim=1)
       down_rate = torch.sum(robot.data.root_link_ang_vel_b * gravity, dim=1)
       # The rate channel is intentionally ramped in the training command
       # term.  Measure against the actual public command seen by the actor at
@@ -213,14 +212,48 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         torch.zeros_like(command_term.command[:, 5]),
       )
       rate_error = torch.abs(down_rate - expected_rate)
-      support_pair = support_pairs[effective_modes]
-      wheel_xy = robot.data.site_pos_w[:, wheel_site_ids, :2]
       batch = torch.arange(cfg.num_envs, device=base_env.device)
-      pair_center = 0.5 * (
-        wheel_xy[batch, support_pair[:, 0]] + wheel_xy[batch, support_pair[:, 1]]
+      nonwheel_found = nonwheel_sensor.data.found
+      assert nonwheel_found is not None
+      nonwheel = (
+        nonwheel_found.reshape(cfg.num_envs, nonwheel_found.shape[1], -1) > 0
+      ).any(dim=(1, 2))
+
+      wheel_quat = robot.data.site_quat_w[:, wheel_site_ids].reshape(-1, 4)
+      local_axle = torch.tensor(
+        (0.0, 1.0, 0.0), dtype=wheel_quat.dtype, device=base_env.device
+      ).expand(wheel_quat.shape[0], -1)
+      wheel_axles = quat_apply(wheel_quat, local_axle).reshape(cfg.num_envs, 4, 3)
+      wheel_positions = robot.data.site_pos_w[:, wheel_site_ids]
+      # A high-rate normal command is the video's two-wheel balance-like
+      # pivot.  Select whichever front/rear pair has actually become the
+      # common axle; do not incorrectly demand all four wheel contacts.
+      left_coaxiality = _pair_coaxiality(wheel_axles, wheel_positions, 0, 2)
+      right_coaxiality = _pair_coaxiality(wheel_axles, wheel_positions, 1, 3)
+      normal_coaxiality, normal_pair_index = torch.max(
+        torch.stack((left_coaxiality, right_coaxiality), dim=1), dim=1
       )
-      center = torch.where(
-        (modes == 0).unsqueeze(1), wheel_xy.mean(dim=1), pair_center
+      longitudinal_pairs = torch.tensor(
+        ((0, 2), (1, 3)), device=base_env.device
+      )
+      normal_support_pair = longitudinal_pairs[normal_pair_index]
+      support_pair = torch.where(
+        (effective_modes == 0).unsqueeze(1),
+        normal_support_pair,
+        support_pairs[effective_modes],
+      )
+      normal_support_ok = contacts[batch, support_pair[:, 0]] & contacts[
+        batch, support_pair[:, 1]
+      ]
+      exact_non_normal_support = torch.all(
+        contacts == target_contacts[effective_modes], dim=1
+      )
+      support_ok = torch.where(
+        effective_modes == 0, normal_support_ok, exact_non_normal_support
+      )
+      wheel_xy = wheel_positions[:, :, :2]
+      center = 0.5 * (
+        wheel_xy[batch, support_pair[:, 0]] + wheel_xy[batch, support_pair[:, 1]]
       )
       raw_center_speed = torch.linalg.vector_norm(
         (center - previous_center) / base_env.step_dt, dim=1
@@ -236,18 +269,6 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       same_pair = center_initialized
       previous_center.copy_(center)
       center_initialized[:] = True
-      nonwheel_found = nonwheel_sensor.data.found
-      assert nonwheel_found is not None
-      nonwheel = (
-        nonwheel_found.reshape(cfg.num_envs, nonwheel_found.shape[1], -1) > 0
-      ).any(dim=(1, 2))
-
-      wheel_quat = robot.data.site_quat_w[:, wheel_site_ids].reshape(-1, 4)
-      local_axle = torch.tensor(
-        (0.0, 1.0, 0.0), dtype=wheel_quat.dtype, device=base_env.device
-      ).expand(wheel_quat.shape[0], -1)
-      wheel_axles = quat_apply(wheel_quat, local_axle).reshape(cfg.num_envs, 4, 3)
-      wheel_positions = robot.data.site_pos_w[:, wheel_site_ids]
       pair_coaxiality_for_mode = torch.stack(
         (
           _pair_coaxiality(wheel_axles, wheel_positions, 0, 1),
@@ -258,9 +279,6 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         ),
         dim=1,
       )[batch, modes]
-      normal_coaxiality = _pair_coaxiality(
-        wheel_axles, wheel_positions, 0, 2
-      ) * _pair_coaxiality(wheel_axles, wheel_positions, 1, 3)
       coaxiality = torch.where(
         modes == 0,
         normal_coaxiality,

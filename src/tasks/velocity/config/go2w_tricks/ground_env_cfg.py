@@ -250,8 +250,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
-  video's all-wheel in-place yaw spin after front/rear wheel axles are
-  co-linear; front/rear one-hots request their two-wheel local pivots.  The
+  video's two-wheel, front/rear-co-axial local pivot; front/rear one-hots
+  request their named two-wheel local pivots.  The
   left/right one-hots are the physically distinct, static side supports: once
   side-on, their wheel axes are vertical, so their spin-rate input is ignored.
   All five modes still share exactly the same one-hot plus signed-rate command
@@ -321,7 +321,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
         # Normal's precursor is stricter than ordinary four-wheel standing:
-        # it pays only the measured co-axial, stationary wheel geometry.
+        # it pays only the selected co-axial two-wheel, stationary geometry.
         "normal_coaxial_weight": 0.15,
         "asset_cfg": _support_wheels(),
       },
