@@ -88,12 +88,12 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # multimodal mapping from a ten-frame proprioceptive history.  The wider
     # MLP is still inexpensive compared with 8,192 parallel physics worlds.
     hidden_dims=(512, 512, 256),
-    # This task's prior 0.60/0.002 setting collapsed to 0.18 while the robot
-    # was still in the low four-wheel local optimum.  A larger but clipped
-    # initial distribution and modest entropy pressure permit actual support
-    # discovery without specifying a posture or transition trajectory.
-    init_std=1.0,
-    entropy_coef=0.006,
+    # 0.60/0.002 collapsed before a lift was discovered, whereas 1.0/0.006
+    # grew past 1.8 and reduced the task to random leg flailing.  Keep the
+    # middle bounded exploration level needed to discover a physical support
+    # without prescribing posture or trajectory.
+    init_std=0.8,
+    entropy_coef=0.0035,
     clip_actions=1.0,
   )
 
