@@ -265,10 +265,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # All five outcomes must remain represented in the same fused policy.
-      # Earlier hard-mode bias starved the right static support; the physical
-      # support precursor below now handles rear/normal discovery directly.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # All five outcomes remain in the same fused policy.  Once the easy
+      # front pivot is reliably discovered, equal sampling leaves too little
+      # data for the still-unsolved normal co-axial and rear pivots.  Retain
+      # substantial side coverage while redirecting that solved-mode budget
+      # to the two requested dynamic outcomes.
+      mode_probabilities=(0.30, 0.10, 0.30, 0.15, 0.15),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,

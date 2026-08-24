@@ -320,12 +320,16 @@ def _stance_spin_components(
   # diagonal spinning form.  A static side stand starts a full quarter-turn
   # away from its target; applying that same fourth power leaves virtually no
   # physical-contact gradient while it is rolling toward the support pair.
-  # A square retains the identical final outcome while making that discovery
-  # path observable without a pose or transition reference.
+  # Its quadratic-to-quartic blend keeps that discovery path observable while
+  # making the final degrees of side attitude materially better, without a
+  # pose or transition reference.
+  side_alignment_score = torch.square(alignment) * (
+    0.20 + 0.80 * torch.square(alignment)
+  )
   alignment_score = torch.where(
     mode == 0,
     torch.square(alignment),
-    torch.where(mode <= 2, torch.pow(alignment, 4.0), torch.square(alignment)),
+    torch.where(mode <= 2, torch.pow(alignment, 4.0), side_alignment_score),
   )
   # Co-axiality is meaningful only where the support wheels can actually
   # roll about a horizontal common axle.  In a left/right side stand the
