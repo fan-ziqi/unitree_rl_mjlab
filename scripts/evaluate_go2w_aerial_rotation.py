@@ -24,6 +24,12 @@ from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
 TASK_ID = "Unitree-Go2W-Aerial-Rotation-Flat"
 MODE_NAMES = ("front", "back", "left", "right", "yaw")
 TARGET_ANGLE = math.tau
+# This is a *visual-review* threshold, not the reward or task target.  A
+# rendered maneuver can read as a complete revolution slightly before its
+# integrated angle reaches the exact 2π engineering threshold.  Keep the two
+# reports separate so a useful video is not mislabeled as no progress, while
+# PPO still trains the full-turn objective.
+VISUAL_TURN_FRACTION = 0.85
 MetricDict = dict[str, float | int | str]
 
 
@@ -235,7 +241,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     # rate tells us whether the remaining defect is attitude, residual speed,
     # or no wheelward recovery at all.
     full_turn_seen = torch.zeros_like(trial_open)
+    near_full_turn_seen = torch.zeros_like(trial_open)
     post_turn_touchdown = torch.zeros_like(trial_open)
+    visual_turn_touchdown = torch.zeros_like(trial_open)
     post_turn_best_gravity_error = torch.full(
         (cfg.num_envs,), float("inf"), device=base_env.device
     )
@@ -353,9 +361,24 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             full_turn_seen |= trial_open & (
                 command_term._rotation_progress >= TARGET_ANGLE
             )
+            near_full_turn_seen |= trial_open & (
+                command_term._rotation_progress
+                >= VISUAL_TURN_FRACTION * TARGET_ANGLE
+            )
+            # A visible pass is intentionally less exact than the strict
+            # completion state below: near one full airborne turn and a real
+            # four-wheel landing without a reset.  It never feeds reward,
+            # termination, or training selection.
+            visual_turn_touchdown |= (
+                trial_open
+                & near_full_turn_seen
+                & ~dones.bool()
+                & torch.all(contacts, dim=1)
+            )
             post_turn_touchdown_now = (
                 trial_open
                 & full_turn_seen
+                & ~dones.bool()
                 & torch.all(contacts, dim=1)
             )
             if torch.any(post_turn_touchdown_now):
@@ -498,6 +521,15 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             .float()
             .mean()
             .item(),
+            "visual_near_turn_rate": (
+                peak_progress[mask] >= VISUAL_TURN_FRACTION * TARGET_ANGLE
+            )
+            .float()
+            .mean()
+            .item(),
+            "visual_four_wheel_landing_rate": (
+                visual_turn_touchdown[mask].float().mean().item()
+            ),
             "completion_rate": completed[mask].float().mean().item(),
             "attempt_failure_rate": attempt_failed[mask].float().mean().item(),
             "illegal_reset_rate": failed[mask].float().mean().item(),
