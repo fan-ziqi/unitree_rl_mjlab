@@ -364,6 +364,7 @@ class StanceLocomotionCommand(CommandTerm):
     mode_idle_probabilities: tuple[float, float, float] | None = None,
     lin_vel_x_range: tuple[float, float] | None = None,
     yaw_rate_range: tuple[float, float] | None = None,
+    resampling_time_range: tuple[float, float] | None = None,
   ) -> None:
     if mode_probabilities is not None:
       if len(mode_probabilities) != 3 or any(p < 0.0 for p in mode_probabilities):
@@ -393,6 +394,11 @@ class StanceLocomotionCommand(CommandTerm):
     if yaw_rate_range is not None:
       self._validate_range("yaw_rate_range", yaw_rate_range)
       self.cfg.yaw_rate_range = yaw_rate_range
+    if resampling_time_range is not None:
+      self._validate_range("resampling_time_range", resampling_time_range)
+      if resampling_time_range[0] <= 0.0:
+        raise ValueError("resampling_time_range must be positive.")
+      self.cfg.resampling_time_range = resampling_time_range
 
 
 @dataclass(kw_only=True)

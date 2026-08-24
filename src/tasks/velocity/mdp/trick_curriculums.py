@@ -28,7 +28,7 @@ def _active_stage(
 
 
 def stance_spin_command_stages(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   env_ids: torch.Tensor,
   command_name: str,
   stages: tuple[dict[str, Any], ...],
@@ -49,7 +49,7 @@ def stance_spin_command_stages(
 
 
 def stance_locomotion_command_stages(
-  env: "ManagerBasedRlEnv",
+  env: ManagerBasedRlEnv,
   env_ids: torch.Tensor,
   command_name: str,
   stages: tuple[dict[str, Any], ...],
@@ -64,9 +64,13 @@ def stance_locomotion_command_stages(
     mode_idle_probabilities=stage.get("mode_idle_probabilities"),
     lin_vel_x_range=stage.get("lin_vel_x_range"),
     yaw_rate_range=stage.get("yaw_rate_range"),
+    resampling_time_range=stage.get("resampling_time_range"),
   )
   return {
     "stance_locomotion_x_max": torch.tensor(command.cfg.lin_vel_x_range[1]),
     "stance_locomotion_yaw_max": torch.tensor(command.cfg.yaw_rate_range[1]),
     "stance_locomotion_idle_probability": torch.tensor(command.cfg.idle_probability),
+    "stance_locomotion_command_time": torch.tensor(
+      command.cfg.resampling_time_range[1]
+    ),
   }

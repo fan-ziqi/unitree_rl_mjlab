@@ -255,16 +255,20 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "mode_idle_probabilities": (0.0, 0.50, 0.50),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
+            "resampling_time_range": (8.0, 8.0),
           },
           {
-            # 12,800 controller steps is about 200 updates at the fixed
-            # 64-step rollout.  The mode one-hots and velocity ranges remain
-            # unchanged; only support-vs-motion sample frequency changes.
+            # The preceding stage proves each support from the prescribed
+            # four-wheel reset.  Thereafter, train ordinary command changes
+            # inside the same rollout; the actor sees only its current public
+            # history and the new one-hot, never a reset pose or transition
+            # label.
             "step": 12_800,
-            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_probabilities": (0.40, 0.30, 0.30),
             "mode_idle_probabilities": (0.0, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
+            "resampling_time_range": (2.0, 3.0),
           },
         ),
       },
