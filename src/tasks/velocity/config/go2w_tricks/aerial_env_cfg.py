@@ -61,12 +61,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # The uniform a141 run discovered front/left/yaw, but after 800 updates
-      # back/right still produced almost no desired-axis radians.  Keep every
-      # one-hot in this one actor, while giving the two unresolved signed
-      # directions more fresh PPO exploration.  This is command sampling only
-      # and does not encode a takeoff, phase, or reference motion.
-      mode_probabilities=(0.20, 0.30, 0.10, 0.30, 0.10),
+      # Every one-hot is an equally required result.  Focused sampling let the
+      # few right/yaw successes dominate the shared PPO update while the other
+      # commands stopped attempting full turns.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -164,23 +162,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
         "target_clearance": 0.45,
-      },
-    ),
-    "terminal_orientation_progress": RewardTermCfg(
-      func=trick_rewards.AerialTerminalOrientationProgress,
-      # The actual acceptance condition below remains a quiet, four-wheel
-      # landing at the launch orientation.  This is its only dense precursor:
-      # while the robot is still airborne and has completed most of the turn,
-      # pay a new improvement toward that same launch frame.  It carries no
-      # joint, phase, time, or reference-motion target.
-      weight=100.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_angle": math.tau,
-        "min_turn_fraction": 0.55,
-        "max_overrotation": 0.50,
       },
     ),
     "completed_turn": RewardTermCfg(
