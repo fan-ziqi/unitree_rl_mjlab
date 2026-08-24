@@ -86,6 +86,12 @@ class StanceSpinCommand(CommandTerm):
 
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
     next_probabilities = self._mode_probabilities.expand(count, -1).clone()
+    # Dynamic normal/front/rear pivots all track the same signed world-down
+    # rate.  Keep their direct A->B sequences inside that set so switching
+    # never inserts a static side stand that would brake or reverse the turn.
+    dynamic_first = modes <= 2
+    next_probabilities[dynamic_first, 3:] = 0.0
+    next_probabilities[~dynamic_first, :3] = 0.0
     next_probabilities[torch.arange(count, device=self.device), modes] = 0.0
     no_alternative = next_probabilities.sum(dim=1) == 0.0
     next_probabilities[no_alternative] = self._mode_probabilities
