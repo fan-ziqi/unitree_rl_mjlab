@@ -463,6 +463,7 @@ class StanceSpinPivotResult:
     side_support_weight: float = 0.25,
     side_pivot_speed_limit: float = 0.35,
     normal_coaxial_weight: float = 0.15,
+    rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
@@ -474,6 +475,8 @@ class StanceSpinPivotResult:
       raise ValueError("side_pivot_speed_limit must be positive.")
     if not 0.0 <= normal_coaxial_weight < 1.0:
       raise ValueError("normal_coaxial_weight must be in [0, 1).")
+    if not 0.0 <= rate_progress_weight <= 1.0:
+      raise ValueError("rate_progress_weight must be in [0, 1].")
     (
       asset,
       active,
@@ -509,7 +512,29 @@ class StanceSpinPivotResult:
     # at the required 0.12-m/s local centre speed.
     pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
     dynamic_modes = mode <= 2  # normal/front/rear: real high-rate pivots.
-    dynamic_quality = coaxial_factor * rate_score * pivot_stillness
+    # ``rate_score`` is deliberately strict near the final requested speed,
+    # but has no gradient once the error exceeds ``std``.  That left the
+    # policy satisfied with the common-axis geometry while rotating at only
+    # about 1 rad/s for a 10--18 rad/s request.  The signed, normalized
+    # measured z-rate supplies the missing dense route to that same final
+    # target.  It is gated by the identical support/coaxial/local-pivot
+    # outcome, so spinning in the air, travelling on a floor circle, or
+    # reversing direction never earns it.  This is active continuously in
+    # both one-hot segments: a switch that brakes or reverses necessarily
+    # loses the reward rather than being treated as a fresh manoeuvre.
+    command = _command(env, command_name)
+    gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+    actual_down_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
+    requested_rate = command[:, 5]
+    signed_rate_progress = torch.clamp(
+      actual_down_rate * torch.sign(requested_rate)
+      / torch.abs(requested_rate).clamp_min(speed_deadband),
+      min=0.0,
+      max=1.0,
+    )
+    dynamic_quality = coaxial_factor * pivot_stillness * (
+      rate_score + rate_progress_weight * signed_rate_progress
+    )
     # Front/rear starts at the ordinary four-wheel reset with near-zero
     # commanded-rate score.  Multiplying that zero by every support factor
     # gives PPO no path to discover the physically reachable two-wheel form.

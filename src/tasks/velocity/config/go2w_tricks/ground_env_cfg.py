@@ -318,6 +318,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # sparse product could establish all-wheel support; rate still raises
         # this same result from 40% to 100% once the geometry is present.
         "normal_coaxial_weight": 0.40,
+        # Keep the signed world-z rate valuable through a direct one-hot
+        # change.  The strict final tracking score remains present; this
+        # dense measured-rate component merely makes acceleration toward it
+        # discoverable without adding a pose or transition target.
+        "rate_progress_weight": 0.75,
         "asset_cfg": _support_wheels(),
       },
     ),
