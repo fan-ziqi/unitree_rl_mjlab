@@ -285,7 +285,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       )
       total_angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
       rate_ok = torch.where(active_spin, rate_error < 0.75, total_angular_speed < 1.0)
-      pose_ok = target_alignment >= 0.97
+      pose_ok = torch.where(
+        modes == 0, target_alignment >= 0.995, target_alignment >= 0.97
+      )
       pivot_ok = center_measured & (center_speed < 0.08)
       normal_layout_ok = (normal_coaxiality >= 0.90) & (
         normal_front_inside_delta >= 0.05

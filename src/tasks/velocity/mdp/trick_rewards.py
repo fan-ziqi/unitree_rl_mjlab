@@ -414,9 +414,12 @@ def _stance_spin_components(
   side_alignment_score = torch.square(alignment) * (
     0.20 + 0.80 * torch.square(alignment)
   )
+  # Normal's common-axis pivot is a level four-wheel form.  Its previous
+  # quadratic tolerance still made a visibly nose-up pivot worthwhile.
+  normal_alignment_score = torch.pow(alignment, 16.0)
   alignment_score = torch.where(
     mode == 0,
-    torch.square(alignment),
+    normal_alignment_score,
     torch.where(mode <= 2, torch.pow(alignment, 4.0), side_alignment_score),
   )
   support_quality = contact_score * alignment_score * height_score
