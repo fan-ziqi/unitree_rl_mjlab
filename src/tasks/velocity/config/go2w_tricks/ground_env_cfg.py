@@ -356,7 +356,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # stances and the working spin-rate range.  This remains one
             # actor, one one-hot-plus-rate interface and ordinary default
             # resets--only the sampled command distribution changes.
-            "step": 25_600,
+            "step": 51_200,
             # Keep normal overwhelmingly represented until it can hold the
             # folded geometry at a real working rate.  The other one-hots are
             # still present in this same actor, but cannot dilute the common
@@ -371,7 +371,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # pivot is stable; it is still deliberately not a transition
             # stage, because the m800 audit showed switches could destroy the
             # only partially learned common-axle form.
-            "step": 102_400,
+            "step": 204_800,
             "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (4.0, 8.0),
@@ -382,7 +382,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the requested real transitions, including the all-zero default
             # idle command.  Mixing transitions before normal geometry was
             # valid simply trained the policy to step around the floor.
-            "step": 153_600,
+            "step": 307_200,
             "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
             "spin_rate_range": (4.0, 8.0),
