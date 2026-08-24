@@ -152,7 +152,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # Keep a direct monotonic incentive from the current low support all
         # the way to that extended physical clearance.  Exact contacts and
         # body attitude remain multiplicative validity requirements below.
-        "orientation_power": 4.0,
+        # At the default four-wheel reset a front/rear attitude score is 0.5.
+        # Raising it to the fourth power left only 6.25% of the already
+        # contact-discounted discovery return, and the m200 replay never
+        # tilted out of the low four-wheel form.  A square keeps the same
+        # measured outcome and strict end geometry, but restores a useful
+        # continuous route toward the upright support without prescribing a
+        # leg pose or transition trajectory.
+        "orientation_power": 2.0,
         "clearance_power": 1.0,
         "asset_cfg": _support_wheels(),
       },
