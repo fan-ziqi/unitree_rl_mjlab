@@ -364,7 +364,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
-        "std": 22.0,
+        # A 22-rad/s tolerance made a 4-rad/s request score highly even at
+        # zero body yaw.  The separate geometry bridge below remains available
+        # for discovery; this narrower outcome tolerance makes actual rotation
+        # necessary once that layout exists.
+        "std": 3.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
