@@ -312,6 +312,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # inside the existing outcome; most of its value still requires rate,
         # axle geometry, and a stationary support centre.
         "upright_support_weight": 0.20,
+        # A side stand is static only at its completed physical outcome.  Give
+        # its valid contact/attitude geometry a small discovery bridge while
+        # it is settling; the measured stillness remains the majority of the
+        # score and the evaluator keeps the final static requirement strict.
+        "side_support_weight": 0.25,
+        "side_pivot_speed_limit": 0.35,
         # Normal's precursor is stricter than ordinary four-wheel standing:
         # it pays only the measured co-axial, stationary wheel geometry.
         "normal_coaxial_weight": 0.15,

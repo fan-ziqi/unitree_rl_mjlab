@@ -316,10 +316,16 @@ def _stance_spin_components(
   # A broad squared attitude score admits a visibly slanted two-wheel pivot
   # as a local optimum.  Sharpen every two-wheel mode while preserving the
   # dense normal spin signal needed to move out of the default reset.
+  # Front/rear moving pivots need a sharper final-attitude score to avoid a
+  # diagonal spinning form.  A static side stand starts a full quarter-turn
+  # away from its target; applying that same fourth power leaves virtually no
+  # physical-contact gradient while it is rolling toward the support pair.
+  # A square retains the identical final outcome while making that discovery
+  # path observable without a pose or transition reference.
   alignment_score = torch.where(
-    upright_pivot,
-    torch.pow(alignment, 4.0),
+    mode == 0,
     torch.square(alignment),
+    torch.where(mode <= 2, torch.pow(alignment, 4.0), torch.square(alignment)),
   )
   # Co-axiality is meaningful only where the support wheels can actually
   # roll about a horizontal common axle.  In a left/right side stand the
@@ -368,12 +374,18 @@ class StanceSpinPivotResult:
     pivot_speed_limit: float,
     asset_cfg: SceneEntityCfg,
     upright_support_weight: float = 0.20,
+    side_support_weight: float = 0.25,
+    side_pivot_speed_limit: float = 0.35,
     normal_coaxial_weight: float = 0.15,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
     if not 0.0 <= upright_support_weight < 1.0:
       raise ValueError("upright_support_weight must be in [0, 1).")
+    if not 0.0 <= side_support_weight < 1.0:
+      raise ValueError("side_support_weight must be in [0, 1).")
+    if side_pivot_speed_limit <= 0.0:
+      raise ValueError("side_pivot_speed_limit must be positive.")
     if not 0.0 <= normal_coaxial_weight < 1.0:
       raise ValueError("normal_coaxial_weight must be in [0, 1).")
     (
@@ -448,10 +460,22 @@ class StanceSpinPivotResult:
     body_angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
     static_stillness = 1.0 / (1.0 + torch.square(body_angular_speed / 1.0))
     # Static means no support-centre travel as well as no body rotation.  The
-    # same local-centre measurement already rejects a travelling dynamic
-    # pivot; applying it here prevents a side mode from looking balanced while
-    # quietly driving away on one wheel pair.
-    static_result = support_quality * static_stillness * pivot_stillness
+    # local-centre measurement remains the final-quality factor below, so a
+    # travelling side pose cannot be the maximum-reward outcome.
+    # Settling into a side stand is briefly mobile.  The old product made
+    # every useful partial side support worth almost zero until it had already
+    # reached the static endpoint, which is an exploration dead-end.  Reuse
+    # the same support geometry as a small bridge, analogous to front/rear's
+    # existing upright-support bridge.  The strict static factors still make
+    # an actually still support the unique maximum; no pose, clock, or action
+    # target is supplied.
+    side_pivot_stillness = 1.0 / (
+      1.0 + torch.square(centre_speed / side_pivot_speed_limit)
+    )
+    static_quality = static_stillness * side_pivot_stillness
+    static_result = support_quality * (
+      side_support_weight + (1.0 - side_support_weight) * static_quality
+    )
     return active.to(rate_score.dtype) * torch.where(
       dynamic_modes, moving.to(rate_score.dtype) * dynamic_result, static_result
     )
