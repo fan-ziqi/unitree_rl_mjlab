@@ -271,11 +271,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
   # The reference's normal pivot moves the wheel centres from a four-corner
-  # footprint onto one transverse line.  The shared ±0.55-rad hip residual
-  # leaves that measured geometry outside PPO's reachable action envelope;
-  # expose most of the model's existing joint range for this task only.  This
-  # increases no torque limit and supplies no desired pose.
-  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
+  # footprint onto one transverse line.  A modest extension beyond the shared
+  # ±0.55-rad residual makes that geometry reachable; the 0.90-rad trial
+  # instead taught wheel liftoff, so retain a ground-contact-safe 0.70-rad
+  # envelope.  This increases no torque limit and supplies no desired pose.
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
   # A ±40-rad/s wheel command was sufficient for the visibly slow prototype
   # but capped the faster common-axis pivot seen in the reference.  Motor
   # torque authority remains the model's physical limit.
@@ -324,11 +324,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "upright_support_weight": 0.20,
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
-        # First make the reference's compact, stationary four-wheel form
-        # valuable by itself.  At 0.10 PPO found an airborne turn before the
-        # sparse product could establish all-wheel support; rate still raises
-        # this same result from 40% to 100% once the geometry is present.
-        "normal_coaxial_weight": 0.40,
+        # Keep a small geometry bridge, but make a stationary common-axis
+        # form materially inferior to one that actually tracks z-rate.  The
+        # previous 40% bridge converged to low-speed deformation instead of
+        # the reference pivot; this still supplies a measured discovery path
+        # without becoming a substitute for rotation.
+        "normal_coaxial_weight": 0.10,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
