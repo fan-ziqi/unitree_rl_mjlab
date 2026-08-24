@@ -263,8 +263,8 @@ class StanceLocomotionCommand(CommandTerm):
       self._validate_mode_idle_probabilities(cfg.mode_idle_probabilities)
     self._validate_range("lin_vel_x_range", cfg.lin_vel_x_range)
     self._validate_range("yaw_rate_range", cfg.yaw_rate_range)
-    if cfg.transition_idle_time <= 0.0 or cfg.transition_active_time <= 0.0:
-      raise ValueError("locomotion transition durations must be positive.")
+    if cfg.transition_active_time <= 0.0:
+      raise ValueError("locomotion transition duration must be positive.")
 
     self.command_buf = torch.zeros(self.num_envs, 5, device=self.device)
     self._scheduled_command = torch.zeros_like(self.command_buf)
@@ -387,40 +387,29 @@ class StanceLocomotionCommand(CommandTerm):
     next_sampled = sampled.clone()
     next_sampled[:, :3] = 0.0
     next_sampled[torch.arange(count, device=self.device), next_modes] = 1.0
-    self.command_buf[env_ids] = 0.0
-    self.command_buf[env_ids, 0] = 1.0
+    # The reset state is physically normal four-wheel idle, so training can
+    # issue its first public one-hot immediately.  This matches a controller
+    # that switches directly from normal driving to a front/rear stance.
+    self.command_buf[env_ids] = sampled
     self._scheduled_command[env_ids] = sampled
     self._next_scheduled_command[env_ids] = next_sampled
-    self._transition_phase[env_ids] = 0
+    self._transition_phase[env_ids] = 1
     self._transition_time[env_ids] = 0.0
 
   def _update_command(self) -> None:
-    """Start from normal idle, then switch directly between two modes."""
+    """Hold one requested mode, switch directly, then recover to normal."""
     pending = self._transition_phase < 3
     self._transition_time[pending] += self._env.step_dt
-    start = (
-      (self._transition_phase == 0)
-      & (self._transition_time >= self.cfg.transition_idle_time)
-    )
-    if torch.any(start):
-      self.command_buf[start] = self._scheduled_command[start]
-      self._transition_phase[start] = 1
     second_start = (
       (self._transition_phase == 1)
-      & (
-        self._transition_time
-        >= self.cfg.transition_idle_time + 0.5 * self.cfg.transition_active_time
-      )
+      & (self._transition_time >= 0.5 * self.cfg.transition_active_time)
     )
     if torch.any(second_start):
       self.command_buf[second_start] = self._next_scheduled_command[second_start]
       self._transition_phase[second_start] = 2
     finish = (
       (self._transition_phase == 2)
-      & (
-        self._transition_time
-        >= self.cfg.transition_idle_time + self.cfg.transition_active_time
-      )
+      & (self._transition_time >= self.cfg.transition_active_time)
     )
     if torch.any(finish):
       self.command_buf[finish] = 0.0
@@ -485,7 +474,6 @@ class StanceLocomotionCommandCfg(CommandTermCfg):
   lin_vel_x_range: tuple[float, float] = (-0.4, 0.4)
   yaw_rate_range: tuple[float, float] = (-0.4, 0.4)
   command_deadband: float = 0.05
-  transition_idle_time: float = 0.8
   transition_active_time: float = 4.2
 
   def build(self, env) -> StanceLocomotionCommand:
