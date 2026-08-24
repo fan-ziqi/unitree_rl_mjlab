@@ -79,6 +79,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
+  # A legal front/rear support must lift the trunk over one wheel pair.  Keep
+  # it free of a prescribed pose, but expose the model's usable hip workspace
+  # so that the measured clearance is physically reachable from four-wheel
+  # reset without changing torque authority.
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
   cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
