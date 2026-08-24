@@ -122,6 +122,26 @@ class StanceSpinCommand(CommandTerm):
     # arbitrarily branch its side balance on an input the task ignores.  Use
     # the canonical zero representation for both training and external
     # command updates; normal/front/rear retain the full signed-rate command.
+    # Static front/rear samples are useful only while PPO is discovering that
+    # those two supports exist.  They must be self-contained holds.  The old
+    # per-segment sampling could create ``normal@+r -> front@0`` (or the
+    # converse) in the middle of an episode.  That asks the actor to brake
+    # exactly when a public one-hot changes, whereas the reference changes
+    # contact form while retaining its signed world-z rotation.  If a static
+    # sample is selected, repeat the same upright one-hot for both segments.
+    # Every *different* dynamic one-hot pair below therefore has one shared
+    # signed target rate throughout the direct switch.
+    static_upright_hold = torch.zeros(count, dtype=torch.bool, device=self.device)
+    if self.cfg.upright_static_probability > 0.0:
+      first_upright = non_idle & ((modes == 1) | (modes == 2))
+      static_upright_hold = first_upright & (
+        torch.rand(count, device=self.device) < self.cfg.upright_static_probability
+      )
+      static_ids = env_ids[static_upright_hold]
+      if len(static_ids) > 0:
+        self._next_scheduled_command[static_ids] = 0.0
+        self._next_scheduled_command[static_ids, modes[static_upright_hold]] = 1.0
+
     dynamic = non_idle & ((modes <= 2) | (next_modes <= 2))
     dynamic_ids = env_ids[dynamic]
     if len(dynamic_ids) > 0:
@@ -135,32 +155,24 @@ class StanceSpinCommand(CommandTerm):
       )
       signed_rate = sign * magnitude
       first_dynamic = modes[dynamic] <= 2
-      second_dynamic = next_modes[dynamic] <= 2
+      # ``static_upright_hold`` may have replaced the initially sampled next
+      # one-hot.  Read the scheduled command rather than the stale sample so
+      # both rate assignments describe the public command that will actually
+      # be emitted.
+      second_dynamic = torch.argmax(
+        self._next_scheduled_command[dynamic_ids, :5], dim=1
+      ) <= 2
       self._scheduled_spin_rate[dynamic_ids[first_dynamic]] = signed_rate[first_dynamic]
       self._next_scheduled_spin_rate[dynamic_ids[second_dynamic]] = signed_rate[
         second_dynamic
       ]
-      # Front/rear high-rate pivots are only useful after their legal
-      # two-wheel supports have been discovered.  ``spin_rate == 0`` already
-      # has a natural public meaning: hold the requested one-hot without a
-      # rotation request.  Use that existing command value for a temporary
-      # curriculum of front/rear support discovery, then set this probability
-      # back to zero for the final continuous-rate switching task.  Normal
-      # is deliberately never zeroed here: its zero-rate behaviour remains
-      # the all-zero/default idle command.
-      if self.cfg.upright_static_probability > 0.0:
-        first_upright = (modes[dynamic] == 1) | (modes[dynamic] == 2)
-        second_upright = (next_modes[dynamic] == 1) | (next_modes[dynamic] == 2)
-        first_static = first_upright & (
-          torch.rand(len(dynamic_ids), device=self.device)
-          < self.cfg.upright_static_probability
-        )
-        second_static = second_upright & (
-          torch.rand(len(dynamic_ids), device=self.device)
-          < self.cfg.upright_static_probability
-        )
-        self._scheduled_spin_rate[dynamic_ids[first_static]] = 0.0
-        self._next_scheduled_spin_rate[dynamic_ids[second_static]] = 0.0
+      # A zero-rate front/rear one-hot is a temporary support-discovery
+      # command.  It is emitted only as the self-contained hold constructed
+      # above, never as one side of a mode change.  Normal deliberately stays
+      # dynamic: default four-wheel idle remains the literal all-zero command.
+      static_dynamic = static_upright_hold[dynamic]
+      self._scheduled_spin_rate[dynamic_ids[static_dynamic]] = 0.0
+      self._next_scheduled_spin_rate[dynamic_ids[static_dynamic]] = 0.0
 
     # A physical reset is already the literal four-wheel idle.  Do not insert
     # an uncommanded idle interval before an externally valid one-hot: it
@@ -260,8 +272,10 @@ class StanceSpinCommandCfg(CommandTermCfg):
   )
   spin_idle_probability: float = 0.55
   # A zero rate on an active front/rear one-hot asks for a static two-wheel
-  # support.  It is a curriculum sampling probability, not another command
-  # component; final dynamic-switch stages set it to zero.
+  # support.  It is a curriculum sampling probability for a *held* support,
+  # not another command component.  It must never turn one half of a direct
+  # dynamic one-hot switch into a stop: final dynamic-switch stages set it to
+  # zero altogether.
   upright_static_probability: float = 0.0
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0

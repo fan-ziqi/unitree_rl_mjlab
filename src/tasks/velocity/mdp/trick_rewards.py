@@ -590,8 +590,14 @@ class StanceSpinPivotResult:
     # stationary wheel-axis geometry.  Reward only that measured geometry
     # before rate emerges, never the default support by itself.
     normal_geometry = support_quality * coaxial_factor * pivot_stillness
+    # Use the same signed measured-rate progress for the folded normal pivot
+    # as for front/rear.  Exact ``rate_score`` remains the sharp final target;
+    # the dense term prevents a normal -> front/rear direct switch from being
+    # locally indifferent to braking while it changes support geometry.
+    normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
     normal_result = normal_geometry * (
-      normal_coaxial_weight + (1.0 - normal_coaxial_weight) * rate_score
+      normal_coaxial_weight
+      + (1.0 - normal_coaxial_weight) * normal_dynamic_quality
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
