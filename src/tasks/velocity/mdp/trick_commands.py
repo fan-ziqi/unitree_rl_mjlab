@@ -512,6 +512,7 @@ class AerialRotationCommand(CommandTerm):
       cfg.landing_linear_velocity_limit <= 0.0
       or cfg.landing_angular_velocity_limit <= 0.0
       or cfg.min_ballistic_time <= 0.0
+      or cfg.trigger_idle_time <= 0.0
     ):
       raise ValueError("aerial event durations and limits must be positive.")
 
@@ -545,6 +546,13 @@ class AerialRotationCommand(CommandTerm):
     # turn axis: it never enters the policy observation.
     self._launch_root_quat_w = torch.zeros(self.num_envs, 4, device=self.device)
     self._new_skill = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+    self._pending_mode = torch.zeros(
+      self.num_envs, dtype=torch.long, device=self.device
+    )
+    self._pending_trigger = torch.zeros(
+      self.num_envs, dtype=torch.bool, device=self.device
+    )
+    self._trigger_time = torch.zeros(self.num_envs, device=self.device)
 
   @property
   def command(self) -> torch.Tensor:
@@ -568,6 +576,9 @@ class AerialRotationCommand(CommandTerm):
     self._launch_axis_w[env_ids] = 0.0
     self._launch_root_quat_w[env_ids] = 0.0
     self._new_skill[env_ids] = False
+    self._pending_mode[env_ids] = 0
+    self._pending_trigger[env_ids] = False
+    self._trigger_time[env_ids] = 0.0
     active = torch.rand(count, device=self.device) > self.cfg.idle_probability
     active_ids = env_ids[active]
     if len(active_ids) == 0:
@@ -575,12 +586,13 @@ class AerialRotationCommand(CommandTerm):
     modes = torch.multinomial(
       self._mode_probabilities, len(active_ids), replacement=True
     )
-    # Reset already starts in the physical default idle.  Sampled aerial
-    # events must therefore expose their one-hot immediately, matching an
-    # external caller and retaining the full episode for launch, rotation,
-    # and landing rather than hiding an arbitrary pre-trigger dwell.
-    self.command_buf[active_ids, modes] = 1.0
-    self._new_skill[active_ids] = True
+    # Populate the public history with a stable one-hot before the first
+    # ballistic action.  The policy has no recurrent state beyond its normal
+    # 10-frame observation window; without this short default-pose warm-up it
+    # sees a reset history full of zeros and collapses to no jump.  This is a
+    # command-observation consistency delay, not a pose or trajectory target.
+    self._pending_mode[active_ids] = modes
+    self._pending_trigger[active_ids] = True
 
   def _update_command(self) -> None:
     """Finish exactly one aerial attempt, then return to idle.
@@ -592,6 +604,17 @@ class AerialRotationCommand(CommandTerm):
     is no need to keep a flip request alive for braking.  Clearing at the
     first contact prevents that one-hot from asking for a rebound.
     """
+    pending = self._pending_trigger
+    self._trigger_time[pending] += self._env.step_dt
+    trigger = pending & (self._trigger_time >= self.cfg.trigger_idle_time)
+    if torch.any(trigger):
+      self.command_buf[trigger] = 0.0
+      self.command_buf[
+        trigger, self._pending_mode[trigger]
+      ] = 1.0
+      self._new_skill[trigger] = True
+      self._pending_trigger[trigger] = False
+
     active = torch.sum(self.command_buf, dim=1) > 0.5
     if not torch.any(active):
       # Preserve the final attempt state until the next resample.  The fixed
@@ -734,6 +757,7 @@ class AerialRotationCommandCfg(CommandTermCfg):
   min_ballistic_time: float = 0.08
   target_angle: float = math.tau
   max_overrotation: float = 0.75
+  trigger_idle_time: float = 0.5
 
   def build(self, env) -> AerialRotationCommand:
     return AerialRotationCommand(self, env)

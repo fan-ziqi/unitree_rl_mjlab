@@ -74,6 +74,8 @@ def _fixed_reset_observation(
     command_term._launch_axis_w.zero_()
     command_term._launch_root_quat_w.zero_()
     command_term._new_skill.fill_(False)
+    command_term._pending_trigger.fill_(False)
+    command_term._trigger_time.zero_()
   else:
     _pin_mode(command_term, mode)
   history_length = base_env.cfg.observations["actor"].history_length or 1
