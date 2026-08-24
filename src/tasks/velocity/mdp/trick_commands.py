@@ -674,7 +674,7 @@ class AerialRotationCommandCfg(CommandTermCfg):
   landing_settle_time: float = 0.10
   landing_gravity_error_limit: float = 0.30
   # ``abs(dot(q_land, q_launch))`` is invariant to the quaternion sign.  A
-  # 0.995 threshold permits about 11.5 degrees of residual whole-body
+  # 0.985 threshold permits about 20 degrees of residual whole-body
   # rotation, while rejecting the yaw drift that projected gravity cannot
   # observe after a front/back/side flip.
   landing_orientation_dot_min: float = 0.985
