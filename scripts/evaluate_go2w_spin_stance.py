@@ -76,8 +76,12 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Keep the public rate input present for every one-hot in the batch."""
-  return torch.full_like(modes, spin_rate, dtype=torch.float32)
+  """Return the canonical public rate for each physical command mode."""
+  requested = torch.full_like(modes, spin_rate, dtype=torch.float32)
+  # Left/right are static side supports.  Canonicalizing their ignored input
+  # to zero matches the command term and prevents evaluation from measuring
+  # an arbitrary, untrained side-rate branch.
+  return torch.where(modes <= 2, requested, torch.zeros_like(requested))
 
 
 def _expected_down_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
@@ -86,8 +90,7 @@ def _expected_down_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
   Left/right retain the same public command layout but are static two-wheel
   side supports; their rate channel is deliberately ignored by the task.
   """
-  requested = _mode_rates(modes, spin_rate)
-  return torch.where(modes <= 2, requested, torch.zeros_like(requested))
+  return _mode_rates(modes, spin_rate)
 
 
 def _pin_modes(

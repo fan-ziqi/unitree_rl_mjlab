@@ -31,8 +31,8 @@ class StanceSpinCommand(CommandTerm):
   ``normal`` is the four-wheel in-place yaw spin, but a nonzero rate must
   bring the front/rear wheel axles onto co-linear tracks first; front/rear are
   the upright two-wheel pivots and left/right are their side-wheel
-  equivalents.  Every non-idle one-hot carries the same signed rotation
-  request.
+  equivalents.  The side supports canonicalize their irrelevant rate channel
+  to zero; normal/front/rear carry the signed rotation request.
   No command carries a pose, phase, or limb target.
   """
 
@@ -79,14 +79,19 @@ class StanceSpinCommand(CommandTerm):
     non_idle = (
       torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
     )
-    # Every non-idle command has a public stance one-hot and a signed
-    # world-down rate.  The literal all-zero command remains default
-    # four-wheel idle.
+    # Every non-idle command has a public stance one-hot.  The literal
+    # all-zero command remains default four-wheel idle.
     active_ids = env_ids[non_idle]
     if len(active_ids) > 0:
       self.command_buf[active_ids, modes[non_idle]] = 1.0
 
-    moving = non_idle
+    # Side stands are static physical outcomes: their wheel axes are vertical
+    # in the target pose, so a world-down spin rate is semantically
+    # meaningless.  Feeding random signed values there let the fused actor
+    # arbitrarily branch its side balance on an input the task ignores.  Use
+    # the canonical zero representation for both training and external
+    # command updates; normal/front/rear retain the full signed-rate command.
+    moving = non_idle & (modes <= 2)
     moving_ids = env_ids[moving]
     if len(moving_ids) == 0:
       return
@@ -102,10 +107,15 @@ class StanceSpinCommand(CommandTerm):
 
   def _update_command(self) -> None:
     """Ramp only the continuous rate channel; stance one-hots switch directly."""
+    active = torch.sum(self.command_buf[:, :5], dim=1) > 0.5
+    side_support = active & (torch.argmax(self.command_buf[:, :5], dim=1) >= 3)
+    self._target_spin_rate[side_support] = 0.0
     current_rate = self.command_buf[:, 5]
     max_delta = self.cfg.spin_rate_ramp_rate * self._env.step_dt
     delta = torch.clamp(self._target_spin_rate - current_rate, -max_delta, max_delta)
-    self.command_buf[:, 5] = current_rate + delta
+    self.command_buf[:, 5] = torch.where(
+      side_support, torch.zeros_like(current_rate), current_rate + delta
+    )
 
   def set_curriculum(
     self,
