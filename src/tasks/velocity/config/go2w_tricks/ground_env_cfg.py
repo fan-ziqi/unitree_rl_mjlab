@@ -265,6 +265,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
+  # The reference's normal pivot moves the wheel centres from a four-corner
+  # footprint onto one transverse line.  The shared ±0.55-rad hip residual
+  # leaves that measured geometry outside PPO's reachable action envelope;
+  # expose most of the model's existing joint range for this task only.  This
+  # increases no torque limit and supplies no desired pose.
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
   # A ±40-rad/s wheel command was sufficient for the visibly slow prototype
   # but capped the faster common-axis pivot seen in the reference.  Motor
   # torque authority remains the model's physical limit.
