@@ -69,12 +69,12 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # policy.  Match the aerial policy capacity so the easy normal branch
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
-    init_std=0.60,
-    # Keep enough exploration for rear/side discovery after normal/front
-    # become accurate, without returning to the 0.010 regime that erased the
-    # co-axial pivot. This middle value is paired with a nonzero sampling
-    # floor for every mode above.
-    entropy_coef=0.004,
+    # Both the common-axis pivot and the upright supports require a coordinated
+    # lift that is absent from reset.  With 0.60/0.004 the learned scalar
+    # standard deviation collapsed to 0.05 before any upright support had
+    # appeared.  Keep bounded (clipped) exploration active for discovery.
+    init_std=1.0,
+    entropy_coef=0.008,
     clip_actions=1.0,
   )
 
@@ -88,13 +88,12 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # multimodal mapping from a ten-frame proprioceptive history.  The wider
     # MLP is still inexpensive compared with 8,192 parallel physics worlds.
     hidden_dims=(512, 512, 256),
-    init_std=0.60,
-    # The former entropy pressure grew the scalar Gaussian standard deviation
-    # past 1.7 despite the clipped action envelope.  That continually knocked
-    # a discovered rear support out of balance and prevented x/yaw response
-    # from consolidating.  Initial exploration is unchanged; this only lets
-    # PPO reduce noise once a physical stance is found.
-    entropy_coef=0.002,
+    # This task's prior 0.60/0.002 setting collapsed to 0.18 while the robot
+    # was still in the low four-wheel local optimum.  A larger but clipped
+    # initial distribution and modest entropy pressure permit actual support
+    # discovery without specifying a posture or transition trajectory.
+    init_std=1.0,
+    entropy_coef=0.006,
     clip_actions=1.0,
   )
 
