@@ -163,13 +163,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # or a reference phase, and leaves launch/landing coordination to PPO.
     "airborne_wheel_spread": RewardTermCfg(
       func=trick_rewards.aerial_airborne_wheel_spread_cost,
-      weight=-25.0,
+      # The first compactness scale was two orders of magnitude below the
+      # discovered clearance/rotation return, so the actor rationally ignored
+      # it and flailed its legs.  This keeps the same geometry-only outcome
+      # signal, but makes an extended wheel radius materially worse than a
+      # compact aerial turn.
+      weight=-500.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "max_wheel_root_distance": 0.42,
-        "softness": 0.12,
+        "max_wheel_root_distance": 0.38,
+        "softness": 0.10,
         "asset_cfg": _aerial_wheels(),
       },
     ),
