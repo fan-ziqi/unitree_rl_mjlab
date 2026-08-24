@@ -265,10 +265,31 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (8.0, 8.0),
           },
           {
-            # Train actual normal/front/rear changes only after each mode has
-            # both a static support and a full-range velocity response.  m1200
-            # leaves 400 updates of transition data in a 1600-update run.
+            # First expose exactly one late, long-horizon switch.  The prior
+            # direct 8-s -> 2-s jump reset as soon as front/rear was selected,
+            # so its policy never saw a recoverable transition trajectory.
             "step": 76_800,
+            "mode_probabilities": (0.40, 0.30, 0.30),
+            "mode_idle_probabilities": (0.20, 0.25, 0.25),
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+            "resampling_time_range": (5.0, 6.0),
+          },
+          {
+            # Shorten only after that first transition can land in the next
+            # supported mode; this remains the identical one-hot command and
+            # policy, merely a less abrupt sampling curriculum.
+            "step": 102_400,
+            "mode_probabilities": (0.40, 0.30, 0.30),
+            "mode_idle_probabilities": (0.20, 0.25, 0.25),
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+            "resampling_time_range": (3.0, 4.0),
+          },
+          {
+            # The final public interface changes every 2--3 s, including
+            # normal/front/rear one-hot changes in one continuous rollout.
+            "step": 128_000,
             "mode_probabilities": (0.40, 0.30, 0.30),
             "mode_idle_probabilities": (0.20, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
