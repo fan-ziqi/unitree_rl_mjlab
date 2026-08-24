@@ -265,11 +265,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # The balanced run preserved normal/front but stopped improving the
-      # physically harder rear and side forms once its scalar exploration
-      # collapsed. Give those forms a modest majority while retaining over a
-      # third of samples for the established normal/front pivots.
-      mode_probabilities=(0.20, 0.15, 0.30, 0.20, 0.15),
+      # All five outcomes must remain represented in the same fused policy.
+      # Earlier hard-mode bias starved the right static support; the physical
+      # support precursor below now handles rear/normal discovery directly.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
@@ -313,6 +312,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # inside the existing outcome; most of its value still requires rate,
         # axle geometry, and a stationary support centre.
         "upright_support_weight": 0.20,
+        # Normal's precursor is stricter than ordinary four-wheel standing:
+        # it pays only the measured co-axial, stationary wheel geometry.
+        "normal_coaxial_weight": 0.15,
         "asset_cfg": _support_wheels(),
       },
     ),

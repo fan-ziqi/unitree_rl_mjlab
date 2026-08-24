@@ -368,11 +368,14 @@ class StanceSpinPivotResult:
     pivot_speed_limit: float,
     asset_cfg: SceneEntityCfg,
     upright_support_weight: float = 0.20,
+    normal_coaxial_weight: float = 0.15,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
     if not 0.0 <= upright_support_weight < 1.0:
       raise ValueError("upright_support_weight must be in [0, 1).")
+    if not 0.0 <= normal_coaxial_weight < 1.0:
+      raise ValueError("normal_coaxial_weight must be in [0, 1).")
     (
       asset,
       active,
@@ -414,20 +417,27 @@ class StanceSpinPivotResult:
     # Front/rear starts at the ordinary four-wheel reset with near-zero
     # commanded-rate score.  Multiplying that zero by every support factor
     # gives PPO no path to discover the physically reachable two-wheel form.
-    # Preserve the same one-term physical result, but reserve a small fraction
-    # for the measured upright support itself; the remaining value still
-    # requires the co-axial, commanded-rate, stationary-centre pivot.  Normal
-    # receives no such shortcut because its default four-wheel support is not
-    # the reference high-speed geometry.
+    # Reserve a small fraction for the measured upright support itself; the
+    # remaining value still requires the co-axial, commanded-rate,
+    # stationary-centre pivot.
     upright_mode = (mode == 1) | (mode == 2)
     discovery_weight = torch.where(
       upright_mode,
       torch.full_like(support_quality, upright_support_weight),
       torch.zeros_like(support_quality),
     )
-    dynamic_result = support_quality * (
+    upright_result = support_quality * (
       discovery_weight + (1.0 - discovery_weight) * dynamic_quality
     )
+    # Normal has an analogous discovery problem, except the intermediate
+    # physical result is *not* ordinary four-wheel standing: it is a common,
+    # stationary wheel-axis geometry.  Reward only that measured geometry
+    # before rate emerges, never the default support by itself.
+    normal_geometry = support_quality * coaxial_factor * pivot_stillness
+    normal_result = normal_geometry * (
+      normal_coaxial_weight + (1.0 - normal_coaxial_weight) * rate_score
+    )
+    dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
     # Side support is the remaining two requested one-hots, not a failed
     # version of a pivot.  Once the base has rolled onto a left/right pair,
