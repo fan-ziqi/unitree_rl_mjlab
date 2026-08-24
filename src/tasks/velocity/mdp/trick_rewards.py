@@ -439,7 +439,25 @@ def _stance_spin_components(
     # two-wheel pose and local pivot.
     torch.where(mode <= 2, alignment, side_alignment_score),
   )
-  support_quality = contact_score * alignment_score * height_score
+  # A front/rear spin command begins from ordinary four-wheel idle.  Its
+  # desired attitude is therefore only 0.5 aligned, its target pair has two
+  # extra contacts, and its support height is modest.  Multiplying all three
+  # quantities makes that physically meaningful start worth only a few
+  # percent of a completed upright pivot.  PPO then finds the easier local
+  # optimum: keep the normal pivot while tracking z rate under every one-hot.
+  #
+  # Use the same physical measurements, but combine contact and clearance
+  # beneath the required upright-attitude gate for front/rear.  This preserves
+  # the unique full-quality endpoint (correct pair, attitude, and height),
+  # gives the policy an outcome gradient for initiating the support change,
+  # and specifies neither a leg pose nor a transition trajectory.  Normal and
+  # side modes retain their existing stricter geometry products.
+  upright_support_progress = alignment * (0.65 * contact_score + 0.35 * height_score)
+  support_quality = torch.where(
+    (mode == 1) | (mode == 2),
+    upright_support_progress,
+    contact_score * alignment_score * height_score,
+  )
   return (
     asset,
     active,
