@@ -420,7 +420,14 @@ def _stance_spin_components(
   alignment_score = torch.where(
     mode == 0,
     normal_alignment_score,
-    torch.where(mode <= 2, torch.pow(alignment, 4.0), side_alignment_score),
+    # Front/rear start in the ordinary four-wheel reset at alignment 0.5.
+    # The previous fourth power suppressed that already contact/height-gated
+    # discovery return to 6.25%, so a zero-rate support curriculum could not
+    # discover the very stance needed before asking for high z-rate.  Keep
+    # the same measured attitude/contact/clearance outcome but expose its
+    # linear physical progress; final validation still requires the strict
+    # two-wheel pose and local pivot.
+    torch.where(mode <= 2, alignment, side_alignment_score),
   )
   support_quality = contact_score * alignment_score * height_score
   return (
