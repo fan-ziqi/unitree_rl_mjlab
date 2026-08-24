@@ -376,7 +376,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "upright_support_weight": 0.20,
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
-        "normal_coaxial_weight": 0.10,
+        # First make the reference's compact, stationary four-wheel form
+        # valuable by itself.  At 0.10 PPO found an airborne turn before the
+        # sparse product could establish all-wheel support; rate still raises
+        # this same result from 40% to 100% once the geometry is present.
+        "normal_coaxial_weight": 0.40,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -393,7 +397,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 2.0,
-      "enable_after_steps": 76_800,
+      "enable_after_steps": 38_400,
     },
   )
   cfg.curriculum = {
