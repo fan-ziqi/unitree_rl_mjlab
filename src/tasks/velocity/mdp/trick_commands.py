@@ -53,8 +53,8 @@ class StanceSpinCommand(CommandTerm):
       raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
     if cfg.spin_rate_ramp_rate <= 0.0:
       raise ValueError("spin_rate_ramp_rate must be positive.")
-    if cfg.transition_idle_time <= 0.0 or cfg.transition_active_time <= 0.0:
-      raise ValueError("spin transition durations must be positive.")
+    if cfg.transition_active_time <= 0.0:
+      raise ValueError("spin transition duration must be positive.")
 
     self.command_buf = torch.zeros(self.num_envs, 6, device=self.device)
     self._target_spin_rate = torch.zeros(self.num_envs, device=self.device)
@@ -102,7 +102,7 @@ class StanceSpinCommand(CommandTerm):
     self._scheduled_spin_rate[env_ids] = 0.0
     self._next_scheduled_command[env_ids] = 0.0
     self._next_scheduled_spin_rate[env_ids] = 0.0
-    self._transition_phase[env_ids] = 0
+    self._transition_phase[env_ids] = 3
     self._transition_time[env_ids] = 0.0
     non_idle = (
       torch.rand(count, device=self.device) > self.cfg.spin_idle_probability
@@ -139,24 +139,24 @@ class StanceSpinCommand(CommandTerm):
         second_dynamic
       ]
 
+    # A physical reset is already the literal four-wheel idle.  Do not insert
+    # an uncommanded idle interval before an externally valid one-hot: it
+    # would train a different distribution from a caller that requests normal
+    # immediately after reset.  Start the first command at once, then make the
+    # second one-hot a direct A->B switch; the normal rate ramp still begins
+    # from zero, so the initial acceleration remains physically smooth.
+    if len(active_ids) > 0:
+      self.command_buf[active_ids] = self._scheduled_command[active_ids]
+      self._target_spin_rate[active_ids] = self._scheduled_spin_rate[active_ids]
+      self._transition_phase[active_ids] = 1
+
   def _update_command(self) -> None:
-    """Issue idle, then two directly switching one-hot segments."""
+    """Hold a commanded mode, directly switch it, then return to idle."""
     pending = self._transition_phase < 3
     self._transition_time[pending] += self._env.step_dt
-    start = (
-      (self._transition_phase == 0)
-      & (self._transition_time >= self.cfg.transition_idle_time)
-    )
-    if torch.any(start):
-      self.command_buf[start] = self._scheduled_command[start]
-      self._target_spin_rate[start] = self._scheduled_spin_rate[start]
-      self._transition_phase[start] = 1
     second_start = (
       (self._transition_phase == 1)
-      & (
-        self._transition_time
-        >= self.cfg.transition_idle_time + 0.5 * self.cfg.transition_active_time
-      )
+      & (self._transition_time >= 0.5 * self.cfg.transition_active_time)
     )
     if torch.any(second_start):
       self.command_buf[second_start] = self._next_scheduled_command[second_start]
@@ -166,10 +166,7 @@ class StanceSpinCommand(CommandTerm):
       self._transition_phase[second_start] = 2
     finish = (
       (self._transition_phase == 2)
-      & (
-        self._transition_time
-        >= self.cfg.transition_idle_time + self.cfg.transition_active_time
-      )
+      & (self._transition_time >= self.cfg.transition_active_time)
     )
     if torch.any(finish):
       self.command_buf[finish] = 0.0
@@ -236,7 +233,6 @@ class StanceSpinCommandCfg(CommandTermCfg):
   spin_idle_probability: float = 0.55
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0
-  transition_idle_time: float = 0.8
   transition_active_time: float = 4.2
 
   def build(self, env) -> StanceSpinCommand:
