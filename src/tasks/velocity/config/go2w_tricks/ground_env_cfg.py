@@ -83,17 +83,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
-      # Establish the two upright supports from the required normal four-wheel
-      # reset before asking for command changes inside a rollout.
       resampling_time_range=(6.0, 6.0),
-      # Normal four-wheel rolling is action-gated to the default pose, so
-      # early samples concentrate on the two support forms.  The prior 50/50
-      # stationary/moving split switched to short commands before the front
-      # form had ever been found; keep most of these discovery samples static.
-      mode_probabilities=(0.25, 0.375, 0.375),
-      mode_idle_probabilities=(0.10, 0.25, 0.25),
-      lin_vel_x_range=(-0.10, 0.10),
-      yaw_rate_range=(-0.15, 0.15),
+      mode_probabilities=(0.0, 0.5, 0.5),
+      mode_idle_probabilities=(0.0, 1.0, 1.0),
+      lin_vel_x_range=(0.0, 0.0),
+      yaw_rate_range=(0.0, 0.0),
       debug_vis=False,
     )
   }
@@ -217,12 +211,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  # This changes only which already-public commands are sampled.  The first
-  # a143 audit established that roughly 200 PPO updates are enough to find a
-  # legal front/rear support, while keeping the 50% static share thereafter
-  # let the x response collapse back to zero.  Once support is discoverable,
-  # expose more nonzero x/yaw requests without introducing a pose, phase, or
-  # a separate controller.
   cfg.curriculum = {
     "locomotion_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_locomotion_command_stages,
@@ -231,64 +219,22 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
+            "mode_probabilities": (0.0, 0.5, 0.5),
+            "mode_idle_probabilities": (0.0, 1.0, 1.0),
+            "lin_vel_x_range": (0.0, 0.0),
+            "yaw_rate_range": (0.0, 0.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            "step": 12_800,
             "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
+            "mode_idle_probabilities": (0.20, 0.50, 0.50),
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # First attach a small, physically recoverable x/yaw response to
-            # each fixed support.  The m900 audit showed that directly using
-            # the final range destabilised the discovered two-wheel balance.
-            # At 64 control steps per PPO update this starts at m400, leaving
-            # 400 updates of low-speed fixed-form practice.
-            "step": 25_600,
-            "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Only then expose the requested full x/yaw range, still with one
-            # mode for a whole episode so the command-response mapping cannot
-            # be confused with a support transition.
-            # This m800 boundary gives another 400 fixed-form updates before
-            # transitions start.
             "step": 51_200,
-            "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # First expose exactly one late, long-horizon switch.  The prior
-            # direct 8-s -> 2-s jump reset as soon as front/rear was selected,
-            # so its policy never saw a recoverable transition trajectory.
-            "step": 76_800,
-            "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Shorten only after that first transition can land in the next
-            # supported mode; this remains the identical one-hot command and
-            # policy, merely a less abrupt sampling curriculum.
-            "step": 102_400,
-            "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # The final public interface changes every 2--3 s, including
-            # normal/front/rear one-hot changes in one continuous rollout.
-            "step": 128_000,
             "mode_probabilities": (0.25, 0.375, 0.375),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
