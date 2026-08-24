@@ -339,7 +339,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # The physical layout is found before asking its first pass to sustain
       # the final maximum rate.  This is a range curriculum over the existing
       # public spin-rate channel, not an added phase or pose command.
-      spin_rate_range=(4.0, 8.0),
+      spin_rate_range=(2.0, 5.0),
       spin_rate_ramp_rate=36.0,
       debug_vis=False,
     )
@@ -379,9 +379,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  # Once the brief no-pose geometry transition has elapsed, normal spin must
-  # retain every wheel on the floor.  This directly removes the observed
-  # bounce/stepping exploit without imposing leg angles or a transition path.
+  # This is a final-result validity check, enabled only once PPO has had a
+  # fixed-form geometry stage.  Applying it from iteration zero cut off every
+  # exploratory reorganization before it could discover the compact axle.
   cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
     func=terminations.normal_spin_support_lost,
     params={
@@ -389,6 +389,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 2.0,
+      "enable_after_steps": 76_800,
     },
   )
   cfg.curriculum = {
@@ -405,7 +406,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # four-wheel pivot, rather than a transient stepping yaw.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (4.0, 8.0),
+            "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -416,7 +417,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 38_400,
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (8.0, 12.0),
+            "spin_rate_range": (5.0, 10.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -425,7 +426,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 76_800,
             "mode_probabilities": (0.90, 0.025, 0.025, 0.025, 0.025),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (12.0, 18.0),
+            "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -434,7 +435,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 115_200,
             "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (12.0, 18.0),
+            "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -445,7 +446,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 153_600,
             "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
-            "spin_rate_range": (12.0, 18.0),
+            "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (2.0, 3.0),
           },
         ),

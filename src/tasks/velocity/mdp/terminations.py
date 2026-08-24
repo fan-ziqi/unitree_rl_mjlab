@@ -166,6 +166,7 @@ def normal_spin_support_lost(
   sensor_name: str,
   speed_deadband: float = 0.20,
   grace_period_s: float = 2.0,
+  enable_after_steps: int = 0,
 ) -> torch.Tensor:
   """Reject a normal spin that turns by lifting one or more wheels.
 
@@ -175,8 +176,10 @@ def normal_spin_support_lost(
   spin-rate command is active.  This is only a physical contact-validity
   condition and supplies neither a joint posture nor a motion reference.
   """
-  if speed_deadband < 0.0 or grace_period_s < 0.0:
-    raise ValueError("speed_deadband and grace_period_s must be non-negative.")
+  if speed_deadband < 0.0 or grace_period_s < 0.0 or enable_after_steps < 0:
+    raise ValueError("normal-spin contact-termination parameters must be non-negative.")
+  if env.common_step_counter < enable_after_steps:
+    return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
   command = env.command_manager.get_command(command_name)
   if command.shape[1] < 6:
     raise ValueError("normal spin requires five one-hots and a rate channel.")
