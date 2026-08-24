@@ -237,7 +237,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
           {
             # Add moving samples only after both supports have long-horizon
             # balance practice; the actor and its public command do not change.
-            "step": 38_400,
+            # At 64 control steps per PPO update this starts at m400, leaving
+            # a full fixed-command movement stage before transitions begin.
+            "step": 25_600,
             "mode_probabilities": (0.15, 0.45, 0.40),
             "mode_idle_probabilities": (0.0, 0.40, 0.40),
             "lin_vel_x_range": (-0.20, 0.20),
@@ -247,7 +249,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
           {
             # Train normal/front/rear transitions only after the individual
             # normal-reset-to-support outcomes have a full episode to settle.
-            "step": 76_800,
+            # Start actual one-hot changes at m800.  The previous m1200
+            # boundary lay beyond the 1000-update discovery run, so that run
+            # could never train the requested continuous transition.
+            "step": 51_200,
             "mode_probabilities": (0.40, 0.30, 0.30),
             "mode_idle_probabilities": (0.0, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
@@ -371,7 +376,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # pivot is stable; it is still deliberately not a transition
             # stage, because the m800 audit showed switches could destroy the
             # only partially learned common-axle form.
-            "step": 204_800,
+            # With 64 control steps per PPO update this is m1600: a 2000-step
+            # run can now cover every fixed physical form rather than ending
+            # during the normal-pivot-only stage.
+            "step": 102_400,
             "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (4.0, 8.0),
@@ -382,7 +390,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the requested real transitions, including the all-zero default
             # idle command.  Mixing transitions before normal geometry was
             # valid simply trained the policy to step around the floor.
-            "step": 307_200,
+            # Reserve the final 600 updates of a 3000-update run for genuine
+            # five-mode and idle transitions, after both fixed-form stages.
+            "step": 153_600,
             "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
             "spin_rate_range": (4.0, 8.0),
