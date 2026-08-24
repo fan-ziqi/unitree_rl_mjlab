@@ -109,21 +109,38 @@ def _pin_mode(command_term, mode: int) -> None:
 def _fixed_reset_observation(
     base_env: ManagerBasedRlEnv, modes: int | torch.Tensor
 ) -> TensorDict:
-    """Pin one command per environment and rebuild the observation-history window.
+    """Schedule fixed events while preserving the trained all-zero history.
 
-    The aerial actor consumes a configurable consecutive observation history.
-    ``env.reset()``
-    necessarily constructs that history using the command sampled by the normal
-    reset path; simply overwriting the command afterwards therefore evaluates a
-    policy that sees stale one-hots.  A stationary pre-roll at the same
-    physical reset state gives the requested command its complete configured
-    history without changing simulation state or granting privileged information.
+    Aerial training holds the public command at zero for ``trigger_idle_time``
+    after reset and only then exposes a one-hot.  Repeating a requested one-hot
+    into every history slot, as the former evaluator did, created a command
+    history the actor never saw while training.  Schedule the exact same
+    pending event and rebuild the history from the genuine all-zero command;
+    ``run`` advances that physical idle interval before scoring the maneuver.
     """
     command_term = base_env.command_manager.get_term("trick")
     if isinstance(modes, int):
-        _pin_mode(command_term, modes)
-    else:
-        _pin_modes(command_term, modes)
+        modes = torch.full(
+            (command_term.num_envs,), modes, dtype=torch.long, device=command_term.device
+        )
+    if modes.shape != (command_term.num_envs,):
+        raise ValueError("modes must contain exactly one index per environment.")
+    if torch.any((modes < 0) | (modes >= len(MODE_NAMES))):
+        raise ValueError("modes contains an invalid aerial-mode index.")
+    command_term.command_buf.zero_()
+    command_term.was_airborne.zero_()
+    command_term.has_grounded.zero_()
+    command_term._airborne_time.zero_()
+    command_term._flight_rotation.zero_()
+    command_term._current_flight_qualified.zero_()
+    command_term._landing_started.zero_()
+    command_term._rotation_progress.zero_()
+    command_term._launch_axis_w.zero_()
+    command_term._launch_root_quat_w.zero_()
+    command_term._new_skill.fill_(False)
+    command_term._pending_mode.copy_(modes)
+    command_term._pending_trigger.fill_(True)
+    command_term._trigger_time.zero_()
     base_env.observation_manager._obs_buffer = None
     observations = None
     history_length = base_env.cfg.observations["actor"].history_length or 1
@@ -175,8 +192,11 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     # sampler before its evaluation interval has elapsed.
     command_cfg = env_cfg.commands["trick"]
     command_cfg.idle_probability = 0.0
-    command_cfg.resampling_time_range = (cfg.duration_s + 1.0, cfg.duration_s + 1.0)
-    env_cfg.episode_length_s = cfg.duration_s + 0.5
+    command_cfg.resampling_time_range = (
+        cfg.duration_s + command_cfg.trigger_idle_time + 1.0,
+        cfg.duration_s + command_cfg.trigger_idle_time + 1.0,
+    )
+    env_cfg.episode_length_s = cfg.duration_s + command_cfg.trigger_idle_time + 0.5
     agent_cfg = load_rl_cfg(cfg.task_id)
     if cfg.actor_hidden_dims is not None:
         if not cfg.actor_hidden_dims or any(dim <= 0 for dim in cfg.actor_hidden_dims):
@@ -209,6 +229,19 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
         )
     obs = _fixed_reset_observation(base_env, mode_indices)
     command_term = base_env.command_manager.get_term("trick")
+    # Reproduce the regular controller boundary: all-zero history/default
+    # action first, then the requested one-hot becomes the newest history
+    # element.  This is intentionally physical rather than a buffer-only
+    # prefill, so the first maneuver action sees the same state/history pair
+    # as PPO did during training.
+    pre_trigger_steps = math.ceil(command_cfg.trigger_idle_time / base_env.step_dt)
+    with torch.inference_mode():
+        for _ in range(pre_trigger_steps):
+            obs, _, dones, _ = env.step(policy(obs))
+            if torch.any(dones):
+                raise RuntimeError("Aerial fixed-command idle pre-roll terminated.")
+    if not torch.all(torch.sum(command_term.command, dim=1) > 0.5):
+        raise RuntimeError("Aerial fixed-command event did not trigger after idle pre-roll.")
     robot = base_env.scene["robot"]
     wheel_sensor = base_env.scene[command_cfg.sensor_name]
     min_ballistic_time = command_cfg.min_ballistic_time

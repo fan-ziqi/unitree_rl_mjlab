@@ -44,7 +44,10 @@ class RecordConfig:
   # clips, one simulator instance receives each next one-hot only after the
   # previous one-shot event has returned to upright four-wheel idle.
   sequence: tuple[str, ...] = ()
-  initial_idle_s: float = 0.8
+  # Match ``AerialRotationCommand.trigger_idle_time`` used in training.  The
+  # command history is therefore initially all-zero and the one-hot enters it
+  # one physical control step at a time, rather than being prefilled.
+  initial_idle_s: float = 0.5
   sequence_idle_s: float = 0.6
 
 
@@ -125,6 +128,15 @@ def run(cfg: RecordConfig) -> Path:
   if unknown_modes:
     raise ValueError(f"Unknown aerial modes in sequence: {sorted(unknown_modes)}")
   sequence_modes = tuple(MODE_NAMES.index(name) for name in cfg.sequence)
+  # Use the same real-time command boundary for a single fixed command and a
+  # multi-command recording.  Previously a one-mode clip prefilled all ten
+  # history slots with its one-hot, unlike aerial training; a sequence did
+  # not.  That made the two recorders evaluate different policies.
+  scheduled_modes = (
+    sequence_modes
+    if sequence_modes
+    else (() if cfg.idle else (cfg.mode,))
+  )
 
   torch.manual_seed(cfg.seed)
   if torch.cuda.is_available():
@@ -139,11 +151,11 @@ def run(cfg: RecordConfig) -> Path:
       env_cfg.observations[group_name].history_length = cfg.observation_history_length
   total_duration_s = (
     cfg.duration_s
-    if not sequence_modes
+    if not scheduled_modes
     else (
       cfg.initial_idle_s
-      + len(sequence_modes) * cfg.duration_s
-      + max(0, len(sequence_modes) - 1) * cfg.sequence_idle_s
+      + len(scheduled_modes) * cfg.duration_s
+      + max(0, len(scheduled_modes) - 1) * cfg.sequence_idle_s
       + 0.8
     )
   )
@@ -186,10 +198,9 @@ def run(cfg: RecordConfig) -> Path:
   policy = runner.get_inference_policy(device=cfg.device)
 
   env.reset()
-  # A sequence begins from the same all-zero default state exposed to users.
-  obs = _fixed_reset_observation(
-    base_env, None if cfg.idle or sequence_modes else cfg.mode
-  )
+  # Every clip begins from the same all-zero default state exposed to users.
+  # The requested one-hot is inserted only at its real-time trigger below.
+  obs = _fixed_reset_observation(base_env, None)
   command_term = base_env.command_manager.get_term("trick")
   sequence_next = 0
   idle_elapsed = 0.0
@@ -199,7 +210,7 @@ def run(cfg: RecordConfig) -> Path:
       obs, _, dones, _ = env.step(policy(obs))
       if torch.any(dones):
         break
-      if not sequence_modes or sequence_next >= len(sequence_modes):
+      if not scheduled_modes or sequence_next >= len(scheduled_modes):
         continue
       active = bool(torch.linalg.vector_norm(command_term.command_buf, dim=1)[0] > 0.5)
       if active:
@@ -211,7 +222,7 @@ def run(cfg: RecordConfig) -> Path:
         base_env, command_cfg.sensor_name
       ):
         continue
-      mode = sequence_modes[sequence_next]
+      mode = scheduled_modes[sequence_next]
       _pin_mode(command_term, mode)
       # Training closes each one-shot event as an environment episode, which
       # clears the recurrent actor state.  The real-time sequence preserves
@@ -233,7 +244,7 @@ def run(cfg: RecordConfig) -> Path:
   video_path = cfg.output_dir / f"{cfg.name}-step-0.mp4"
   if not video_path.is_file():
     raise RuntimeError(f"Video was not created: {video_path}")
-  if sequence_modes:
+  if scheduled_modes:
     schedule_path = cfg.output_dir / f"{cfg.name}-triggers.json"
     schedule_path.write_text(
       json.dumps(
