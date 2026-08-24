@@ -79,38 +79,15 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
-      # First establish a full physical transition from the required normal
-      # four-wheel reset to the commanded support.  The measured m400 policy
-      # still had not reached its front support after eight seconds; changing
-      # one-hots halfway through that first attempt only shortens the useful
-      # outcome horizon.  A later command-switch robustness pass can reuse
-      # this same fused policy, but this discovery run keeps every sampled
-      # command present from the ordinary default state for the whole episode.
+      # Establish the two upright supports from the required normal four-wheel
+      # reset before asking for command changes inside a rollout.
       resampling_time_range=(8.0, 8.0),
-      # Four-wheel rolling is already supplied deterministically by the idle
-      # action gate.  Keep normal x/yaw requests in this fused policy, but
-      # devote most fresh-policy discovery to the two normal-reset-to-upright
-      # outcomes rather than their trivial four-wheel support.
-      mode_probabilities=(0.15, 0.425, 0.425),
-      # Every mode needs both a stopped balance and a real x/yaw response.
-      # The old 85% front/rear static share let an upright front pose emerge,
-      # but supplied too few moving samples for either that pose or its rear
-      # counterpart to learn the requested controls.  This is only command
-      # coverage; it introduces no reset stance, target posture, or phase.
-      # A 15% stationary share let normal-wheel velocity tracking outscore
-      # discovery of either upright support.  Keep a substantial balance
-      # subset inside the same fused command distribution; the remaining
-      # front/rear samples still carry x/yaw requests.
-      # Literal normal idle is a deterministic action gate, not a skill PPO
-      # needs to spend samples rediscovering.  Keep static examples only for
-      # the two upright forms, whose balance still benefits from them.
-      # A front/rear controller needs successful stopped supports before an
-      # x/yaw score can improve its wheel motion.  The more motion-heavy
-      # a140 distribution failed its fixed-command stance audit at m200, so
-      # retain half of each upright mode as support discovery in this fresh
-      # run.  Motion remains the other half of the same policy, not a second
-      # staged controller.
-      mode_idle_probabilities=(0.0, 0.50, 0.50),
+      # Normal four-wheel rolling is action-gated to the default pose, so
+      # early samples concentrate on the two support forms.  The prior 50/50
+      # stationary/moving split switched to short commands before the front
+      # form had ever been found; keep most of these discovery samples static.
+      mode_probabilities=(0.05, 0.65, 0.30),
+      mode_idle_probabilities=(0.0, 0.70, 0.65),
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
       initialize_stance_on_reset=False,
@@ -251,19 +228,26 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.15, 0.425, 0.425),
-            "mode_idle_probabilities": (0.0, 0.50, 0.50),
+            "mode_probabilities": (0.05, 0.65, 0.30),
+            "mode_idle_probabilities": (0.0, 0.70, 0.65),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (8.0, 8.0),
           },
           {
-            # The preceding stage proves each support from the prescribed
-            # four-wheel reset.  Thereafter, train ordinary command changes
-            # inside the same rollout; the actor sees only its current public
-            # history and the new one-hot, never a reset pose or transition
-            # label.
-            "step": 12_800,
+            # Add moving samples only after both supports have long-horizon
+            # balance practice; the actor and its public command do not change.
+            "step": 38_400,
+            "mode_probabilities": (0.15, 0.45, 0.40),
+            "mode_idle_probabilities": (0.0, 0.40, 0.40),
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+            "resampling_time_range": (8.0, 8.0),
+          },
+          {
+            # Train normal/front/rear transitions only after the individual
+            # normal-reset-to-support outcomes have a full episode to settle.
+            "step": 76_800,
             "mode_probabilities": (0.40, 0.30, 0.30),
             "mode_idle_probabilities": (0.0, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
