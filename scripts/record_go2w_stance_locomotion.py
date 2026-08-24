@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # The remote training host has no X11 display.  This must be set before any
@@ -12,19 +12,17 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import torch
 import tyro
-from tensordict import TensorDict
-
+from evaluate_go2w_stance_locomotion import (
+  TASK_ID,
+  EvalConfig,
+  _configure_command,
+  _fixed_reset_observation,
+)
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.utils.wrappers import VideoRecorder
-
-from evaluate_go2w_stance_locomotion import (
-  EvalConfig,
-  TASK_ID,
-  _configure_command,
-  _fixed_reset_observation,
-)
+from tensordict import TensorDict
 
 
 @dataclass
@@ -76,6 +74,7 @@ def _write_fixed_command(command_buf: torch.Tensor, mode: int, lin_vel_x: float,
 
 def run(cfg: RecordConfig) -> Path:
   import mjlab.tasks  # noqa: F401
+
   import src.tasks  # noqa: F401
 
   if not cfg.checkpoint_file.is_file():
@@ -129,6 +128,11 @@ def run(cfg: RecordConfig) -> Path:
   # requested non-zero x or yaw video into a zero-command recording.
   command_term = base_env.command_manager.get_term("trick")
   command_buf = command_term.command_buf
+  # The recorder supplies the complete requested schedule itself.  Disable
+  # the command term's random training sequence so it cannot replace a
+  # direct A -> B switch during the recording.
+  command_term._transition_phase.fill_(3)
+  command_term._transition_time.zero_()
   schedule_index = 0
   next_switch_s = schedule[0][1]
   _write_fixed_command(command_buf, schedule[0][0], cfg.lin_vel_x, cfg.yaw_rate)

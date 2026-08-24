@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import asdict, dataclass
 import io
-from pathlib import Path
 import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import torch
 import tyro
-from tensordict import TensorDict
-
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 from mjlab.utils.lab_api.math import quat_apply
+from tensordict import TensorDict
 
 from src.tasks.velocity.mdp.trick_commands import StanceLocomotionCommandCfg
-
 
 TASK_ID = "Unitree-Go2W-Stance-Locomotion-Flat"
 _GRAVITY_TARGETS = (
@@ -109,6 +107,7 @@ def _forward_right_axes(robot, mode: int) -> tuple[torch.Tensor, torch.Tensor]:
 
 def run(cfg: EvalConfig) -> dict[str, float]:
   import mjlab.tasks  # noqa: F401
+
   import src.tasks  # noqa: F401
 
   if not cfg.checkpoint_file.is_file():
@@ -147,6 +146,10 @@ def run(cfg: EvalConfig) -> dict[str, float]:
   command_buf[:, cfg.mode] = 1.0
   command_buf[:, 3] = cfg.lin_vel_x
   command_buf[:, 4] = cfg.yaw_rate
+  # Do not let the training-only idle -> A -> B schedule overwrite this
+  # explicit fixed evaluator command on its first timed transition.
+  command_term._transition_phase.fill_(3)
+  command_term._transition_time.zero_()
   obs = _fixed_reset_observation(env)
   # Every command must begin from the same normal four-wheel idle reset.  Keep
   # this explicit in the report so a visually convincing terminal frame can

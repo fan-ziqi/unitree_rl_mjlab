@@ -91,6 +91,10 @@ def _pin_modes(command_term, modes: torch.Tensor) -> None:
     # The command term captures the launch axis from the normal reset attitude
     # on its first control step, just as it does during training.
     command_term._new_skill.fill_(True)
+    # The fixed one-hot replaces, rather than supplements, the reset-time
+    # delayed random event.
+    command_term._pending_trigger.fill_(False)
+    command_term._trigger_time.zero_()
 
 
 def _pin_mode(command_term, mode: int) -> None:

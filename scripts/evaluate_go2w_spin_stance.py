@@ -101,8 +101,10 @@ def _pin_modes(
   modes: torch.Tensor,
   spin_rate: float,
   ramp_spin_rate: bool = True,
+  preserve_spin_rate: bool = False,
 ) -> None:
   """Pin one-hot targets, optionally reproducing the training-rate ramp."""
+  current_rate = command_term.command_buf[:, 5].clone()
   command_term.command_buf.zero_()
   rates = _mode_rates(modes, spin_rate).to(command_term.command_buf.dtype)
   active = torch.ones_like(modes, dtype=torch.bool)
@@ -111,7 +113,16 @@ def _pin_modes(
   ] = 1.0
   if not ramp_spin_rate:
     command_term.command_buf[:, 5] = rates
+  elif preserve_spin_rate:
+    # A direct dynamic-mode switch must retain the public signed rate.  The
+    # rate ramp remains available for the initial idle -> active entry only.
+    command_term.command_buf[:, 5] = current_rate
   command_term._target_spin_rate.copy_(rates)
+  # A fixed-command evaluation must not be overwritten by the training
+  # sampler's idle -> A -> B transition sequence after 0.8 seconds.  Leave
+  # the rate ramp live when requested, but mark the sequence itself complete.
+  command_term._transition_phase.fill_(3)
+  command_term._transition_time.zero_()
 
 
 def _fixed_reset_observation(base_env: ManagerBasedRlEnv) -> TensorDict:
