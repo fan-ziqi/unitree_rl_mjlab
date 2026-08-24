@@ -776,6 +776,16 @@ class AerialNetRotationProgress:
       min=0.0,
       max=1.0,
     )
+    launch_axis = getattr(
+      command_term,
+      "_launch_axis_w",
+      torch.zeros(env.num_envs, 3, device=env.device),
+    )
+    angular_velocity = asset.data.root_link_ang_vel_w
+    desired_axis_speed = torch.abs(torch.sum(angular_velocity * launch_axis, dim=1))
+    axis_purity = desired_axis_speed / torch.linalg.vector_norm(
+      angular_velocity, dim=1
+    ).clamp_min(1.0e-4)
     # A turn is useful only to the degree it was produced by a real jump.  The
     # separate clearance term makes takeoff discoverable; this single factor
     # prevents a low contact-edge pivot from competing with a ballistic flip.
@@ -783,6 +793,7 @@ class AerialNetRotationProgress:
       active.to(increment.dtype)
       * legal.to(increment.dtype)
       * torch.sqrt(clearance)
+      * axis_purity
       * increment
     )
 
