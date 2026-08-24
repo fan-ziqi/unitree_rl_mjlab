@@ -299,8 +299,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Favor the two unresolved dynamic forms without splitting the policy.
-      mode_probabilities=(0.30, 0.10, 0.30, 0.15, 0.15),
+      # The normal folded four-wheel form is the primary geometric discovery.
+      mode_probabilities=(0.50, 0.10, 0.25, 0.075, 0.075),
       spin_idle_probability=0.0,
       spin_rate_range=(4.0, 8.0),
       spin_rate_ramp_rate=12.0,
@@ -350,7 +350,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.30, 0.10, 0.30, 0.15, 0.15),
+            "mode_probabilities": (0.50, 0.10, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
@@ -358,8 +358,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # After support discovery, expose the same actor to real changes:
             # active form -> another form -> all-zero four-wheel idle.
-            "step": 12_800,
-            "mode_probabilities": (0.30, 0.10, 0.30, 0.15, 0.15),
+            "step": 25_600,
+            "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
             "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (2.0, 3.0),
