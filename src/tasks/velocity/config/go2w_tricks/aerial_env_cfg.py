@@ -14,6 +14,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
@@ -33,6 +34,13 @@ from .common_env_cfg import (
   configure_default_idle_actions,
   make_base_go2w_trick_cfg,
 )
+
+
+def _aerial_wheels() -> SceneEntityCfg:
+  """Return a fresh selector for the four wheel-centre outcome measurement."""
+  return SceneEntityCfg(
+    "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+  )
 
 
 def unitree_go2w_aerial_rotation_flat_env_cfg(
@@ -147,6 +155,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_clearance": 0.45,
+      },
+    ),
+    # The video tucks the legs immediately after liftoff instead of holding a
+    # long rigid/flailed shape.  This is one compact physical geometry cost:
+    # it reads wheel-to-trunk distance only while airborne, never joint angles
+    # or a reference phase, and leaves launch/landing coordination to PPO.
+    "airborne_wheel_spread": RewardTermCfg(
+      func=trick_rewards.aerial_airborne_wheel_spread_cost,
+      weight=-25.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "max_wheel_root_distance": 0.42,
+        "softness": 0.12,
+        "asset_cfg": _aerial_wheels(),
       },
     ),
     "net_rotation_progress": RewardTermCfg(

@@ -15,7 +15,10 @@ from mjlab.utils.lab_api.math import quat_apply
 from tensordict import TensorDict
 
 from src.tasks.velocity.mdp.trick_commands import StanceSpinCommandCfg
-from src.tasks.velocity.mdp.trick_rewards import normal_four_wheel_axle_layout
+from src.tasks.velocity.mdp.trick_rewards import (
+  normal_four_wheel_axle_layout,
+  normal_four_wheel_spacing_ok,
+)
 
 TASK_ID = "Unitree-Go2W-Spin-Stance-Flat"
 MODE_NAMES = ("normal", "front", "rear", "left", "right")
@@ -56,10 +59,9 @@ def _pair_coaxiality(
 class EvalConfig:
   checkpoint_file: Path
   mode: int = 0
-  # Keep the default benchmark inside the training command range (2--6).
-  # A fast 8-rad/s stress test is useful later, but using it as the default
-  # falsely reports a valid 6-rad/s policy as non-responsive.
-  spin_rate: float = 6.0
+  # This is the reference-speed normal pivot, replacing the visibly slow
+  # 4--6-rad/s prototype range.
+  spin_rate: float = 15.0
   all_modes: bool = False
   num_envs: int = 250
   duration_s: float = 6.0
@@ -179,11 +181,16 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   support_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   axle_coaxiality_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_front_inside_delta_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  normal_front_pair_spacing_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  normal_rear_pair_spacing_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   nonwheel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_count = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_success = torch.zeros(cfg.num_envs, device=base_env.device)
+  steady_all_wheel_contact = torch.ones(
+    cfg.num_envs, dtype=torch.bool, device=base_env.device
+  )
   previous_center = torch.zeros(cfg.num_envs, 2, device=base_env.device)
   center_initialized = torch.zeros(
     cfg.num_envs, dtype=torch.bool, device=base_env.device
@@ -224,9 +231,13 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       ).expand(wheel_quat.shape[0], -1)
       wheel_axles = quat_apply(wheel_quat, local_axle).reshape(cfg.num_envs, 4, 3)
       wheel_positions = robot.data.site_pos_w[:, wheel_site_ids]
-      normal_coaxiality, _, normal_front_inside_delta = normal_four_wheel_axle_layout(
-        wheel_axles, wheel_positions
-      )
+      (
+        normal_coaxiality,
+        _,
+        normal_front_inside_delta,
+        normal_front_pair_spacing,
+        normal_rear_pair_spacing,
+      ) = normal_four_wheel_axle_layout(wheel_axles, wheel_positions)
       support_masks = target_contacts[effective_modes]
       normal_support_mask = torch.ones_like(support_masks)
       support_mask = torch.where(
@@ -275,9 +286,11 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       total_angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
       rate_ok = torch.where(active_spin, rate_error < 0.75, total_angular_speed < 1.0)
       pose_ok = target_alignment >= 0.97
-      pivot_ok = center_measured & (center_speed < 0.12)
+      pivot_ok = center_measured & (center_speed < 0.08)
       normal_layout_ok = (normal_coaxiality >= 0.90) & (
         normal_front_inside_delta >= 0.05
+      ) & normal_four_wheel_spacing_ok(
+        normal_front_pair_spacing, normal_rear_pair_spacing
       )
       axle_ok = torch.where(
         active_spin,
@@ -293,12 +306,21 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       normal_front_inside_delta_sum += (
         valid.float() * (modes == 0).float() * normal_front_inside_delta
       )
+      normal_front_pair_spacing_sum += (
+        valid.float() * (modes == 0).float() * normal_front_pair_spacing
+      )
+      normal_rear_pair_spacing_sum += (
+        valid.float() * (modes == 0).float() * normal_rear_pair_spacing
+      )
       rate_error_sum += valid.float() * rate_error
       support_center_speed_sum += valid.float() * center_speed
       nonwheel_sum += valid.float() * nonwheel.float()
       if (step + 1) * base_env.step_dt >= cfg.settle_s:
         steady_count += valid.float()
         steady_success += valid.float() * success.float()
+        steady_all_wheel_contact &= ~(
+          valid & (modes == 0) & ~torch.all(contacts, dim=1)
+        )
       failed |= valid & dones.bool()
       trial_open &= ~dones.bool()
 
@@ -319,6 +341,16 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       "mean_normal_front_inside_delta_m": (
         normal_front_inside_delta_sum[mask] / denom
       ).mean().item(),
+      "mean_normal_front_pair_spacing_m": (
+        normal_front_pair_spacing_sum[mask] / denom
+      ).mean().item(),
+      "mean_normal_rear_pair_spacing_m": (
+        normal_rear_pair_spacing_sum[mask] / denom
+      ).mean().item(),
+      "steady_no_normal_wheel_liftoff_rate": steady_all_wheel_contact[mask]
+      .float()
+      .mean()
+      .item(),
       "mean_spin_rate_abs_error": (rate_error_sum[mask] / denom).mean().item(),
       "mean_support_center_speed_m_s": (support_center_speed_sum[mask] / denom)
       .mean()

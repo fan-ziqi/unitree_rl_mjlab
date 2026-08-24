@@ -212,6 +212,7 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     normal_gravity = torch.tensor((0.0, 0.0, -1.0), device=base_env.device)
     default_height = robot.data.default_root_state[:, 2]
     leg_joint_ids, _ = robot.find_joints(GO2W_LEG_JOINTS, preserve_order=True)
+    wheel_site_ids, _ = robot.find_sites(("FL", "FR", "RL", "RR"), preserve_order=True)
 
     trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
     has_grounded = torch.zeros_like(trial_open)
@@ -229,6 +230,9 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
     # success criterion: expressive legs are legal as long as no non-wheel
     # geometry supports on the ground.
     peak_leg_deviation = torch.zeros(cfg.num_envs, device=base_env.device)
+    peak_airborne_wheel_root_distance = torch.zeros(
+        cfg.num_envs, device=base_env.device
+    )
     completion_gravity_error = torch.zeros(cfg.num_envs, device=base_env.device)
     completion_orientation_similarity = torch.zeros(
         cfg.num_envs, device=base_env.device
@@ -355,6 +359,22 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                     trial_open,
                     torch.max(leg_deviation, dim=1).values,
                     torch.zeros_like(peak_leg_deviation),
+                ),
+            )
+            wheel_root_distance = torch.max(
+                torch.linalg.vector_norm(
+                    robot.data.site_pos_w[:, wheel_site_ids]
+                    - robot.data.root_link_pos_w.unsqueeze(1),
+                    dim=2,
+                ),
+                dim=1,
+            ).values
+            peak_airborne_wheel_root_distance = torch.maximum(
+                peak_airborne_wheel_root_distance,
+                torch.where(
+                    trial_open & airborne,
+                    wheel_root_distance,
+                    torch.zeros_like(peak_airborne_wheel_root_distance),
                 ),
             )
             post_active = torch.sum(command_term.command, dim=1) > 0.5
@@ -552,6 +572,11 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
                 peak_leg_deviation[mask], 0.95
             ).item(),
             "max_peak_leg_deviation_rad": peak_leg_deviation[mask].max().item(),
+            "mean_peak_airborne_wheel_root_distance_m": peak_airborne_wheel_root_distance[
+                mask
+            ]
+            .mean()
+            .item(),
             "completion_four_wheel_contact_rate": completion_all_wheels[completed_mask]
             .float()
             .sum()

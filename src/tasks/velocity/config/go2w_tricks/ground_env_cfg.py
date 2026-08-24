@@ -16,8 +16,9 @@ from mjlab.envs import mdp as envs_mdp
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 
-from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
+from src.tasks.velocity.mdp import terminations, trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
   StanceSpinCommandCfg,
@@ -49,7 +50,10 @@ def _support_wheels() -> SceneEntityCfg:
 def _configure_fast_discovery(cfg: ManagerBasedRlEnvCfg) -> None:
   """Keep first-pass PPO on nominal flat physics, not robustness noise."""
   cfg.events.pop("encoder_bias", None)
-  cfg.events["foot_friction"].params["ranges"] = (0.7, 1.0)
+  # Discover the clean continuous-contact pivot on nominal flat contact
+  # first.  The former friction range mixed an avoidable slipping/bouncing
+  # disturbance into the core geometry task.
+  cfg.events["foot_friction"].params["ranges"] = (1.0, 1.0)
   cfg.events["base_com"].params["ranges"] = {
     0: (-0.01, 0.01),
     1: (-0.01, 0.01),
@@ -295,6 +299,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
+  # A ±40-rad/s wheel command was sufficient for the visibly slow prototype
+  # but capped the faster common-axis pivot seen in the reference.  Motor
+  # torque authority remains the model's physical limit.
+  cfg.actions["joint_vel"].scale = 80.0
   cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": StanceSpinCommandCfg(
@@ -310,8 +318,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # The physical layout is found before asking its first pass to sustain
       # the final maximum rate.  This is a range curriculum over the existing
       # public spin-rate channel, not an added phase or pose command.
-      spin_rate_range=(1.0, 2.5),
-      spin_rate_ramp_rate=12.0,
+      spin_rate_range=(4.0, 8.0),
+      spin_rate_ramp_rate=36.0,
       debug_vis=False,
     )
   }
@@ -335,21 +343,33 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
-        "std": 8.0,
+        "std": 22.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
-        "pivot_speed_limit": 0.12,
+        "pivot_speed_limit": 0.08,
         "upright_support_weight": 0.20,
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
-        "normal_coaxial_weight": 0.15,
+        "normal_coaxial_weight": 0.10,
         "asset_cfg": _support_wheels(),
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.02),
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
+  # Once the brief no-pose geometry transition has elapsed, normal spin must
+  # retain every wheel on the floor.  This directly removes the observed
+  # bounce/stepping exploit without imposing leg angles or a transition path.
+  cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
+    func=terminations.normal_spin_support_lost,
+    params={
+      "command_name": "trick",
+      "sensor_name": wheel_contact_cfg.name,
+      "speed_deadband": 0.20,
+      "grace_period_s": 2.0,
+    },
+  )
   cfg.curriculum = {
     "spin_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_spin_command_stages,
@@ -364,17 +384,18 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # four-wheel pivot, rather than a transient stepping yaw.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (1.0, 2.5),
+            "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Do not jump directly from the m400 low-rate pivot to 4--6 rad/s:
+            # Do not jump directly from the first contact-stable pivot to the
+            # final reference-speed range:
             # that jump repeatedly destroyed the discovered common axle.  The
             # same normal one-hot first learns an intermediate rate band.
             "step": 38_400,
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (2.0, 4.0),
+            "spin_rate_range": (8.0, 12.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -383,17 +404,16 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 76_800,
             "mode_probabilities": (0.90, 0.025, 0.025, 0.025, 0.025),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (4.0, 6.0),
+            "spin_rate_range": (12.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             # Broaden only fixed-form coverage after high-rate normal has had
-            # its own full stage.  The rate cap remains the demonstrated
-            # 6-rad/s target rather than adding an unvalidated 8-rad/s demand.
+            # its own full stage while retaining the reference-speed range.
             "step": 115_200,
             "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (4.0, 6.0),
+            "spin_rate_range": (12.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -404,7 +424,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 153_600,
             "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
-            "spin_rate_range": (4.0, 6.0),
+            "spin_rate_range": (12.0, 18.0),
             "resampling_time_range": (2.0, 3.0),
           },
         ),

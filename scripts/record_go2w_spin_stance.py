@@ -28,8 +28,8 @@ class RecordConfig:
   checkpoint_file: Path
   output_dir: Path
   mode: int = 0
-  # Match the default fixed-command evaluator and the training range.
-  spin_rate: float = 6.0
+  # Match the reference-speed fixed-command evaluator and high-rate stage.
+  spin_rate: float = 15.0
   duration_s: float = 6.0
   ramp_spin_rate: bool = True
   width: int = 960

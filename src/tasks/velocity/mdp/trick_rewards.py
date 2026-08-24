@@ -64,7 +64,17 @@ def normal_four_wheel_axle_layout(
   line_scale: float = 0.14,
   front_inside_margin: float = 0.05,
   front_inside_scale: float = 0.06,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  inner_pair_min_spacing: float = 0.10,
+  outer_pair_extra_spacing: float = 0.10,
+  outer_pair_max_ratio: float = 3.0,
+  outer_pair_max_bias: float = 0.08,
+) -> tuple[
+  torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
+  torch.Tensor,
+]:
   """Measure the reference video's four-wheel common-axis layout.
 
   All four wheel axes must lie on one horizontal line beneath the body.  The
@@ -75,7 +85,15 @@ def normal_four_wheel_axle_layout(
     raise ValueError("four-wheel axle layout expects [batch, 4, 3] axes.")
   if wheel_positions.shape != wheel_axles.shape:
     raise ValueError("wheel positions must match wheel axle tensor shape.")
-  if line_scale <= 0.0 or front_inside_margin < 0.0 or front_inside_scale <= 0.0:
+  if (
+    line_scale <= 0.0
+    or front_inside_margin < 0.0
+    or front_inside_scale <= 0.0
+    or inner_pair_min_spacing <= 0.0
+    or outer_pair_extra_spacing <= 0.0
+    or outer_pair_max_ratio <= 1.0
+    or outer_pair_max_bias < 0.0
+  ):
     raise ValueError("layout scales must be positive.")
 
   axes = torch.nn.functional.normalize(wheel_axles, dim=2)
@@ -114,7 +132,59 @@ def normal_four_wheel_axle_layout(
   front_inside_score = torch.sigmoid(
     (front_inside_delta - front_inside_margin) / front_inside_scale
   )
-  return parallel_score * horizontal_score * line_score, front_inside_score, front_inside_delta
+  # A nesting-only score admits the failure seen in the recording: the two
+  # inner wheels collapse together while the outer pair spreads excessively.
+  # The reference has four distinct centres ordered along one axle.  These
+  # are measured wheel-centre spacings, never desired joint angles.
+  front_pair_spacing = torch.abs(axial_coordinate[:, 0] - axial_coordinate[:, 1])
+  rear_pair_spacing = torch.abs(axial_coordinate[:, 2] - axial_coordinate[:, 3])
+  inner_separation_score = torch.sigmoid(
+    (front_pair_spacing - inner_pair_min_spacing) / 0.025
+  )
+  outer_order_score = torch.sigmoid(
+    (rear_pair_spacing - front_pair_spacing - outer_pair_extra_spacing) / 0.04
+  )
+  outer_bound_score = torch.sigmoid(
+    (
+      outer_pair_max_ratio * front_pair_spacing
+      + outer_pair_max_bias
+      - rear_pair_spacing
+    )
+    / 0.06
+  )
+  nested_spacing_score = (
+    front_inside_score
+    * inner_separation_score
+    * outer_order_score
+    * outer_bound_score
+  )
+  return (
+    parallel_score * horizontal_score * line_score,
+    nested_spacing_score,
+    front_inside_delta,
+    front_pair_spacing,
+    rear_pair_spacing,
+  )
+
+
+def normal_four_wheel_spacing_ok(
+  front_pair_spacing: torch.Tensor,
+  rear_pair_spacing: torch.Tensor,
+  *,
+  inner_pair_min_spacing: float = 0.10,
+  outer_pair_extra_spacing: float = 0.10,
+  outer_pair_max_ratio: float = 3.0,
+  outer_pair_max_bias: float = 0.08,
+) -> torch.Tensor:
+  """Check that normal-spin inner/outer pairs are distinct and compact."""
+  return (
+    (front_pair_spacing >= inner_pair_min_spacing)
+    & (rear_pair_spacing >= front_pair_spacing + outer_pair_extra_spacing)
+    & (
+      rear_pair_spacing
+      <= outer_pair_max_ratio * front_pair_spacing + outer_pair_max_bias
+    )
+  )
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +386,7 @@ def _stance_spin_components(
     ),
     dim=1,
   )[batch, mode]
-  normal_coaxiality, front_inside_score, _ = normal_four_wheel_axle_layout(
+  normal_coaxiality, front_inside_score, _, _, _ = normal_four_wheel_axle_layout(
     wheel_axles, wheel_positions
   )
   support_masks = masks[mode]
@@ -715,6 +785,49 @@ def aerial_airborne_clearance(
     * airborne.to(clearance.dtype)
     * legal.to(clearance.dtype)
     * clearance
+    * env.step_dt
+  )
+
+
+def aerial_airborne_wheel_spread_cost(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+  nonwheel_sensor_name: str,
+  max_wheel_root_distance: float,
+  softness: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Penalize only an over-extended airborne leg shape.
+
+  The reference tucks its wheels close to the trunk after takeoff.  Measure
+  that compactness directly from wheel-centre geometry while airborne, rather
+  than prescribing any hip/thigh/calf target or a time-indexed motion.  The
+  takeoff and wheel landing stay completely free: this cost is zero on the
+  ground and while all wheel centres remain within the compact envelope.
+  """
+  if max_wheel_root_distance <= 0.0 or softness <= 0.0:
+    raise ValueError("max_wheel_root_distance and softness must be positive.")
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+    raise ValueError("airborne compactness needs four wheel sites.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
+  legal = ~_has_any_contact(env, nonwheel_sensor_name)
+  wheel_positions = asset.data.site_pos_w[:, asset_cfg.site_ids]
+  root_positions = asset.data.root_link_pos_w.unsqueeze(1)
+  furthest_wheel_distance = torch.max(
+    torch.linalg.vector_norm(wheel_positions - root_positions, dim=2), dim=1
+  ).values
+  normalized_excess = torch.relu(
+    furthest_wheel_distance - max_wheel_root_distance
+  ) / softness
+  return (
+    active.to(normalized_excess.dtype)
+    * airborne.to(normalized_excess.dtype)
+    * legal.to(normalized_excess.dtype)
+    * torch.square(normalized_excess)
     * env.step_dt
   )
 

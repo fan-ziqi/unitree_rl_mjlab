@@ -42,7 +42,7 @@ def illegal_contact_after_grace(
   """
   if grace_period_s < 0.0:
     raise ValueError("grace_period_s must be non-negative.")
-  grace_steps = int(round(grace_period_s / env.step_dt))
+  grace_steps = round(grace_period_s / env.step_dt)
   return (env.episode_length_buf >= grace_steps) & illegal_contact(
     env, sensor_name=sensor_name, force_threshold=force_threshold
   )
@@ -66,7 +66,7 @@ def terrain_contact_after_grace(
   found = sensor.data.found
   assert found is not None
   contact = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=(1, 2))
-  grace_steps = int(round(grace_period_s / env.step_dt))
+  grace_steps = round(grace_period_s / env.step_dt)
   return (env.episode_length_buf >= grace_steps) & contact
 
 
@@ -134,7 +134,7 @@ def command_gravity_fall(
   gravity = asset.data.projected_gravity_b
   gravity = gravity / torch.linalg.vector_norm(gravity, dim=1, keepdim=True).clamp_min(1.0e-6)
   alignment = torch.sum(gravity * target, dim=1)
-  grace_steps = int(round(grace_period_s / env.step_dt))
+  grace_steps = round(grace_period_s / env.step_dt)
   return (env.episode_length_buf >= grace_steps) & (alignment < min_alignment)
 
 
@@ -156,8 +156,43 @@ def command_support_lost(
   assert sensor.data.found is not None
   contacts = (sensor.data.found.reshape(env.num_envs, sensor.data.found.shape[1], -1) > 0).any(dim=-1)
   desired_present = torch.all(contacts | ~target, dim=1)
-  grace_steps = int(round(grace_period_s / env.step_dt))
+  grace_steps = round(grace_period_s / env.step_dt)
   return (env.episode_length_buf >= grace_steps) & ~desired_present
+
+
+def normal_spin_support_lost(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+  speed_deadband: float = 0.20,
+  grace_period_s: float = 2.0,
+) -> torch.Tensor:
+  """Reject a normal spin that turns by lifting one or more wheels.
+
+  The normal one-hot is the video's folded four-wheel pivot, not a hopping
+  steering turn.  PPO is free to reorganize during the short initial grace
+  interval; after that all four wheels must remain grounded whenever the
+  spin-rate command is active.  This is only a physical contact-validity
+  condition and supplies neither a joint posture nor a motion reference.
+  """
+  if speed_deadband < 0.0 or grace_period_s < 0.0:
+    raise ValueError("speed_deadband and grace_period_s must be non-negative.")
+  command = env.command_manager.get_command(command_name)
+  if command.shape[1] < 6:
+    raise ValueError("normal spin requires five one-hots and a rate channel.")
+  normal_spinning = (command[:, 0] > 0.5) & (
+    torch.abs(command[:, 5]) > speed_deadband
+  )
+  sensor: ContactSensor = env.scene[sensor_name]
+  found = sensor.data.found
+  assert found is not None
+  contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
+  grace_steps = round(grace_period_s / env.step_dt)
+  return (
+    normal_spinning
+    & (env.episode_length_buf >= grace_steps)
+    & ~torch.all(contacts, dim=1)
+  )
 
 
 class AerialPostLandingRelaunch:
