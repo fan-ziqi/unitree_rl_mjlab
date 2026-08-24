@@ -160,18 +160,18 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # the trunk above its transverse support axle; without this existing
         # support-outcome geometry, V1 found a low front crouch with the right
         # two contacts but not the requested inverted stand.
-        # The previous linear 0.45-m scale paid most of the support return to
-        # a visibly crouched 0.35-m result.  This remains a measured trunk to
-        # wheel-axle clearance, not a leg pose, but makes the requested
-        # extended two-wheel support the substantially better outcome.
-        "minimum_root_clearance": (0.18, 0.62, 0.62),
-        # This remains the same measured contact/attitude/clearance result,
-        # but m600 showed that a linear score accepts a 0.90-aligned, folded
-        # front stance as nearly as valuable as the requested upright support.
-        # Sharpening its existing physical factors gives PPO a direct outcome
-        # gradient toward an actually tall, vertical wheel pair.
+        # The m400 fixed-command audit measures only 0.23 m of true
+        # trunk-to-support-axle clearance.  Requiring 0.62 m *and* squaring
+        # it leaves the normal-reset-to-upright discovery gradient almost
+        # zero.  The spin task has independently demonstrated that 0.45 m is
+        # a physically reachable, visibly extended Go2W two-wheel support.
+        # This remains a measured geometry outcome, not a leg pose target.
+        "minimum_root_clearance": (0.18, 0.45, 0.45),
+        # Keep a direct monotonic incentive from the current low support all
+        # the way to that extended physical clearance.  Exact contacts and
+        # body attitude remain multiplicative validity requirements below.
         "orientation_power": 4.0,
-        "clearance_power": 2.0,
+        "clearance_power": 1.0,
         "asset_cfg": _support_wheels(),
       },
     ),
