@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-from src.tasks.velocity.mdp import trick_rewards
+from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
   StanceSpinCommandCfg,
@@ -236,7 +237,39 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  cfg.curriculum = {}
+  # This changes only which already-public commands are sampled.  The first
+  # a143 audit established that roughly 200 PPO updates are enough to find a
+  # legal front/rear support, while keeping the 50% static share thereafter
+  # let the x response collapse back to zero.  Once support is discoverable,
+  # expose more nonzero x/yaw requests without introducing a pose, phase, or
+  # a separate controller.
+  cfg.curriculum = {
+    "locomotion_commands": CurriculumTermCfg(
+      func=trick_curriculums.stance_locomotion_command_stages,
+      params={
+        "command_name": "trick",
+        "stages": (
+          {
+            "step": 0,
+            "mode_probabilities": (0.15, 0.425, 0.425),
+            "mode_idle_probabilities": (0.0, 0.50, 0.50),
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+          },
+          {
+            # 12,800 controller steps is about 200 updates at the fixed
+            # 64-step rollout.  The mode one-hots and velocity ranges remain
+            # unchanged; only support-vs-motion sample frequency changes.
+            "step": 12_800,
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.0, 0.25, 0.25),
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
+          },
+        ),
+      },
+    )
+  }
   return cfg
 
 
