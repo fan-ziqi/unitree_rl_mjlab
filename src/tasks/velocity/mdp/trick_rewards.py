@@ -798,14 +798,17 @@ class AerialNetRotationProgress:
     axis_purity = desired_axis_speed / torch.linalg.vector_norm(
       angular_velocity, dim=1
     ).clamp_min(1.0e-4)
-    # A turn is useful only to the degree it was produced by a real jump.  The
-    # separate clearance term makes takeoff discoverable; this single factor
-    # prevents a low contact-edge pivot from competing with a ballistic flip.
+    # Preserve an early takeoff/turn gradient even before PPO has separated
+    # the requested axis from the other two body rates.  A full multiplicative
+    # purity gate made the no-jump local optimum preferable; this bounded
+    # interpolation still strictly favours a pure commanded-axis flip without
+    # adding another reward term, posture target, or phase signal.
+    purity_factor = 0.25 + 0.75 * axis_purity
     return (
       active.to(increment.dtype)
       * legal.to(increment.dtype)
       * torch.sqrt(clearance)
-      * axis_purity
+      * purity_factor
       * increment
     )
 
