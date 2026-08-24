@@ -61,10 +61,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # Every outcome needs enough on-policy data to preserve both its launch
-      # and its idle recovery. Hard-axis bias made the shared policy forget
-      # learned branches and turn into large colliding joint excursions.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # The uniform a141 run discovered front/left/yaw, but after 800 updates
+      # back/right still produced almost no desired-axis radians.  Keep every
+      # one-hot in this one actor, while giving the two unresolved signed
+      # directions more fresh PPO exploration.  This is command sampling only
+      # and does not encode a takeoff, phase, or reference motion.
+      mode_probabilities=(0.20, 0.30, 0.10, 0.30, 0.10),
       resampling_time_range=(3.0, 3.0),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
