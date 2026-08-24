@@ -792,6 +792,36 @@ def aerial_airborne_clearance(
   )
 
 
+def aerial_takeoff_velocity(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+  nonwheel_sensor_name: str,
+  target_upward_speed: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward the physical upward impulse that starts an aerial event."""
+  if target_upward_speed <= 0.0:
+    raise ValueError("target_upward_speed must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
+  legal = ~_has_any_contact(env, nonwheel_sensor_name)
+  upward_speed = torch.clamp(
+    asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
+    min=0.0,
+    max=1.0,
+  )
+  return (
+    active.to(upward_speed.dtype)
+    * grounded.to(upward_speed.dtype)
+    * legal.to(upward_speed.dtype)
+    * upward_speed
+    * env.step_dt
+  )
+
+
 def aerial_airborne_wheel_spread_cost(
   env: ManagerBasedRlEnv,
   command_name: str,

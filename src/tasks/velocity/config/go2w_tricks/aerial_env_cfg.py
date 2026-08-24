@@ -149,7 +149,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # low, fast hops produced by the previous 15:20 height-to-radian ratio.
       # This is still the same measured wheel-free height outcome; it merely
       # gives PPO enough incentive to find the necessary launch.
-      weight=100.0,
+      weight=250.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -157,10 +157,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_clearance": 0.45,
       },
     ),
-    # The video tucks the legs immediately after liftoff instead of holding a
-    # long rigid/flailed shape.  This is one compact physical geometry cost:
-    # it reads wheel-to-trunk distance only while airborne, never joint angles
-    # or a reference phase, and leaves launch/landing coordination to PPO.
+    "takeoff_velocity": RewardTermCfg(
+      func=trick_rewards.aerial_takeoff_velocity,
+      weight=50.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "target_upward_speed": 1.5,
+      },
+    ),
     "airborne_wheel_spread": RewardTermCfg(
       func=trick_rewards.aerial_airborne_wheel_spread_cost,
       # The first compactness scale was two orders of magnitude below the
@@ -168,7 +174,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # it and flailed its legs.  This keeps the same geometry-only outcome
       # signal, but makes an extended wheel radius materially worse than a
       # compact aerial turn.
-      weight=-500.0,
+      weight=-75.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -191,7 +197,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # the harder pitch/roll commands are already making real net progress.
       # Raise the same bounded per-radian result so all five one-hots retain a
       # useful discovery gradient; success itself remains the strict endpoint.
-      weight=50.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -290,7 +296,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # prevents a high-but-illegal partial turn from competing with a recoverable
     # wheel landing.  Timeouts remain excluded by the standard termination
     # reward function.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-10.0),
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-25.0),
   }
   # Collision ends an episode immediately.  The small terminal term above is
   # enabled only after earlier runs had already demonstrated real takeoff and
