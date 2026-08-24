@@ -174,7 +174,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # it and flailed its legs.  This keeps the same geometry-only outcome
       # signal, but makes an extended wheel radius materially worse than a
       # compact aerial turn.
-      weight=-75.0,
+      weight=-200.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -292,16 +292,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # does not choose a pose, phase, or reference action for the maneuver.
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.01),
     # Colliding the trunk or a leg is already a physical failure.  Once the
-    # policy has discovered real multi-axis jumps, a modest terminal cost
+    # policy has discovered real multi-axis jumps, a decisive terminal cost
     # prevents a high-but-illegal partial turn from competing with a recoverable
     # wheel landing.  Timeouts remain excluded by the standard termination
     # reward function.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-100.0),
+    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-300.0),
   }
-  # Collision ends an episode immediately.  The small terminal term above is
-  # enabled only after earlier runs had already demonstrated real takeoff and
-  # turn discovery; it distinguishes an illegal partial turn from a wheelward
-  # recovery without prescribing how the limbs should execute either action.
+  # Collision ends an episode immediately.  The decisive terminal term
+  # distinguishes an illegal partial turn from a wheelward recovery without
+  # prescribing how the limbs should execute either action.
   # The command becomes all-zero after its first landing.  A later genuine
   # wheel-free interval is a second attempt, even if it began as a rebound,
   # and is therefore an event failure rather than a way to continue hopping.
