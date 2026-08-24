@@ -122,12 +122,14 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # launch, whereas +/- 1.0 repeatedly plateaued at safe 0.2--0.5-turn
     # hops before a full ballistic turn was ever sampled.
     clip_actions=1.5,
-    # The 0.003 setting drove the scalar standard deviation to 2.12, beyond
-    # the clipped envelope: every mode learned a noisy saturated hop rather
-    # than a coherent net rotation.  Keep initial sampling broad but let PPO
-    # consolidate the already-discovered ballistic launch and tucking motion.
-    init_std=0.60,
-    entropy_coef=0.001,
+    # 0.60/0.001 collapsed the action standard deviation before any branch
+    # had sampled more than a half turn; the fixed m1400 audit consequently
+    # plateaued at 0.21--0.57 turns despite reliable takeoff.  Restore enough
+    # bounded exploration to discover the missing angular impulse, but stay
+    # below the former 0.003 entropy setting that expanded into permanently
+    # saturated random hops.
+    init_std=1.0,
+    entropy_coef=0.002,
     # The large batch already produces a low-variance PPO gradient.  A
     # smaller actor step prevents a rare successful mode from overwriting
     # still-exploring command branches between checkpoints.

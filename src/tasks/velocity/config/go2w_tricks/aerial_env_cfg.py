@@ -69,11 +69,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # Fixed-command evaluation showed that the two side flips now dominate
-      # while front/back/yaw collapse.  Retain side coverage in the same
-      # policy, but allocate most fresh rollouts to the three lagging public
-      # one-hots; this changes sampling only, never the command interface.
-      mode_probabilities=(0.25, 0.25, 0.22, 0.22, 0.06),
+      # Every one-hot is a required public result.  A skewed sampler made a
+      # checkpoint look better on a favoured branch while leaving the rare
+      # yaw event without enough PPO evidence to become a usable fifth skill.
+      # Keep the fused policy, but give its five physical outcomes equal
+      # discovery opportunity.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -174,7 +175,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # it and flailed its legs.  This keeps the same geometry-only outcome
       # signal, but makes an extended wheel radius materially worse than a
       # compact aerial turn.
-      weight=-200.0,
+      # Compactness is a visual quality constraint on a maneuver that has
+      # already left the floor.  At -200 the observed 0.52-m flight geometry
+      # incurred more return loss than roughly half a desired revolution, so
+      # PPO learned the safe low-hop basin instead of first discovering a full
+      # turn.  Keep the same geometry-only signal, but let rotation discovery
+      # dominate until the policy can actually make the target event.
+      weight=-50.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
