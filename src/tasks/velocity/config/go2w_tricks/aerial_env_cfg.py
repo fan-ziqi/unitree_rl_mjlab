@@ -208,10 +208,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # once-only physical result materially outweigh another partial
         # airborne radian; it remains gated by turn fraction and legal
         # four-wheel contact below.
-        # Keep a legal first touchdown informative while it is still rare.
-        # The following stricter orientation grade is a refinement signal,
-        # not a reason to abandon the complete-turn/landing discovery path.
-        "soft_touchdown_reward": 20.0,
+        # A real four-wheel touchdown is now sampled, but often finishes a
+        # few thousandths short of the launch frame.  Increase the same
+        # outcome bridge moderately so this endpoint competes with another
+        # partial airborne radian without returning to the former extreme
+        # touchdown scale that suppressed landing discovery.
+        "soft_touchdown_reward": 30.0,
         # Grade that same once-only all-wheel touchdown by how close it is to
         # the existing strict landing velocity/attitude limits.  This is not a
         # new trajectory or phase reward: it only distinguishes a quiet
@@ -233,11 +235,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # landing: a yaw turn that visibly finishes at a changed heading is
         # still a poor endpoint, while the strict threshold below remains the
         # only completion criterion.
-        # The strict 0.999 endpoint remains mandatory, but the bridge must
-        # stay broad enough for PPO to keep sampling actual full-turn wheel
-        # landings.  A previous sharper exponent suppressed those landings
-        # before it improved their final heading.
-        "soft_touchdown_orientation_exponent": 6.0,
+        # Distinguish a visually close 0.992 wheel landing from the 0.999
+        # launch-frame contract, while retaining a broader gradient than the
+        # earlier exponent-16 experiment that stalled landing discovery.
+        "soft_touchdown_orientation_exponent": 12.0,
         # A partial but real flight may receive a *graded* first-touchdown
         # signal, so orientation recovery is observable before a policy has
         # ever happened to achieve a perfect full turn.  Squaring the turn
@@ -247,7 +248,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # Once a complete legal landing is sampled, reward its continuous
         # dwell under public idle. This is the same strict physical endpoint
         # used for acceptance, not a landing pose or reference trajectory.
-        "settle_reward": 4.0,
+        # Once the exact physical landing exists, make every retained idle
+        # step meaningful so the policy learns to preserve it through the
+        # required 0.6-s public-default window rather than immediately
+        # reconfiguring for another motion.
+        "settle_reward": 50.0,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         # The strict bonus is paid only if the all-zero/default controller
