@@ -341,17 +341,17 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  # This is a final-result validity check, enabled only once PPO has had a
-  # fixed-form geometry stage.  Applying it from iteration zero cut off every
-  # exploratory reorganization before it could discover the compact axle.
+  # The reference's normal pivot keeps every wheel in continuous contact.
+  # Retain only a short reset/contact-sensor grace interval; a longer delayed
+  # check lets PPO collect rate reward by hopping or steering on fewer wheels.
   cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
     func=terminations.normal_spin_support_lost,
     params={
       "command_name": "trick",
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
-      "grace_period_s": 2.0,
-      "enable_after_steps": 38_400,
+      "grace_period_s": 0.4,
+      "enable_after_steps": 0,
     },
   )
   cfg.curriculum = {
