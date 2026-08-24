@@ -210,9 +210,14 @@ def mode_support_score(
 ) -> torch.Tensor:
   """Measure the commanded contact pair, attitude, and optional height.
 
-  This is an outcome score rather than a leg-pose target.  Multiplication
-  makes a low crouch or a fallen contact pair inferior to a genuine support;
-  the partial contact factors retain a discovery gradient from four wheels.
+  This is an outcome score rather than a leg-pose target.  Correct attitude
+  remains a validity gate, while contact and trunk clearance are combined
+  *inside* that gate.  A full product makes the ordinary four-wheel reset
+  almost reward-free for a two-wheel request: it has halfway attitude but
+  also the two extra contacts and low support clearance.  That gives PPO no
+  useful return for beginning the physical rise.  The weighted combination
+  preserves the same terminal optimum (correct pair, attitude, and clearance)
+  without encoding a joint pose or an intermediate trajectory.
   """
   if not 0.0 <= extra_contact_discount <= 1.0:
     raise ValueError("extra_contact_discount must be in [0, 1].")
@@ -295,7 +300,12 @@ def mode_support_score(
       min=0.0,
       max=1.0,
     )
-  return active.to(orientation.dtype) * orientation * support * clearance * stillness
+  # Contact is slightly more important than height: a tall robot supported by
+  # the wrong wheels is not the requested stance.  Keeping both beneath the
+  # measured attitude gate prevents a fallen, contact-free orientation from
+  # being rewarded as a valid support.
+  support_progress = 0.65 * support + 0.35 * clearance
+  return active.to(orientation.dtype) * orientation * support_progress * stillness
 
 
 def _stance_spin_components(
