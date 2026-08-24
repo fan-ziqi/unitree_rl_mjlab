@@ -175,6 +175,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "max_wheel_root_distance": 0.38,
         "softness": 0.10,
+        # The body must be allowed to create an unconstrained ballistic launch.
+        # Once it reaches the physical apex, the reference's tucked in-air
+        # shape becomes mandatory through the same wheel-geometry outcome.
+        "descent_only": True,
         "asset_cfg": _aerial_wheels(),
       },
     ),

@@ -796,6 +796,7 @@ def aerial_airborne_wheel_spread_cost(
   nonwheel_sensor_name: str,
   max_wheel_root_distance: float,
   softness: float,
+  descent_only: bool = False,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Penalize only an over-extended airborne leg shape.
@@ -804,7 +805,9 @@ def aerial_airborne_wheel_spread_cost(
   that compactness directly from wheel-centre geometry while airborne, rather
   than prescribing any hip/thigh/calf target or a time-indexed motion.  The
   takeoff and wheel landing stay completely free: this cost is zero on the
-  ground and while all wheel centres remain within the compact envelope.
+  ground and while all wheel centres remain within the compact envelope.  When
+  ``descent_only`` is set, the leg extension needed to create a ballistic
+  takeoff is also free; tuck quality is evaluated only after the physical apex.
   """
   if max_wheel_root_distance <= 0.0 or softness <= 0.0:
     raise ValueError("max_wheel_root_distance and softness must be positive.")
@@ -823,10 +826,14 @@ def aerial_airborne_wheel_spread_cost(
   normalized_excess = torch.relu(
     furthest_wheel_distance - max_wheel_root_distance
   ) / softness
+  descending = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+  if descent_only:
+    descending = asset.data.root_link_lin_vel_w[:, 2] <= 0.0
   return (
     active.to(normalized_excess.dtype)
     * airborne.to(normalized_excess.dtype)
     * legal.to(normalized_excess.dtype)
+    * descending.to(normalized_excess.dtype)
     * torch.square(normalized_excess)
     * env.step_dt
   )
