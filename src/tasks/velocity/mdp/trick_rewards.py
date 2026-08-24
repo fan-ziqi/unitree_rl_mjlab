@@ -62,6 +62,7 @@ def normal_four_wheel_axle_layout(
   wheel_positions: torch.Tensor,
   *,
   line_scale: float = 0.14,
+  front_inside_margin: float = 0.05,
   front_inside_scale: float = 0.06,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
   """Measure the reference video's four-wheel common-axis layout.
@@ -74,7 +75,7 @@ def normal_four_wheel_axle_layout(
     raise ValueError("four-wheel axle layout expects [batch, 4, 3] axes.")
   if wheel_positions.shape != wheel_axles.shape:
     raise ValueError("wheel positions must match wheel axle tensor shape.")
-  if line_scale <= 0.0 or front_inside_scale <= 0.0:
+  if line_scale <= 0.0 or front_inside_margin < 0.0 or front_inside_scale <= 0.0:
     raise ValueError("layout scales must be positive.")
 
   axes = torch.nn.functional.normalize(wheel_axles, dim=2)
@@ -98,10 +99,21 @@ def normal_four_wheel_axle_layout(
   transverse_rms = torch.sqrt(torch.mean(torch.sum(torch.square(transverse_offset), dim=2), dim=1))
   line_score = 1.0 / (1.0 + torch.square(transverse_rms / line_scale))
 
-  front_radius = torch.mean(torch.abs(axial_coordinate[:, :2]), dim=1)
-  rear_radius = torch.mean(torch.abs(axial_coordinate[:, 2:]), dim=1)
-  front_inside_delta = rear_radius - front_radius
-  front_inside_score = torch.sigmoid(front_inside_delta / front_inside_scale)
+  # The reference form is not satisfied by *one* good wheel from each pair:
+  # both front wheels must be inside both rear wheels on the shared axle.  An
+  # average pair radius allowed crossed/stepping arrangements to receive the
+  # same score as the nested four-wheel layout.  Compare the outermost front
+  # wheel to the innermost rear wheel instead; this is still only measured
+  # wheel geometry, never a prescribed leg-joint posture.
+  front_outer_radius = torch.amax(torch.abs(axial_coordinate[:, :2]), dim=1)
+  rear_inner_radius = torch.amin(torch.abs(axial_coordinate[:, 2:]), dim=1)
+  front_inside_delta = rear_inner_radius - front_outer_radius
+  # A zero-gap default rectangle must not be a half-credit answer.  The
+  # 5-cm margin is the visible "front inside, rear outside" separation used
+  # by the fixed evaluator, while the sigmoid keeps a dense approach signal.
+  front_inside_score = torch.sigmoid(
+    (front_inside_delta - front_inside_margin) / front_inside_scale
+  )
   return parallel_score * horizontal_score * line_score, front_inside_score, front_inside_delta
 
 

@@ -28,11 +28,12 @@ class StanceSpinCommand(CommandTerm):
   The public layout is ``[normal, front, rear, left, right, spin_rate]``.
   Its literal all-zero value is the normal four-wheel idle.  A nonzero normal
   rate requests a local world-down rotation in one of the five contact modes.
-  ``normal`` is the reference's two-wheel in-place pivot: the policy may form
-  either co-linear front/rear wheel pair as its support axle.  Front/rear are
-  their named upright two-wheel pivots and left/right are static side-wheel
-  supports.  The side supports canonicalize their irrelevant rate channel to
-  zero; normal/front/rear carry the signed rotation request.
+  ``normal`` is the reference's folded *four-wheel* in-place pivot: all wheel
+  centres share one horizontal axle, with the front pair nested inside the
+  rear pair.  Front/rear are their named upright two-wheel pivots and
+  left/right are static side-wheel supports.  The side supports canonicalize
+  their irrelevant rate channel to zero; normal/front/rear carry the signed
+  rotation request.
   No command carries a pose, phase, or limb target.
   """
 

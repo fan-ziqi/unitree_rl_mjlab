@@ -299,10 +299,17 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # The normal folded four-wheel form is the primary geometric discovery.
-      mode_probabilities=(0.50, 0.10, 0.25, 0.075, 0.075),
+      # First discover the reference's *normal* folded four-wheel geometry
+      # from the ordinary default reset.  It is the common prerequisite for
+      # a high-rate yaw pivot and the later switch to the other one-hots; an
+      # early mixture had only 50% normal samples and instead converged on a
+      # four-wheel stepping turn.
+      mode_probabilities=(1.0, 0.0, 0.0, 0.0, 0.0),
       spin_idle_probability=0.0,
-      spin_rate_range=(4.0, 8.0),
+      # The physical layout is found before asking its first pass to sustain
+      # the final maximum rate.  This is a range curriculum over the existing
+      # public spin-rate channel, not an added phase or pose command.
+      spin_rate_range=(1.0, 2.5),
       spin_rate_ramp_rate=12.0,
       debug_vis=False,
     )
@@ -350,15 +357,33 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.50, 0.10, 0.25, 0.075, 0.075),
+            # Fold all four rolling supports onto the reference's common
+            # horizontal axle first.  Holding a single one-hot for the whole
+            # 6-s episode makes the only high-return solution a stationary
+            # four-wheel pivot, rather than a transient stepping yaw.
+            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "spin_rate_range": (4.0, 8.0),
+            "spin_rate_range": (1.0, 2.5),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # After support discovery, expose the same actor to real changes:
-            # active form -> another form -> all-zero four-wheel idle.
+            # Once the nested four-wheel geometry is established, retain it
+            # as the majority of samples while introducing the other physical
+            # stances and the working spin-rate range.  This remains one
+            # actor, one one-hot-plus-rate interface and ordinary default
+            # resets--only the sampled command distribution changes.
             "step": 25_600,
+            "mode_probabilities": (0.65, 0.10, 0.15, 0.05, 0.05),
+            "spin_idle_probability": 0.0,
+            "spin_rate_range": (3.0, 6.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Only after each fixed form has a full-horizon solution expose
+            # the requested real transitions, including the all-zero default
+            # idle command.  Mixing transitions before normal geometry was
+            # valid simply trained the policy to step around the floor.
+            "step": 51_200,
             "mode_probabilities": (0.25, 0.15, 0.25, 0.175, 0.175),
             "spin_idle_probability": 0.20,
             "spin_rate_range": (4.0, 8.0),
