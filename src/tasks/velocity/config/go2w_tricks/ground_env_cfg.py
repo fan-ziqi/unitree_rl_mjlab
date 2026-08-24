@@ -328,16 +328,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # First discover the reference's *normal* folded four-wheel geometry
-      # from the ordinary default reset.  It is the common prerequisite for
-      # a high-rate yaw pivot and the later switch to the other one-hots; an
-      # early mixture had only 50% normal samples and instead converged on a
-      # four-wheel stepping turn.
-      mode_probabilities=(0.35, 0.25, 0.25, 0.075, 0.075),
+      mode_probabilities=(1.0, 0.0, 0.0, 0.0, 0.0),
       spin_idle_probability=0.0,
-      # The physical layout is found before asking its first pass to sustain
-      # the final maximum rate.  This is a range curriculum over the existing
-      # public spin-rate channel, not an added phase or pose command.
       spin_rate_range=(2.0, 5.0),
       spin_rate_ramp_rate=36.0,
       debug_vis=False,
@@ -407,50 +399,31 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Fold all four rolling supports onto the reference's common
-            # horizontal axle first.  Holding a single one-hot for the whole
-            # 6-s episode makes the only high-return solution a stationary
-            # four-wheel pivot, rather than a transient stepping yaw.
-            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
+            # Find the normal four-wheel common-axis pivot from default idle.
+            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Do not jump directly from the first contact-stable pivot to the
-            # final reference-speed range:
-            # that jump repeatedly destroyed the discovered common axle.  The
-            # same normal one-hot first learns an intermediate rate band.
+            # Direct normal/front/rear one-hot changes retain one signed
+            # world-z rate; left/right are introduced only after this family.
             "step": 38_400,
-            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
+            "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (5.0, 10.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Raise the very same fixed normal form to the reference's working
-            # range before any other stance can dilute its geometry.
             "step": 76_800,
-            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
+            "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (10.0, 18.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Broaden only fixed-form coverage after high-rate normal has had
-            # its own full stage while retaining the reference-speed range.
+            # The final fused policy includes the static left/right supports.
             "step": 115_200,
-            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
-            "spin_idle_probability": 0.0,
-            "spin_rate_range": (10.0, 18.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Only after each fixed form has a full-horizon solution expose
-            # the requested real transitions, including the all-zero default
-            # idle command.  Mixing transitions before normal geometry was
-            # valid simply trained the policy to step around the floor.
-            "step": 153_600,
             "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "spin_rate_range": (10.0, 18.0),
