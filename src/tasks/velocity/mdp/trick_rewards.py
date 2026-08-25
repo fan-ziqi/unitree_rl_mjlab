@@ -315,18 +315,20 @@ def mode_support_score(
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    angular_stillness = torch.clamp(
-      1.0 - angular_speed / static_angular_velocity_scale,
-      min=0.0,
-      max=1.0,
+    # Do not turn a valid support's stillness measurement into a binary
+    # exploration gate.  The initial Gaussian policy is often far beyond a
+    # small static-speed tolerance; a clipped zero then makes every such
+    # action equally uninformative to PPO.  The rational score still gives a
+    # genuinely motionless stand the unique value one, limits a fast spinning
+    # stand to a 10% bridge, and supplies an observable improvement path.
+    angular_stillness = 0.10 + 0.90 / (
+      1.0 + torch.square(angular_speed / static_angular_velocity_scale)
     )
     stillness = torch.where(static_command, angular_stillness, stillness)
   if static_linear_velocity_scale is not None:
     planar_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
-    linear_stillness = torch.clamp(
-      1.0 - planar_speed / static_linear_velocity_scale,
-      min=0.0,
-      max=1.0,
+    linear_stillness = 0.10 + 0.90 / (
+      1.0 + torch.square(planar_speed / static_linear_velocity_scale)
     )
     stillness = torch.where(
       static_command, stillness * linear_stillness, stillness
