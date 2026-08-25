@@ -147,25 +147,26 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # A small takeoff signal makes the first part of a flip discoverable,
       # but is far below a turn or completed landing.
       # A complete revolution needs appreciably more ballistic time than the
-      # low, fast hops produced by the previous 15:20 height-to-radian ratio.
-      # This is still the same measured wheel-free height outcome; it merely
-      # gives PPO enough incentive to find the necessary launch.
+      # previous 0.45-m reward cap.  Fixed m1100 evaluation saturated that
+      # cap at about 0.46 m yet remained below half a turn, so it had no
+      # incentive to discover the higher launch needed for a full aerial
+      # rotation.  This remains the same measured wheel-free height outcome.
       weight=250.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_clearance": 0.45,
+        "target_clearance": 0.70,
       },
     ),
     "takeoff_velocity": RewardTermCfg(
       func=trick_rewards.aerial_takeoff_velocity,
-      weight=50.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 1.5,
+        "target_upward_speed": 2.2,
       },
     ),
     "airborne_wheel_spread": RewardTermCfg(
@@ -209,7 +210,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
-        "target_clearance": 0.45,
+        "target_clearance": 0.70,
       },
     ),
     "completed_turn": RewardTermCfg(
