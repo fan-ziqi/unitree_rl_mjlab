@@ -263,12 +263,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # At 64 control steps per PPO iteration this is iteration 500.
-            # The earlier 96k setting deferred the very first normal/front/
-            # rear transition until iteration 1500, while the diagnostic run
-            # stopped at 600 and consequently never trained the public
-            # x/yaw commands at all.
-            "step": 32_000,
+            # The m500 fixed audit reaches the full front support in 12.5%
+            # of trials but rear still has a zero success rate.  Introducing
+            # x/yaw there makes ordinary rolling an easier way to earn the
+            # new tracking returns and pulls both one-hots away from the
+            # unfinished stand.  Keep the zero-velocity public command until
+            # the shared static support has another 300 iterations to settle.
+            # Iteration 800.
+            "step": 51_200,
             "mode_probabilities": (0.20, 0.40, 0.40),
             "mode_idle_probabilities": (0.25, 0.55, 0.55),
             "lin_vel_x_range": (-0.10, 0.10),
@@ -276,10 +278,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Iteration 900: retain a long final interval in the same fresh
-            # run for direct normal/front/rear command changes and meaningful
-            # x/yaw tracking, rather than making that interval unreachable.
-            "step": 57_600,
+            # Iteration 1200 leaves a full final segment in the standard
+            # 1,800-iteration from-zero run for direct normal/front/rear
+            # changes and meaningful x/yaw tracking.
+            "step": 76_800,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),

@@ -24,6 +24,7 @@ from src.assets.robots.unitree_go2w.go2w_constants import (
 from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.terminations import (
   AerialEventFinished,
+  AerialIncompleteLanding,
   AerialPostLandingRelaunch,
 )
 from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
@@ -128,10 +129,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # endpoint below still evaluates the complete launch-frame orientation.
     cfg.observations[group_name].history_length = 10
 
-  # A flip has one generic launch signal, one airborne angular-momentum
-  # signal, one command-specific net-angle result, and one strict terminal
-  # landing.  A partial touchdown deliberately earns nothing: it was the
-  # source of the yaw-only local optimum in the previous long run.
+  # A flip has one generic launch signal, one command-specific net-angle
+  # result, and one strict terminal landing.  A partial touchdown is a real
+  # failure below, not an unpenalized timeout.
   cfg.rewards = {
     "takeoff_upward_velocity": RewardTermCfg(
       func=trick_rewards.aerial_takeoff_upward_velocity,
@@ -153,28 +153,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_clearance": 0.45,
-      },
-    ),
-    "axis_spin_rate": RewardTermCfg(
-      func=trick_rewards.aerial_axis_spin_rate,
-      # The m700 audit reaches legal 0.46--0.56 s flights, yet only
-      # 0.27--0.42 turns.  Its recorded axis-rate peaks show that the model
-      # can create angular momentum but cannot keep it through the flight.
-      # This moderate bridge pays only sustained, signed, in-air axis speed
-      # below the one-turn target; the much larger net-angle term and strict
-      # landing remain the task outcome.  It adds no reference pose, phase,
-      # trajectory, or actor observation.
-      weight=180.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        # A 2π turn during the observed roughly half-second flight requires
-        # about 13 rad/s.  The slightly higher bounded target encourages a
-        # useful margin without rewarding unbounded spin.
-        "target_axis_speed": 14.0,
-        "target_angle": math.tau,
         "target_clearance": 0.45,
       },
     ),
@@ -238,8 +216,24 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "post_idle_settle_time_s": 0.30,
+        "target_angle": math.tau,
+        "max_overrotation": 0.50,
       },
       time_out=True,
+    )
+    # A first wheel landing ends the physical aerial attempt.  If it has not
+    # reached exactly one allowed turn after the same brief default-idle
+    # window, make it a real failure rather than an unpenalized timeout.  The
+    # existing generic termination cost then removes the observed profitable
+    # 0.2--0.4-turn hop without supplying a pose, timing, or motion reference.
+    cfg.terminations["aerial_incomplete_landing"] = TerminationTermCfg(
+      func=AerialIncompleteLanding,
+      params={
+        "command_name": "trick",
+        "post_idle_settle_time_s": 0.30,
+        "target_angle": math.tau,
+        "max_overrotation": 0.50,
+      },
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
   # emitted command is still one complete 2π event from the first sample.  A

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -271,15 +272,23 @@ class AerialEventFinished:
     env: ManagerBasedRlEnv,
     command_name: str,
     post_idle_settle_time_s: float,
+    target_angle: float = math.tau,
+    max_overrotation: float = 0.50,
   ) -> torch.Tensor:
-    if post_idle_settle_time_s <= 0.0:
-      raise ValueError("post_idle_settle_time_s must be positive.")
+    if post_idle_settle_time_s <= 0.0 or target_angle <= 0.0 or max_overrotation < 0.0:
+      raise ValueError("aerial event-finish parameters are invalid.")
     command_term = env.command_manager.get_term(command_name)
     active = torch.sum(command_term.command, dim=1) > 0.5
     landed = getattr(
       command_term,
       "_landing_started",
       torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
+    )
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+    )
+    valid_turn = (progress >= target_angle) & (
+      progress <= target_angle + max_overrotation
     )
     idle_after_landing = landed & (~active)
     self.idle_time = torch.where(
@@ -290,6 +299,63 @@ class AerialEventFinished:
     # This manager runs immediately before the reward manager.  Half a policy
     # step of tolerance agrees with the landing-result's five-frame test, so
     # the final idle frame is rewarded before the truncation reset occurs.
-    return idle_after_landing & (
+    # A partial hop must never receive the benign ``time_out`` label merely
+    # because it returned to default idle.  That previous behaviour paid the
+    # first 0.2--0.4 revolution through the dense progress term, then ended
+    # the episode without a failure signal—a stable local optimum that the
+    # m800 recording exposes directly.  Only a legal one-turn event gets the
+    # normal timeout boundary; the complementary case is handled by the
+    # non-timeout termination below.
+    return idle_after_landing & valid_turn & (
+      self.idle_time + 0.5 * env.step_dt >= post_idle_settle_time_s
+    )
+
+
+class AerialIncompleteLanding:
+  """Fail a landed aerial event that did not complete its one requested turn.
+
+  This is an outcome validity rule, not a landing trajectory: after the same
+  short idle window used by :class:`AerialEventFinished`, distinguish only the
+  measured total desired-axis angle.  It prevents a safe-looking partial hop
+  from receiving rotation reward plus an unpenalized timeout.
+  """
+
+  def __init__(self, cfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.idle_time = torch.zeros(env.num_envs, device=env.device)
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.idle_time[env_ids] = 0.0
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    post_idle_settle_time_s: float,
+    target_angle: float = math.tau,
+    max_overrotation: float = 0.50,
+  ) -> torch.Tensor:
+    if post_idle_settle_time_s <= 0.0 or target_angle <= 0.0 or max_overrotation < 0.0:
+      raise ValueError("aerial incomplete-landing parameters are invalid.")
+    command_term = env.command_manager.get_term(command_name)
+    active = torch.sum(command_term.command, dim=1) > 0.5
+    landed = getattr(
+      command_term,
+      "_landing_started",
+      torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
+    )
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+    )
+    valid_turn = (progress >= target_angle) & (
+      progress <= target_angle + max_overrotation
+    )
+    idle_after_landing = landed & (~active)
+    self.idle_time = torch.where(
+      idle_after_landing,
+      self.idle_time + env.step_dt,
+      torch.zeros_like(self.idle_time),
+    )
+    return idle_after_landing & (~valid_turn) & (
       self.idle_time + 0.5 * env.step_dt >= post_idle_settle_time_s
     )

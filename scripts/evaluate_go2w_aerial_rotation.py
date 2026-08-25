@@ -590,6 +590,18 @@ def run(cfg: EvalConfig) -> MetricDict | list[MetricDict]:
             "attempt_failure_rate": attempt_failed[mask].float().mean().item(),
             "illegal_reset_rate": failed[mask].float().mean().item(),
             "unfinished_rate": trial_open[mask].float().mean().item(),
+            # A first landing clears the public one-hot even when it is an
+            # incomplete turn.  Separating that from a truly airborne/non-
+            # landing trial exposed the former false diagnosis: m800 was not
+            # hovering forever, it was choosing a profitable partial hop and
+            # settling back to four wheels before the requested revolution.
+            "event_closed_rate": event_closed[mask].float().mean().item(),
+            "partial_landing_rate": (
+                (event_closed & (peak_progress < TARGET_ANGLE))[mask]
+                .float()
+                .mean()
+                .item()
+            ),
             "post_event_relaunch_rate": post_event_relaunch[mask].float()
             .mean()
             .item(),
