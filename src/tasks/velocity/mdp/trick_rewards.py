@@ -303,15 +303,20 @@ def mode_support_score(
       clearance_power,
     )
   # A zero x/yaw command means a held support, not an unspecified travelling
-  # balance.  Keep this inside the existing physical support outcome rather
-  # than adding a posture term or a separate reward.  The factor is disabled
-  # as soon as any public command component from ``static_command_start_index``
-  # is nonzero, so commanded locomotion remains free to move.
+  # balance.  It must nevertheless be free to *reach* the support: applying
+  # a zero-speed factor from ordinary four-wheel reset suppressed the pitch
+  # and wheel-contact changes needed to stand up.  Activate the existing
+  # stillness outcome only when the same measured attitude, target support,
+  # and clearance already show that the requested two-wheel form is mostly
+  # present.  This introduces neither a joint pose nor a time/phase target.
   static_command = torch.ones_like(active)
   if static_command_start_index is not None:
     static_command = torch.amax(
       torch.abs(command[:, static_command_start_index:]), dim=1
     ) <= command_deadband
+  static_settling = static_command & (orientation >= 0.85) & (support >= 0.75) & (
+    clearance >= 0.75
+  )
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
@@ -324,14 +329,14 @@ def mode_support_score(
     angular_stillness = 0.10 + 0.90 / (
       1.0 + torch.square(angular_speed / static_angular_velocity_scale)
     )
-    stillness = torch.where(static_command, angular_stillness, stillness)
+    stillness = torch.where(static_settling, angular_stillness, stillness)
   if static_linear_velocity_scale is not None:
     planar_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
     linear_stillness = 0.10 + 0.90 / (
       1.0 + torch.square(planar_speed / static_linear_velocity_scale)
     )
     stillness = torch.where(
-      static_command, stillness * linear_stillness, stillness
+      static_settling, stillness * linear_stillness, stillness
     )
   # Contact is slightly more important than height: a tall robot supported by
   # the wrong wheels is not the requested stance.  Keeping both beneath the
