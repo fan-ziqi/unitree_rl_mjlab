@@ -377,15 +377,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "upright_support_weight": 0.20,
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
-        # The m200--m500 fixed normal audits found a repeatable local
-        # optimum: front wheels moved inside the rears, but the axle score
-        # stalled around 0.5 and only half the trials kept all wheels down.
-        # At this stage rate progress was still valuable enough to pay for
-        # that travelling, partly formed layout.  Give the two required
-        # measured geometry properties clear precedence until the common axle
-        # is physically stable; later curriculum stages still demand the
-        # signed z rate.  This is not a joint target or reference posture.
-        "normal_formation_weight": 0.70,
+        # The fixed m400 video showed the 0.70 formation bridge was itself a
+        # travelling-circle exploit: normal could receive most of its score
+        # while wheel centres moved at 0.72 m/s.  Retain only a small measured
+        # geometry bridge for discovery; a formed layout becomes valuable
+        # primarily when its support centre is stationary and it tracks the
+        # commanded world-z spin.  No joint posture is introduced.
+        "normal_formation_weight": 0.10,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
