@@ -652,10 +652,15 @@ class StanceSpinPivotResult:
     # for the measured axle geometry while the contact set is being restored.
     # It is an outcome measurement, not a limb-pose or action target.
     normal_contact_bridge = 0.25 + 0.75 * normal_contact_score
+    # Formation without locality produced a travelling, low four-wheel
+    # rectangle: at the old 75% bridge weight it could collect most of the
+    # geometry return while its support centre raced across the plane.  Keep
+    # a small discovery bridge, but make a measured stationary centre and
+    # requested signed rate the dominant quality of every normal pivot.
     normal_result = (
       normal_contact_bridge
       * normal_geometry
-      * (0.75 + 0.25 * pivot_stillness * normal_dynamic_quality)
+      * (0.20 + 0.80 * pivot_stillness * normal_dynamic_quality)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
