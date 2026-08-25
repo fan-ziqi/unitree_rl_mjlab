@@ -13,6 +13,7 @@ def _trick_runner_cfg(
   init_std: float = 1.0,
   distribution_class: str = "GaussianDistribution",
   std_type: str = "scalar",
+  distribution_params: dict[str, float] | None = None,
   entropy_coef: float = 0.01,
   learning_rate: float = 1.0e-3,
   desired_kl: float | None = 0.01,
@@ -29,7 +30,8 @@ def _trick_runner_cfg(
         "class_name": distribution_class,
         "init_std": init_std,
         "std_type": std_type,
-      },
+      }
+      | (distribution_params or {}),
     ),
     critic=RslRlModelCfg(
       hidden_dims=hidden_dims, activation="elu", obs_normalization=True
@@ -71,16 +73,18 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # policy.  Match the aerial policy capacity so the easy normal branch
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
-    # A scalar learned standard deviation collapsed to 0.11 after normal
-    # pivot rewards arrived, leaving front/rear one-hots no ability to
-    # explore their distinct support forms.  RSL's built-in heteroscedastic
-    # distribution uses the same existing observation (including one-hot) to
-    # predict a bounded-positive log standard deviation per state.  It adds
-    # no command, target, reward, or controller—only prevents normal from
-    # globally removing exploration from its sibling public modes.
-    init_std=0.70,
-    distribution_class="HeteroscedasticGaussianDistribution",
+    # The normal pivot previously collapsed shared Gaussian exploration to
+    # 0.11, while RSL's unbounded heteroscedastic form later exploded to 11.
+    # Use the same public observation to condition exploration by one-hot,
+    # but keep its physical action spread within 0.2--0.9.  No new policy
+    # input, posture target, or controller is introduced.
+    init_std=0.60,
+    distribution_class=(
+      "src.tasks.velocity.mdp.trick_distributions:"
+      "BoundedHeteroscedasticGaussianDistribution"
+    ),
     std_type="log",
+    distribution_params={"min_std": 0.20, "max_std": 0.90},
     entropy_coef=0.005,
     clip_actions=1.0,
   )
