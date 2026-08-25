@@ -446,21 +446,6 @@ def _stance_spin_components(
   normal_coaxiality, front_inside_score, _, _, _ = normal_four_wheel_axle_layout(
     wheel_axles, wheel_positions
   )
-  # The strict product below is the final reference-layout test, but at the
-  # four-wheel reset both its line and nesting factors are small.  Feeding
-  # only that product to PPO made every useful first deformation effectively
-  # reward-free.  This bounded average uses the *same two measured outcomes*
-  # as a formation-progress signal; it does not choose a joint posture.
-  # The reference layout needs *both* a common axle and the front-inside/rear-
-  # outside order.  Arithmetic weighting let PPO trade one against the other:
-  # it first learned a crossed common line, then a correctly nested but
-  # non-coaxial static form.  A small-floor geometric mean is continuous at
-  # reset yet treats either missing physical property as a real limitation.
-  formation_floor = 0.05
-  normal_formation_progress = torch.sqrt(
-    (formation_floor + (1.0 - formation_floor) * normal_coaxiality)
-    * (formation_floor + (1.0 - formation_floor) * front_inside_score)
-  )
   support_masks = masks[mode]
   normal_support_mask = torch.ones_like(support_masks)
   support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
@@ -527,7 +512,9 @@ def _stance_spin_components(
     rate_score,
     support_quality,
     coaxial_factor,
-    normal_formation_progress,
+    normal_coaxiality,
+    front_inside_score,
+    normal_contact_score,
     support_mask,
     mode,
   )
@@ -560,7 +547,6 @@ class StanceSpinPivotResult:
     upright_support_weight: float = 0.20,
     side_support_weight: float = 0.25,
     side_pivot_speed_limit: float = 0.35,
-    normal_formation_weight: float = 0.45,
     rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
@@ -571,8 +557,6 @@ class StanceSpinPivotResult:
       raise ValueError("side_support_weight must be in [0, 1).")
     if side_pivot_speed_limit <= 0.0:
       raise ValueError("side_pivot_speed_limit must be positive.")
-    if not 0.0 <= normal_formation_weight < 1.0:
-      raise ValueError("normal_formation_weight must be in [0, 1).")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
     (
@@ -582,7 +566,9 @@ class StanceSpinPivotResult:
       rate_score,
       support_quality,
       coaxial_factor,
-      normal_formation_progress,
+      normal_coaxiality,
+      front_inside_score,
+      normal_contact_score,
       support_mask,
       mode,
     ) = _stance_spin_components(
@@ -649,27 +635,24 @@ class StanceSpinPivotResult:
     upright_result = support_quality * (
       discovery_weight + (1.0 - discovery_weight) * dynamic_quality
     )
-    # Formation must be discoverable before the strict common-axis product is
-    # non-zero.  Use the same continuous measured formation to expose the
-    # *rate* route as well: gating it by the strict product made a quiet
-    # four-wheel default locally optimal, because it could never receive a
-    # first rotation gradient.  The strict product is still part of final
-    # geometry quality through the formation term's full endpoint and the
-    # evaluator remains the acceptance test.
+    # The normal pivot has one simple causal order: first make the four wheel
+    # centres share an axle and put the front pair inside the rear pair, then
+    # keep that layout local while tracking yaw rate.  The previous geometric
+    # product made either unfinished quantity suppress the other to nearly
+    # zero, so PPO only found a travelling floor circle.  The arithmetic
+    # geometry score is intentionally an outcome measurement, not a pose or
+    # reference action, and both ingredients must still approach one for the
+    # final maximum.
+    normal_geometry = 0.5 * (normal_coaxiality + front_inside_score)
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
-    # The old bridge paid for common-axis formation even while the complete
-    # wheel footprint travelled across the plane.  That exactly recreates the
-    # bicycle-like shortcut seen in f50.  A normal-mode formation is valuable
-    # only when its wheel-centre centroid is local; keep that direct physical
-    # condition on both the geometry-discovery and rate-tracking portions.
+    # Geometry is valuable independently while it is being formed.  Motion
+    # earns the remaining return only after that measured geometry is present
+    # and its four-wheel centroid is stationary, so translating the footprint
+    # cannot substitute for an in-place pivot.
     normal_result = (
-      support_quality
-      * normal_formation_progress
-      * pivot_stillness
-      * (
-        normal_formation_weight
-        + (1.0 - normal_formation_weight) * normal_dynamic_quality
-      )
+      normal_contact_score
+      * normal_geometry
+      * (0.75 + 0.25 * pivot_stillness * normal_dynamic_quality)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
