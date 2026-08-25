@@ -184,7 +184,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # actor's PPO advantage.  Weight the harder rear *same outcome* so
         # its one-hot receives comparable policy pressure without a separate
         # network, a pose target, or a reference transition.
-        "mode_weights": (0.0, 1.0, 2.5),
+        "mode_weights": (0.0, 1.0, 1.75),
         "clearance_power": 1.0,
         # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
         # audit found that without this existing outcome's stillness factor,
