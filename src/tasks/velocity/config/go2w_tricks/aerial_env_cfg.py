@@ -13,6 +13,7 @@ import math
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
+from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
@@ -20,7 +21,7 @@ from src.assets.robots.unitree_go2w.go2w_constants import (
   GO2W_LEG_JOINTS,
   GO2W_WHEEL_JOINTS,
 )
-from src.tasks.velocity.mdp import trick_rewards
+from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.terminations import (
   AerialEventFinished,
   AerialPostLandingRelaunch,
@@ -61,12 +62,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # Every one-hot is a required public result.  A skewed sampler made a
-      # checkpoint look better on a favoured branch while leaving the rare
-      # yaw event without enough PPO evidence to become a usable fifth skill.
-      # Keep the fused policy, but give its five physical outcomes equal
-      # discovery opportunity.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # The four somersault axes are initially balanced.  The command
+      # curriculum below introduces yaw only after they have their own
+      # discovery evidence: yaw is mechanically much easier and otherwise
+      # monopolizes shared-policy PPO updates despite equal sampling.
+      mode_probabilities=(0.25, 0.25, 0.25, 0.25, 0.0),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -206,7 +206,31 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
       time_out=True,
     )
-  # There is deliberately no reward curriculum: every command is one full
-  # turn from the first sample and all five events remain equally likely.
-  cfg.curriculum = {}
+  # This is sampling curriculum, not a reference-motion curriculum.  Every
+  # emitted command is still one complete 2π event from the first sample; the
+  # only change is withholding the simple yaw outcome long enough for its
+  # much harder sibling one-hots to obtain a usable policy gradient.
+  cfg.curriculum = {
+    "aerial_commands": CurriculumTermCfg(
+      func=trick_curriculums.aerial_command_stages,
+      params={
+        "command_name": "trick",
+        "stages": (
+          {
+            # 500 aerial PPO iterations at 48 rollout steps per environment.
+            "step": 0,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
+          },
+          {
+            # Add the already easy fifth branch only after the four real
+            # somersault directions have received equal discovery samples.
+            "step": 24_000,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+          },
+        ),
+      },
+    )
+  }
   return cfg

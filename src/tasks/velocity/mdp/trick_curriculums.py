@@ -80,3 +80,29 @@ def stance_locomotion_command_stages(
       command.cfg.resampling_time_range[1]
     ),
   }
+
+
+def aerial_command_stages(
+  env: ManagerBasedRlEnv,
+  env_ids: torch.Tensor,
+  command_name: str,
+  stages: tuple[dict[str, Any], ...],
+) -> dict[str, torch.Tensor]:
+  """Balance hard aerial axes before exposing the easy yaw branch.
+
+  This changes only which public one-hot is sampled.  It keeps one actor, the
+  same five-element command tensor, and the same outcome rewards; it does not
+  introduce a motion reference or a mode-specific controller.
+  """
+  del env_ids
+  stage = _active_stage(env.common_step_counter, stages)
+  command = env.command_manager.get_term(command_name)
+  command.set_curriculum(
+    idle_probability=stage.get("idle_probability"),
+    mode_probabilities=stage.get("mode_probabilities"),
+  )
+  probabilities = torch.tensor(command.cfg.mode_probabilities, device=env.device)
+  return {
+    "aerial_yaw_probability": probabilities[4],
+    "aerial_non_yaw_probability": probabilities[:4].sum(),
+  }
