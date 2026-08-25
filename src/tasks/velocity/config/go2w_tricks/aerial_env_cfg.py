@@ -256,10 +256,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
-  # emitted command is still one complete 2π event from the first sample.  A
-  # small yaw fraction supplies a shared ballistic-launch discovery signal;
-  # its probability is held below the four somersault branches so it cannot
-  # monopolize the fused actor's PPO updates.
+  # emitted command is still one complete 2π event from the first sample.
+  # The first 600 iterations give every somersault direction equal discovery
+  # opportunity.  In the fixed-command f75 audit, left then completed while
+  # front was near a landing and back/right/yaw still crashed.  Keep that
+  # solved branch in the *same* fused policy, but spend subsequent samples on
+  # the remaining conditional outcomes rather than letting its large return
+  # dominate their PPO advantages.
   cfg.curriculum = {
     "aerial_commands": CurriculumTermCfg(
       func=trick_curriculums.aerial_command_stages,
@@ -273,22 +276,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
           {
-            # Keep every requested one-hot present throughout discovery.
-            # Removing yaw for 700 iterations makes it a stale observation
-            # branch rather than a fused five-direction policy, and the fixed
-            # audit showed its partial turn then cannot improve.  The small
-            # 5% share prevents yaw from dominating while preserving its own
-            # PPO evidence and the common launch representation.
-            "step": 4_800,
+            # At 48 rollout steps per PPO iteration this starts at m600,
+            # immediately after the shared launch/turn discovery window.
+            # These are only sampler probabilities: the actor still sees the
+            # same five-dimensional one-hot and one set of weights.  Keeping
+            # 5% left examples protects the proven landing, while all four
+            # unfinished outcomes retain direct, independent evidence.
+            "step": 28_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
-          },
-          {
-            # Once all branches have the shared launch skill, balance the
-            # five one-hots equally for full-turn and landing refinement.
-            "step": 38_400,
-            "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.20, 0.30, 0.05, 0.30, 0.15),
           },
         ),
       },
