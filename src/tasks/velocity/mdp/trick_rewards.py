@@ -903,19 +903,20 @@ def normal_leg_default_pose_exp(
   return normal.to(score.dtype) * score
 
 
-class AerialBallisticDuration:
-  """Pay each new amount of legal, continuous four-wheel flight once.
+class AerialBallisticLaunch:
+  """Pay launch impulse and the resulting continuous wheel-free duration.
 
-  A brief all-wheel contact gap is not enough time to rotate the body.  The
-  previous height high-water reward correctly rejected ground pivots but still
-  paid a micro-flight once, leaving PPO no direct reason to extend it.  Flight
-  duration is the minimal physical quantity that expresses the needed launch
-  impulse: hold all wheels clear long enough to complete a turn.  It contains
-  no pose, desired action, phase, or reference trajectory.
+  These are the two direct physical halves of a jump: accelerate the base
+  upward while all four wheels support it, then keep every wheel clear long
+  enough to rotate.  Paying only duration is correct but too sparse before the
+  first useful launch; paying only velocity admits a rocking ground shortcut.
+  Their equal high-water gains form one compact launch outcome, with no pose,
+  desired action, phase, or reference trajectory.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
+    self.peak_upward_speed = torch.zeros(env.num_envs, device=env.device)
     self.current_duration = torch.zeros(env.num_envs, device=env.device)
     self.peak_duration = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(
@@ -923,6 +924,7 @@ class AerialBallisticDuration:
     )
 
   def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_upward_speed[env_ids] = 0.0
     self.current_duration[env_ids] = 0.0
     self.peak_duration[env_ids] = 0.0
     self.previous_active[env_ids] = False
@@ -933,10 +935,13 @@ class AerialBallisticDuration:
     command_name: str,
     sensor_name: str,
     nonwheel_sensor_name: str,
+    target_upward_speed: float,
     target_duration: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    if target_duration <= 0.0:
-      raise ValueError("target_duration must be positive.")
+    if target_upward_speed <= 0.0 or target_duration <= 0.0:
+      raise ValueError("launch scales must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     reset = (
@@ -944,10 +949,27 @@ class AerialBallisticDuration:
       | (active & ~self.previous_active)
       | (env.episode_length_buf == 0)
     )
+    self.peak_upward_speed[reset] = 0.0
     self.current_duration[reset] = 0.0
     self.peak_duration[reset] = 0.0
     wheel_free = ~_has_any_contact(env, sensor_name)
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
+    upward_speed = torch.clamp(
+      asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
+      min=0.0,
+      max=1.0,
+    )
+    powered = active & grounded & legal
+    impulse_gain = torch.clamp(upward_speed - self.peak_upward_speed, min=0.0)
+    self.peak_upward_speed = torch.where(
+      active,
+      torch.maximum(
+        self.peak_upward_speed,
+        torch.where(powered, upward_speed, torch.zeros_like(upward_speed)),
+      ),
+      torch.zeros_like(self.peak_upward_speed),
+    )
     valid = active & wheel_free & legal
     self.current_duration = torch.where(
       valid,
@@ -969,9 +991,12 @@ class AerialBallisticDuration:
       torch.zeros_like(self.peak_duration),
     )
     self.previous_active = active
-    # RewardManager supplies the dt integral.  Divide once so this remains a
-    # discrete launch impulse rather than being attenuated by control rate.
-    return valid.to(gain.dtype) * gain / env.step_dt
+    # RewardManager supplies the sole dt integral.  Each high-water gain is a
+    # one-off physical event rather than a per-step shaping loop.
+    return (
+      0.5 * powered.to(impulse_gain.dtype) * impulse_gain
+      + 0.5 * valid.to(gain.dtype) * gain
+    ) / env.step_dt
 
 
 class AerialBallisticSpinRate:
