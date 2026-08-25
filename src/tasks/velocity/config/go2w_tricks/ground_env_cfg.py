@@ -253,7 +253,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 96_000,
+            # At 64 control steps per PPO iteration this is iteration 500.
+            # The earlier 96k setting deferred the very first normal/front/
+            # rear transition until iteration 1500, while the diagnostic run
+            # stopped at 600 and consequently never trained the public
+            # x/yaw commands at all.
+            "step": 32_000,
             "mode_probabilities": (0.20, 0.40, 0.40),
             "mode_idle_probabilities": (0.25, 0.55, 0.55),
             "lin_vel_x_range": (-0.10, 0.10),
@@ -261,7 +266,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 256_000,
+            # Iteration 900: retain a long final interval in the same fresh
+            # run for direct normal/front/rear command changes and meaningful
+            # x/yaw tracking, rather than making that interval unreachable.
+            "step": 57_600,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
@@ -382,7 +390,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 1.5,
-      "enable_after_steps": 256_000,
+      # Match the final high-speed five-mode curriculum stage below.  The
+      # previous 256k gate lay far outside the 600-iteration diagnostic, so
+      # it could not validate the no-hop requirement during training.
+      "enable_after_steps": 64_000,
     },
   )
   cfg.curriculum = {
@@ -410,7 +421,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # segment of an episode can still be dynamic, so this also gives
             # PPO normal-to-stance transition examples without an artificial
             # pose or phase target.
-            "step": 102_400,
+            # 64 control steps per PPO iteration: begin at iteration 250,
+            # after the normal formation has had a substantial discovery
+            # interval but while the same fresh run still has room to learn
+            # command-to-command transitions.
+            "step": 16_000,
             "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.75,
@@ -420,7 +435,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Remove most static examples and require slow signed pivots once
             # those two supports have a discovery route.
-            "step": 179_200,
+            # Iteration 600.
+            "step": 38_400,
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.40,
@@ -431,7 +447,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Final direct normal/front/rear switching keeps one signed world
             # z-rate throughout; only the separate left/right modes remain
             # static.
-            "step": 256_000,
+            # Iteration 1000, leaving a long final high-speed five-one-hot
+            # interval in a 1600-iteration from-zero run.
+            "step": 64_000,
             "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,

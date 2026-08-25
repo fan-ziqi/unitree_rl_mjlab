@@ -231,7 +231,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "stages": (
           {
-            # 500 aerial PPO iterations at 48 rollout steps per environment.
+            # 400 aerial PPO iterations at 48 rollout steps per environment.
             "step": 0,
             "idle_probability": 0.0,
             "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
@@ -239,7 +239,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           {
             # Add the already easy fifth branch only after the four real
             # somersault directions have received equal discovery samples.
-            "step": 24_000,
+            "step": 19_200,
             "idle_probability": 0.0,
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
