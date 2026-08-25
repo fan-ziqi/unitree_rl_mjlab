@@ -411,9 +411,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   # contact, but folding there from default four-wheel idle may transiently
   # unload one wheel.  Applying this hard validity check from reset killed
   # precisely those formation attempts before the co-axial/local-centre
-  # reward could distinguish them from a travelling floor circle.  Enable it
-  # only once the curriculum has already exposed the dynamic front/rear
-  # pivots; it still guards the final high-rate policy against hopping.
+  # reward could distinguish them from a travelling floor circle.  The first
+  # 600 normal-only iterations are that discovery window.  Afterwards every
+  # normal command must retain all four wheel contacts: waiting until the
+  # high-rate stage accidentally trained a low-speed hopping shortcut for
+  # another 1,200 iterations.
   cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
     func=terminations.normal_spin_support_lost,
     params={
@@ -421,8 +423,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 1.5,
-      # Match the final dynamic five-mode curriculum stage below.
-      "enable_after_steps": 115_200,
+      # Match the first front/rear-support curriculum stage below.
+      "enable_after_steps": 38_400,
     },
   )
   cfg.curriculum = {
