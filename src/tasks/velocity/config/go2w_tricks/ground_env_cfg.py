@@ -89,11 +89,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Front support discovers first and otherwise dominates the shared
-      # policy's return.  Bias the still-fused static discovery distribution
-      # toward the physically harder rear support; both one-hots remain
-      # present from reset and use the same actor/reward, with no pose target.
-      mode_probabilities=(0.0, 0.25, 0.75),
+      # The fixed-command audit showed that a rear-heavy mix lets the shared
+      # policy allocate the support feature to rear and leaves front unused.
+      # Keep both public one-hots present, with a slight front bias until both
+      # static two-wheel outcomes are actually discovered.
+      mode_probabilities=(0.0, 0.60, 0.40),
       mode_idle_probabilities=(0.0, 1.0, 1.0),
       lin_vel_x_range=(0.0, 0.0),
       yaw_rate_range=(0.0, 0.0),
@@ -167,13 +167,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # sparse.  Use the measured attitude itself as the continuous route;
         # exact contacts, clearance, and non-wheel collision termination are
         # unchanged.  This is not a joint pose or transition trajectory.
-        # The rear branch reached the right wheel pair but settled roughly
-        # twenty degrees short of its requested gravity direction.  Squaring
-        # made that partial stand worth about 92% of the endpoint, so use the
-        # same physical orientation measurement with a fourth power: the
-        # normal-reset bridge remains, while the final upright portion has a
-        # meaningful PPO advantage.  This is not a joint-pose target.
-        "orientation_power": 4.0,
+        # Both one-hots can retain a shallow slanted support at roughly 0.89
+        # orientation alignment.  A sixth power keeps the reset bridge but
+        # makes that visibly incomplete outcome materially worse than a true
+        # upright support, without introducing any joint-pose target.
+        "orientation_power": 6.0,
         # From normal four-wheel reset the desired front/rear attitude is
         # only half aligned, while the target wheel pair and tall clearance
         # cannot improve until the body has first begun to tip.  Reserve part
@@ -262,37 +260,31 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # The fixed m800 audit validates the front support but leaves the
-            # rear branch at zero success.  Keep one fused actor and exactly
-            # the same two one-hots, but allocate more of its early static
-            # discovery evidence to the physically harder rear support.
-            "mode_probabilities": (0.0, 0.30, 0.70),
+            # Both static directions are trained from the first rollout.  A
+            # rear-heavy split produced a stable rear stand but zero front
+            # arrivals in the m1000 fixed evaluation, so retain enough front
+            # evidence for one fused actor to represent both supports.
+            "mode_probabilities": (0.0, 0.60, 0.40),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # The m800 fixed audit reaches a stable front support but rear
-            # remains at zero success.  Do not expose x/yaw yet: ordinary
-            # rolling is an easier way to earn the velocity return and would
-            # pull the rear one-hot away from its unfinished static stand.
-            # Keep the public zero-velocity command through m1200.
+            # Do not expose x/yaw until both fixed-command static supports
+            # have a credible arrival rate; ordinary rolling is otherwise an
+            # easier substitute for the unfinished front/rear outcomes.
             # Iteration 800.
             "step": 51_200,
-            "mode_probabilities": (0.0, 0.30, 0.70),
+            "mode_probabilities": (0.0, 0.60, 0.40),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Hold static front/rear supports longer.  Fixed evaluation found
-            # that the rear branch still used a shallow partial stand at
-            # iteration 1,200, so exposing velocity there only reinforces an
-            # invalid wheeled escape.  The policy remains fused; this simply
-            # delays the x/yaw range until both static outcomes have enough
-            # discovery time.
+            # Hold static front/rear supports longer before enabling rolling
+            # commands in the same fused policy.
             "step": 89_600,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
