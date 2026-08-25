@@ -167,13 +167,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # sparse.  Use the measured attitude itself as the continuous route;
         # exact contacts, clearance, and non-wheel collision termination are
         # unchanged.  This is not a joint pose or transition trajectory.
-        # Once the sampled pair is correct, the prior linear alignment score
-        # made a 30-degree crouch worth more than 90% of a true two-wheel
-        # stand.  Squaring the same measured gravity alignment leaves the
-        # normal-reset bridge present but gives the last part of the rise a
-        # materially stronger PPO advantage.  This remains an outcome
-        # measurement, not a posture target.
-        "orientation_power": 2.0,
+        # The rear branch reached the right wheel pair but settled roughly
+        # twenty degrees short of its requested gravity direction.  Squaring
+        # made that partial stand worth about 92% of the endpoint, so use the
+        # same physical orientation measurement with a fourth power: the
+        # normal-reset bridge remains, while the final upright portion has a
+        # meaningful PPO advantage.  This is not a joint-pose target.
+        "orientation_power": 4.0,
         # From normal four-wheel reset the desired front/rear attitude is
         # only half aligned, while the target wheel pair and tall clearance
         # cannot improve until the body has first begun to tip.  Reserve part
@@ -287,11 +287,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Once the fused policy has had 1,200 static iterations to learn
-            # both support directions, introduce only a narrow x/yaw range.
-            # This remains the same command-conditioned policy; no checkpoint
-            # transfer or per-mode controller is involved.
-            "step": 76_800,
+            # Hold static front/rear supports longer.  Fixed evaluation found
+            # that the rear branch still used a shallow partial stand at
+            # iteration 1,200, so exposing velocity there only reinforces an
+            # invalid wheeled escape.  The policy remains fused; this simply
+            # delays the x/yaw range until both static outcomes have enough
+            # discovery time.
+            "step": 89_600,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.10, 0.10),
@@ -302,7 +304,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # The final stage keeps enough rollout budget for the requested
             # x/yaw tracking and direct stance changes after both static
             # supports have been repeatedly observed.
-            "step": 96_000,
+            "step": 102_400,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
