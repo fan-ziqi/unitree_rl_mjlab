@@ -327,16 +327,18 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   # instead taught wheel liftoff, so retain a ground-contact-safe 0.70-rad
   # envelope.  This increases no torque limit and supplies no desired pose.
   cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
-  # A ±40-rad/s wheel command was sufficient for the visibly slow prototype
-  # but capped the faster common-axis pivot seen in the reference.  Motor
-  # torque authority remains the model's physical limit.
-  cfg.actions["joint_vel"].scale = 80.0
+  # Discovery needs the wheels to stay planted while legs find the common
+  # axle.  With an 80-rad/s residual range, the bounded exploratory policy
+  # drove the four-wheel footprint across the plane before it could improve
+  # its geometry.  This restores the model's proven 40-rad/s working range;
+  # it changes neither motor torque limit nor the later requested body rate.
+  cfg.actions["joint_vel"].scale = 40.0
   cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      mode_probabilities=(0.70, 0.15, 0.15, 0.0, 0.0),
+      mode_probabilities=(0.50, 0.25, 0.25, 0.0, 0.0),
       spin_idle_probability=0.0,
       upright_static_probability=1.0,
       direct_switch_probability=0.0,
@@ -383,7 +385,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # geometry bridge for discovery; a formed layout becomes valuable
         # primarily when its support centre is stationary and it tracks the
         # commanded world-z spin.  No joint posture is introduced.
-        "normal_formation_weight": 0.10,
+        "normal_formation_weight": 0.35,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
@@ -435,7 +437,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # interface, but gives every eventual dynamic mode an exploratory
             # gradient from reset.  There is deliberately no direct switch or
             # front/rear rate demand in this discovery stage.
-            "mode_probabilities": (0.70, 0.15, 0.15, 0.0, 0.0),
+            "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,

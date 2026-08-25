@@ -76,7 +76,7 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # The normal pivot previously collapsed shared Gaussian exploration to
     # 0.11, while RSL's unbounded heteroscedastic form later exploded to 11.
     # Use the same public observation to condition exploration by one-hot,
-    # but keep its physical action spread within 0.2--0.9.  No new policy
+    # but keep its physical action spread within 0.15--0.65.  No new policy
     # input, posture target, or controller is introduced.
     init_std=0.60,
     distribution_class=(
@@ -84,7 +84,7 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
       "BoundedHeteroscedasticGaussianDistribution"
     ),
     std_type="log",
-    distribution_params={"min_std": 0.20, "max_std": 0.90},
+    distribution_params={"min_std": 0.15, "max_std": 0.65},
     entropy_coef=0.005,
     clip_actions=1.0,
   )

@@ -657,12 +657,19 @@ class StanceSpinPivotResult:
     # geometry quality through the formation term's full endpoint and the
     # evaluator remains the acceptance test.
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
-    normal_result = support_quality * (
-      normal_formation_weight * normal_formation_progress
-      + (1.0 - normal_formation_weight)
+    # The old bridge paid for common-axis formation even while the complete
+    # wheel footprint travelled across the plane.  That exactly recreates the
+    # bicycle-like shortcut seen in f50.  A normal-mode formation is valuable
+    # only when its wheel-centre centroid is local; keep that direct physical
+    # condition on both the geometry-discovery and rate-tracking portions.
+    normal_result = (
+      support_quality
       * normal_formation_progress
       * pivot_stillness
-      * normal_dynamic_quality
+      * (
+        normal_formation_weight
+        + (1.0 - normal_formation_weight) * normal_dynamic_quality
+      )
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
