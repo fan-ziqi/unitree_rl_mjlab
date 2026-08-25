@@ -262,35 +262,47 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Front and rear have opposite contact geometry.  A rear-heavy
-            # sampler left the front branch with too little early on-policy
-            # evidence; sample both static supports equally from reset.
-            "mode_probabilities": (0.0, 0.50, 0.50),
+            # The fixed m800 audit validates the front support but leaves the
+            # rear branch at zero success.  Keep one fused actor and exactly
+            # the same two one-hots, but allocate more of its early static
+            # discovery evidence to the physically harder rear support.
+            "mode_probabilities": (0.0, 0.30, 0.70),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # The m500 fixed audit reaches the full front support in 12.5%
-            # of trials but rear still has a zero success rate.  Introducing
-            # x/yaw there makes ordinary rolling an easier way to earn the
-            # new tracking returns and pulls both one-hots away from the
-            # unfinished stand.  Keep the zero-velocity public command until
-            # the shared static support has another 300 iterations to settle.
+            # The m800 fixed audit reaches a stable front support but rear
+            # remains at zero success.  Do not expose x/yaw yet: ordinary
+            # rolling is an easier way to earn the velocity return and would
+            # pull the rear one-hot away from its unfinished static stand.
+            # Keep the public zero-velocity command through m1200.
             # Iteration 800.
             "step": 51_200,
-            "mode_probabilities": (0.20, 0.40, 0.40),
-            "mode_idle_probabilities": (0.25, 0.55, 0.55),
+            "mode_probabilities": (0.0, 0.30, 0.70),
+            "mode_idle_probabilities": (0.0, 1.0, 1.0),
+            "lin_vel_x_range": (0.0, 0.0),
+            "yaw_rate_range": (0.0, 0.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Once the fused policy has had 1,200 static iterations to learn
+            # both support directions, introduce only a narrow x/yaw range.
+            # This remains the same command-conditioned policy; no checkpoint
+            # transfer or per-mode controller is involved.
+            "step": 76_800,
+            "mode_probabilities": (0.34, 0.33, 0.33),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Iteration 1200 leaves a full final segment in the standard
-            # 1,800-iteration from-zero run for direct normal/front/rear
-            # changes and meaningful x/yaw tracking.
-            "step": 76_800,
+            # The final stage keeps enough rollout budget for the requested
+            # x/yaw tracking and direct stance changes after both static
+            # supports have been repeatedly observed.
+            "step": 96_000,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),

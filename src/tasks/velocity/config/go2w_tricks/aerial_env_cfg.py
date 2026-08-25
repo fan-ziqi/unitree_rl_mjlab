@@ -162,7 +162,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     ),
     "launch_spin_rate": RewardTermCfg(
-      func=trick_rewards.aerial_launch_spin_rate,
+      func=trick_rewards.AerialBallisticSpinRate,
       # The direct companion to ballistic height: while every wheel is off
       # ground, rotate fast in the one-hot's signed axis.  There is no floor
       # pivot credit and no desired limb trajectory.
@@ -171,7 +171,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_angular_speed": 18.0,
+        "target_angular_speed": 16.0,
       },
     ),
     "completed_turn": RewardTermCfg(

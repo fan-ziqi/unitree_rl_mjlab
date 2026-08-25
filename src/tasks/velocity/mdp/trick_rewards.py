@@ -975,44 +975,74 @@ class AerialBallisticHeight:
     return valid.to(gain.dtype) * gain / env.step_dt
 
 
-def aerial_launch_spin_rate(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  nonwheel_sensor_name: str,
-  target_angular_speed: float,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Reward correct-axis angular speed only during legal wheel-free flight.
+class AerialBallisticSpinRate:
+  """Pay each new amount of correct, wheel-free spin rate once.
 
-  A net-angle reward begins after a qualified ballistic interval, which is too
-  late to tell an untrained policy *how* to convert a strong four-wheel push
-  into its requested front/back/side/yaw turn.  This is the same physical
-  measurement one moment earlier: positive angular speed around the public
-  command axis, gated by the physical fact that every wheel has left the
-  ground.  A stationary floor pivot or a body-supported rotation receives
-  zero, and no pose, phase, desired joint action, or reference trajectory is
-  introduced.
+  A full turn needs a strong instantaneous angular launch, not a tiny average
+  score over a still-undiscovered short flight.  The former per-step rate term
+  was therefore one order of magnitude weaker than the one-shot height term:
+  PPO learned to lift one end of the robot but had no comparably useful signal
+  to snap around the commanded axis.  This companion high-water reward pays
+  the best signed base rate observed while every wheel is clear.  Ground
+  steering, body contact, and opposite-direction motion receive zero.  As
+  with ballistic height, it specifies neither pose nor trajectory.
   """
-  if target_angular_speed <= 0.0:
-    raise ValueError("target_angular_speed must be positive.")
-  asset: Entity = env.scene[asset_cfg.name]
-  command = _command(env, command_name)
-  active = torch.sum(command[:, :5], dim=1) > 0.5
-  command_term = env.command_manager.get_term(command_name)
-  launch_axis = getattr(
-    command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device)
-  )
-  signed_axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis, dim=1)
-  rate_score = torch.clamp(signed_axis_rate / target_angular_speed, min=0.0, max=1.0)
-  wheel_free = ~_has_any_contact(env, sensor_name)
-  legal = ~_has_any_contact(env, nonwheel_sensor_name)
-  return (
-    active.to(rate_score.dtype)
-    * wheel_free.to(rate_score.dtype)
-    * legal.to(rate_score.dtype)
-    * rate_score
-  )
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.peak_rate = torch.zeros(env.num_envs, device=env.device)
+    self.previous_active = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_rate[env_ids] = 0.0
+    self.previous_active[env_ids] = False
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    sensor_name: str,
+    nonwheel_sensor_name: str,
+    target_angular_speed: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if target_angular_speed <= 0.0:
+      raise ValueError("target_angular_speed must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    reset = (
+      (~active)
+      | (active & ~self.previous_active)
+      | (env.episode_length_buf == 0)
+    )
+    self.peak_rate[reset] = 0.0
+    command_term = env.command_manager.get_term(command_name)
+    launch_axis = getattr(
+      command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device)
+    )
+    signed_axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis, dim=1)
+    rate = torch.clamp(
+      signed_axis_rate / target_angular_speed,
+      min=0.0,
+      max=1.0,
+    )
+    wheel_free = ~_has_any_contact(env, sensor_name)
+    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    valid = active & wheel_free & legal
+    gain = torch.clamp(rate - self.peak_rate, min=0.0)
+    self.peak_rate = torch.where(
+      active,
+      torch.maximum(
+        self.peak_rate,
+        torch.where(valid, rate, torch.zeros_like(rate)),
+      ),
+      torch.zeros_like(self.peak_rate),
+    )
+    self.previous_active = active
+    return valid.to(gain.dtype) * gain / env.step_dt
 
 
 class AerialNetRotationProgress:
