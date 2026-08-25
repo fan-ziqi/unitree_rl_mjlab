@@ -903,27 +903,28 @@ def normal_leg_default_pose_exp(
   return normal.to(score.dtype) * score
 
 
-class AerialBallisticHeight:
-  """Pay each new amount of legal, wheel-free launch height once.
+class AerialBallisticDuration:
+  """Pay each new amount of legal, continuous four-wheel flight once.
 
-  A root moving upward while one or more wheels still roll on the floor is a
-  pitch/ground-pivot shortcut, not an aerial launch.  The previous reward
-  measured exactly that transient upward speed, so a low, never-qualified hop
-  could obtain the launch return and then run out the clock.  This term instead
-  measures the physical result requested by the task: all four wheels clear
-  the ground and the base gains height relative to the command onset.  It has
+  A brief all-wheel contact gap is not enough time to rotate the body.  The
+  previous height high-water reward correctly rejected ground pivots but still
+  paid a micro-flight once, leaving PPO no direct reason to extend it.  Flight
+  duration is the minimal physical quantity that expresses the needed launch
+  impulse: hold all wheels clear long enough to complete a turn.  It contains
   no pose, desired action, phase, or reference trajectory.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
-    self.peak_height = torch.zeros(env.num_envs, device=env.device)
+    self.current_duration = torch.zeros(env.num_envs, device=env.device)
+    self.peak_duration = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(
       env.num_envs, dtype=torch.bool, device=env.device
     )
 
   def reset(self, env_ids: torch.Tensor) -> None:
-    self.peak_height[env_ids] = 0.0
+    self.current_duration[env_ids] = 0.0
+    self.peak_duration[env_ids] = 0.0
     self.previous_active[env_ids] = False
 
   def __call__(
@@ -932,12 +933,10 @@ class AerialBallisticHeight:
     command_name: str,
     sensor_name: str,
     nonwheel_sensor_name: str,
-    target_height: float,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    target_duration: float,
   ) -> torch.Tensor:
-    if target_height <= 0.0:
-      raise ValueError("target_height must be positive.")
-    asset: Entity = env.scene[asset_cfg.name]
+    if target_duration <= 0.0:
+      raise ValueError("target_duration must be positive.")
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     reset = (
@@ -945,29 +944,29 @@ class AerialBallisticHeight:
       | (active & ~self.previous_active)
       | (env.episode_length_buf == 0)
     )
-    self.peak_height[reset] = 0.0
+    self.current_duration[reset] = 0.0
+    self.peak_duration[reset] = 0.0
     wheel_free = ~_has_any_contact(env, sensor_name)
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    command_term = env.command_manager.get_term(command_name)
-    launch_pos = getattr(
-      command_term,
-      "_launch_root_pos_w",
-      torch.zeros_like(asset.data.root_link_pos_w),
+    valid = active & wheel_free & legal
+    self.current_duration = torch.where(
+      valid,
+      self.current_duration + env.step_dt,
+      torch.zeros_like(self.current_duration),
     )
-    height = torch.clamp(
-      (asset.data.root_link_pos_w[:, 2] - launch_pos[:, 2]) / target_height,
+    duration = torch.clamp(
+      self.current_duration / target_duration,
       min=0.0,
       max=1.0,
     )
-    gain = torch.clamp(height - self.peak_height, min=0.0)
-    valid = active & wheel_free & legal
-    self.peak_height = torch.where(
+    gain = torch.clamp(duration - self.peak_duration, min=0.0)
+    self.peak_duration = torch.where(
       active,
       torch.maximum(
-        self.peak_height,
-        torch.where(valid, height, torch.zeros_like(height)),
+        self.peak_duration,
+        torch.where(valid, duration, torch.zeros_like(duration)),
       ),
-      torch.zeros_like(self.peak_height),
+      torch.zeros_like(self.peak_duration),
     )
     self.previous_active = active
     # RewardManager supplies the dt integral.  Divide once so this remains a

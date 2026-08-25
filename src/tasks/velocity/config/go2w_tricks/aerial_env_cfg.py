@@ -137,17 +137,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # deliberately no pose, timing, joint, clearance, or reference trajectory
   # reward.  A partial touchdown is a failure shaped only by missing angle.
   cfg.rewards = {
-    "ballistic_height": RewardTermCfg(
-      func=trick_rewards.AerialBallisticHeight,
-      # Reward actual wheel-free height rather than the old transient upward
-      # speed while tyres remained on the floor.  A 30-cm vertical launch is
-      # enough ballistic time for a 2π turn at the commanded-rate target.
+    "ballistic_duration": RewardTermCfg(
+      func=trick_rewards.AerialBallisticDuration,
+      # A full 2π turn at the requested 16-rad/s rate needs about 0.39 s in
+      # flight.  Reward the measured wheel-free interval directly, so an
+      # instantaneous contact gap cannot substitute for a real jump.
       weight=160.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_height": 0.30,
+        "target_duration": 0.35,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
