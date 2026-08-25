@@ -185,14 +185,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         "post_idle_settle_time": 0.30,
-        # At the observed 20--28-rad/s turn rates, a 0.65 gate leaves only
-        # about 0.10 s between first braking feedback and 2π.  That was
-        # enough for one side branch by chance but physically too late for
-        # front/yaw to bleed angular momentum before wheel contact.  Start
-        # the same measured recovery outcome at 40% of the turn: it still
-        # requires net commanded-axis progress, but now offers roughly
-        # 0.17--0.19 s of flight to trade spin for a quiet four-wheel landing.
-        "recovery_start_fraction": 0.40,
+        # A 40% brake gate was tested directly and collapsed the proven left
+        # landing while leaving front/yaw unchanged.  Keep the 65% gate that
+        # reliably discovers compact side-turn recovery; the sampler below
+        # now gives the unfinished front/yaw one-hots their own PPO evidence.
+        "recovery_start_fraction": 0.65,
         "recovery_angular_speed": 8.0,
       },
     ),
@@ -283,11 +280,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # immediately after the shared launch/turn discovery window.
             # These are only sampler probabilities: the actor still sees the
             # same five-dimensional one-hot and one set of weights.  Keeping
-            # 5% left examples protects the proven landing, while all four
-            # unfinished outcomes retain direct, independent evidence.
+            # Side turns already have a proven landing in fixed replay.  Keep
+            # a small maintenance share for both and concentrate refinement
+            # on the two branches that still never complete: front and yaw.
             "step": 28_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.30, 0.05, 0.30, 0.15),
+            "mode_probabilities": (0.35, 0.20, 0.05, 0.05, 0.35),
           },
         ),
       },
