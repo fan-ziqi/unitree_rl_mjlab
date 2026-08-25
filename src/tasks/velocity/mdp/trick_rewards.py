@@ -958,6 +958,44 @@ class AerialTakeoffImpulse:
     return valid.to(gain.dtype) * gain / env.step_dt
 
 
+def aerial_launch_spin_rate(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  nonwheel_sensor_name: str,
+  minimum_upward_speed: float,
+  target_angular_speed: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward correct-axis angular speed only while the body is lifting off.
+
+  A net-angle reward begins after a qualified ballistic interval, which is too
+  late to tell an untrained policy *how* to convert a strong four-wheel push
+  into its requested front/back/side/yaw turn.  This is the same physical
+  measurement one moment earlier: positive angular speed around the public
+  command axis, gated by positive root vertical speed.  A stationary floor
+  pivot receives zero, and no pose, phase, desired joint action, or reference
+  trajectory is introduced.
+  """
+  if minimum_upward_speed <= 0.0 or target_angular_speed <= 0.0:
+    raise ValueError("aerial lift and angular-speed scales must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  command_term = env.command_manager.get_term(command_name)
+  launch_axis = getattr(
+    command_term, "_launch_axis_w", torch.zeros(env.num_envs, 3, device=env.device)
+  )
+  signed_axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis, dim=1)
+  rate_score = torch.clamp(signed_axis_rate / target_angular_speed, min=0.0, max=1.0)
+  lift_score = torch.clamp(
+    asset.data.root_link_lin_vel_w[:, 2] / minimum_upward_speed,
+    min=0.0,
+    max=1.0,
+  )
+  legal = ~_has_any_contact(env, nonwheel_sensor_name)
+  return active.to(rate_score.dtype) * legal.to(rate_score.dtype) * lift_score * rate_score
+
+
 class AerialNetRotationProgress:
   """Pay only new net desired-axis radians in one ballistic event.
 

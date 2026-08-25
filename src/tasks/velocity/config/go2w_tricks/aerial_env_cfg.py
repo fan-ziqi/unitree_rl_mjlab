@@ -128,10 +128,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # endpoint below still evaluates the complete launch-frame orientation.
     cfg.observations[group_name].history_length = 10
 
-  # A flip is exactly three physical objectives: a legal four-wheel launch,
-  # net rotation around its public one-hot axis, and a quiet normal landing.
-  # There is deliberately no pose, timing, joint, clearance, or reference
-  # trajectory reward.  A partial touchdown is a discrete failure.
+  # A flip is a legal four-wheel launch, commanded-axis spin during that
+  # launch, net commanded-axis angle, and a quiet normal landing.  There is
+  # deliberately no pose, timing, joint, clearance, or reference trajectory
+  # reward.  A partial touchdown is a failure shaped only by missing angle.
   cfg.rewards = {
     "takeoff_impulse": RewardTermCfg(
       func=trick_rewards.AerialTakeoffImpulse,
@@ -155,6 +155,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
+      },
+    ),
+    "launch_spin_rate": RewardTermCfg(
+      func=trick_rewards.aerial_launch_spin_rate,
+      # This is only an early lift-off bridge to the same net-angle objective:
+      # a full target-rate ballistic takeoff earns at most a few tens of
+      # points, well below a completed turn.  Its upward-speed gate rejects
+      # rolling or ground-pivot shortcuts.
+      weight=100.0,
+      params={
+        "command_name": "trick",
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "minimum_upward_speed": 0.75,
+        "target_angular_speed": 16.0,
       },
     ),
     "completed_turn": RewardTermCfg(
