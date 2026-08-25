@@ -14,7 +14,6 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.reward_manager import RewardTermCfg
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
@@ -36,13 +35,6 @@ from .common_env_cfg import (
 )
 
 
-def _aerial_wheels() -> SceneEntityCfg:
-  """Return a fresh selector for the four wheel-centre outcome measurement."""
-  return SceneEntityCfg(
-    "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
-  )
-
-
 def unitree_go2w_aerial_rotation_flat_env_cfg(
   play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
@@ -53,7 +45,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # broad mass/friction randomization are robustness work for a later stage;
   # they otherwise dilute the rare early takeoff/turn evidence.
   cfg.events.pop("encoder_bias", None)
-  cfg.events["foot_friction"].params["ranges"] = (0.7, 1.0)
+  cfg.events["foot_friction"].params["ranges"] = (1.0, 1.0)
   cfg.events["base_com"].params["ranges"] = {
     0: (-0.01, 0.01),
     1: (-0.01, 0.01),
@@ -136,163 +128,44 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # endpoint below still evaluates the complete launch-frame orientation.
     cfg.observations[group_name].history_length = 10
 
-  # A flip is deliberately reduced to its observable physical result: gain
-  # wheel-free height, accumulate desired-axis radians while airborne, then
-  # receive a one-shot bonus for a quiet one-turn four-wheel landing.  There
-  # is no pose target, phase clock, action reference, landing potential, or
-  # mode-specific limb schedule.
+  # A flip has one small generic discovery signal (leave the floor), one
+  # command-specific dense signal (new desired-axis radians), and one strict
+  # terminal result.  A partial touchdown deliberately earns nothing: it was
+  # the source of the yaw-only local optimum in the previous long run.
   cfg.rewards = {
     "airborne_clearance": RewardTermCfg(
       func=trick_rewards.aerial_airborne_clearance,
-      # A small takeoff signal makes the first part of a flip discoverable,
-      # but is far below a turn or completed landing.
-      # A complete revolution needs appreciably more ballistic time than the
-      # previous 0.45-m reward cap.  Fixed m1100 evaluation saturated that
-      # cap at about 0.46 m yet remained below half a turn, so it had no
-      # incentive to discover the higher launch needed for a full aerial
-      # rotation.  This remains the same measured wheel-free height outcome.
-      weight=250.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_clearance": 0.70,
-      },
-    ),
-    "takeoff_velocity": RewardTermCfg(
-      func=trick_rewards.aerial_takeoff_velocity,
-      weight=100.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 2.2,
-      },
-    ),
-    "airborne_wheel_spread": RewardTermCfg(
-      func=trick_rewards.aerial_airborne_wheel_spread_cost,
-      # The first compactness scale was two orders of magnitude below the
-      # discovered clearance/rotation return, so the actor rationally ignored
-      # it and flailed its legs.  This keeps the same geometry-only outcome
-      # signal, but makes an extended wheel radius materially worse than a
-      # compact aerial turn.
-      # Compactness is a visual quality constraint on a maneuver that has
-      # already left the floor.  At -200 the observed 0.52-m flight geometry
-      # incurred more return loss than roughly half a desired revolution, so
-      # PPO learned the safe low-hop basin instead of first discovering a full
-      # turn.  Keep the same geometry-only signal, but let rotation discovery
-      # dominate until the policy can actually make the target event.
-      weight=-50.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "max_wheel_root_distance": 0.38,
-        "softness": 0.10,
-        # The body must be allowed to create an unconstrained ballistic launch.
-        # Once it reaches the physical apex, the reference's tucked in-air
-        # shape becomes mandatory through the same wheel-geometry outcome.
-        "descent_only": True,
-        "asset_cfg": _aerial_wheels(),
+        "target_clearance": 0.45,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialNetRotationProgress,
-      # The actor receives each *net* desired-axis radian once.  Undoing a
-      # partial turn and repeating it cannot accumulate reward; only lasting
-      # progress toward the requested full turn is valuable.
-      # A yaw-only strict event must not dominate the shared PPO batch while
-      # the harder pitch/roll commands are already making real net progress.
-      # Raise the same bounded per-radian result so all five one-hots retain a
-      # useful discovery gradient; success itself remains the strict endpoint.
-      weight=80.0,
+      weight=300.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
-        "target_clearance": 0.70,
+        "target_clearance": 0.45,
       },
     ),
     "completed_turn": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      # A full revolution that returns to quiet four-wheel default control is
-      # the task result, not an optional bonus on top of a failed high hop.
-      # With the former scale a 0.9-turn body collision retained most of the
-      # clearance/rotation return, so PPO correctly preferred it over the
-      # extremely rare recovery event.  This remains a single endpoint score,
-      # with no reference pose, phase, or limb target.
-      # A full strict event remains substantially more valuable than a partial
-      # turn, but the former 15,000-step impulse let one easy yaw landing
-      # monopolise advantages for a five-command shared policy.  This only
-      # balances outcome scale across samples; it does not relax completion.
       weight=75.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "axes": AERIAL_AXES,
         "target_angle": math.tau,
-        # A correct one-turn, all-wheel touchdown is an informative precursor
-        # to the unchanged five-frame strict settle event.  It supplies no
-        # limb pose or time target.
-        # Full-turn wheel touch-downs now exist reliably, but V98 still
-        # accepts a visibly changed final heading.  Make this existing,
-        # once-only physical result materially outweigh another partial
-        # airborne radian; it remains gated by turn fraction and legal
-        # four-wheel contact below.
-        # A real four-wheel touchdown is now sampled, but often finishes a
-        # few thousandths short of the launch frame.  Increase the same
-        # outcome bridge moderately so this endpoint competes with another
-        # partial airborne radian without returning to the former extreme
-        # touchdown scale that suppressed landing discovery.
-        "soft_touchdown_reward": 30.0,
-        # Grade that same once-only all-wheel touchdown by how close it is to
-        # the existing strict landing velocity/attitude limits.  This is not a
-        # new trajectory or phase reward: it only distinguishes a quiet
-        # completed turn from a high-speed wheel graze.
-        # Keep this discovery bridge broad until the policy reliably samples
-        # full-turn wheel landings.  The strict completion below is still the
-        # sole acceptance criterion for final orientation and quiet recovery.
-        "soft_touchdown_speed_scale": 4.0,
         "landing_gravity_std": 0.30,
         "landing_orientation_dot_min": 0.985,
-        # The landing must still pass the strict 0.995 completion threshold,
-        # but a legal full-turn wheel touchdown receives a continuous
-        # orientation-quality signal all the way from zero similarity.  The
-        # former 0.50 floor made every badly aligned but otherwise informative
-        # first landing exactly equivalent, so PPO had no return gradient
-        # toward restoring the launch heading.
-        "soft_touchdown_orientation_floor": 0.0,
-        # Grade whole-base heading more sharply than a simple near-upright
-        # landing: a yaw turn that visibly finishes at a changed heading is
-        # still a poor endpoint, while the strict threshold below remains the
-        # only completion criterion.
-        # Distinguish a visually close 0.992 wheel landing from the 0.999
-        # launch-frame contract, while retaining a broader gradient than the
-        # earlier exponent-16 experiment that stalled landing discovery.
-        "soft_touchdown_orientation_exponent": 12.0,
-        # A partial but real flight may receive a *graded* first-touchdown
-        # signal, so orientation recovery is observable before a policy has
-        # ever happened to achieve a perfect full turn.  Squaring the turn
-        # fraction keeps a small hop far below an almost-complete flip.
-        "soft_touchdown_turn_exponent": 2.0,
         "max_overrotation": 0.50,
-        # Once a complete legal landing is sampled, reward its continuous
-        # dwell under public idle. This is the same strict physical endpoint
-        # used for acceptance, not a landing pose or reference trajectory.
-        # Once the exact physical landing exists, make every retained idle
-        # step meaningful so the policy learns to preserve it through the
-        # required public-default window rather than immediately
-        # reconfiguring for another motion.
-        "settle_reward": 50.0,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
-        # The strict bonus is paid only if the all-zero/default controller
-        # keeps that same landing intact through this final physical window.
-        # Ending in a changed heading is a failed flip even if the wheels
-        # touched down cleanly for one frame.  Hold default four-wheel idle
-        # long enough to show that the one-shot maneuver has stopped, without
-        # withholding success for an engineering-style long hold.
         "post_idle_settle_time": 0.30,
       },
     ),

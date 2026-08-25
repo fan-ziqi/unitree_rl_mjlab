@@ -337,6 +337,7 @@ def _stance_spin_components(
   torch.Tensor,
   torch.Tensor,
   torch.Tensor,
+  torch.Tensor,
 ]:
   """Measure a commanded five-mode world-down rotation."""
   if rate_std <= 0.0:
@@ -410,6 +411,12 @@ def _stance_spin_components(
   normal_coaxiality, front_inside_score, _, _, _ = normal_four_wheel_axle_layout(
     wheel_axles, wheel_positions
   )
+  # The strict product below is the final reference-layout test, but at the
+  # four-wheel reset both its line and nesting factors are small.  Feeding
+  # only that product to PPO made every useful first deformation effectively
+  # reward-free.  This bounded average uses the *same two measured outcomes*
+  # as a formation-progress signal; it does not choose a joint posture.
+  normal_formation_progress = 0.5 * (normal_coaxiality + front_inside_score)
   support_masks = masks[mode]
   normal_support_mask = torch.ones_like(support_masks)
   support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
@@ -476,6 +483,7 @@ def _stance_spin_components(
     rate_score,
     support_quality,
     coaxial_factor,
+    normal_formation_progress,
     support_mask,
     mode,
   )
@@ -508,7 +516,7 @@ class StanceSpinPivotResult:
     upright_support_weight: float = 0.20,
     side_support_weight: float = 0.25,
     side_pivot_speed_limit: float = 0.35,
-    normal_coaxial_weight: float = 0.15,
+    normal_formation_weight: float = 0.45,
     rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
@@ -519,8 +527,8 @@ class StanceSpinPivotResult:
       raise ValueError("side_support_weight must be in [0, 1).")
     if side_pivot_speed_limit <= 0.0:
       raise ValueError("side_pivot_speed_limit must be positive.")
-    if not 0.0 <= normal_coaxial_weight < 1.0:
-      raise ValueError("normal_coaxial_weight must be in [0, 1).")
+    if not 0.0 <= normal_formation_weight < 1.0:
+      raise ValueError("normal_formation_weight must be in [0, 1).")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
     (
@@ -530,6 +538,7 @@ class StanceSpinPivotResult:
       rate_score,
       support_quality,
       coaxial_factor,
+      normal_formation_progress,
       support_mask,
       mode,
     ) = _stance_spin_components(
@@ -596,19 +605,17 @@ class StanceSpinPivotResult:
     upright_result = support_quality * (
       discovery_weight + (1.0 - discovery_weight) * dynamic_quality
     )
-    # Normal has an analogous discovery problem, except the intermediate
-    # physical result is *not* ordinary four-wheel standing: it is a common,
-    # stationary wheel-axis geometry.  Reward only that measured geometry
-    # before rate emerges, never the default support by itself.
-    normal_geometry = support_quality * coaxial_factor * pivot_stillness
-    # Use the same signed measured-rate progress for the folded normal pivot
-    # as for front/rear.  Exact ``rate_score`` remains the sharp final target;
-    # the dense term prevents a normal -> front/rear direct switch from being
-    # locally indifferent to braking while it changes support geometry.
+    # Formation must be discoverable before the strict common-axis product is
+    # non-zero.  At the final solution the strict term and the smooth measured
+    # formation term both equal one; only the strict term can earn rotation
+    # credit, so a default four-wheel stance cannot be the endpoint.
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
-    normal_result = normal_geometry * (
-      normal_coaxial_weight
-      + (1.0 - normal_coaxial_weight) * normal_dynamic_quality
+    normal_result = support_quality * (
+      normal_formation_weight * normal_formation_progress
+      + (1.0 - normal_formation_weight)
+      * coaxial_factor
+      * pivot_stillness
+      * normal_dynamic_quality
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
@@ -881,86 +888,6 @@ def aerial_airborne_clearance(
   )
 
 
-def aerial_takeoff_velocity(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  nonwheel_sensor_name: str,
-  target_upward_speed: float,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Reward the physical upward impulse that starts an aerial event."""
-  if target_upward_speed <= 0.0:
-    raise ValueError("target_upward_speed must be positive.")
-  asset: Entity = env.scene[asset_cfg.name]
-  command = _command(env, command_name)
-  active = torch.sum(command[:, :5], dim=1) > 0.5
-  grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
-  legal = ~_has_any_contact(env, nonwheel_sensor_name)
-  upward_speed = torch.clamp(
-    asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
-    min=0.0,
-    max=1.0,
-  )
-  return (
-    active.to(upward_speed.dtype)
-    * grounded.to(upward_speed.dtype)
-    * legal.to(upward_speed.dtype)
-    * upward_speed
-    * env.step_dt
-  )
-
-
-def aerial_airborne_wheel_spread_cost(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  nonwheel_sensor_name: str,
-  max_wheel_root_distance: float,
-  softness: float,
-  descent_only: bool = False,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Penalize only an over-extended airborne leg shape.
-
-  The reference tucks its wheels close to the trunk after takeoff.  Measure
-  that compactness directly from wheel-centre geometry while airborne, rather
-  than prescribing any hip/thigh/calf target or a time-indexed motion.  The
-  takeoff and wheel landing stay completely free: this cost is zero on the
-  ground and while all wheel centres remain within the compact envelope.  When
-  ``descent_only`` is set, the leg extension needed to create a ballistic
-  takeoff is also free; tuck quality is evaluated only after the physical apex.
-  """
-  if max_wheel_root_distance <= 0.0 or softness <= 0.0:
-    raise ValueError("max_wheel_root_distance and softness must be positive.")
-  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
-    raise ValueError("airborne compactness needs four wheel sites.")
-  asset: Entity = env.scene[asset_cfg.name]
-  command = _command(env, command_name)
-  active = torch.sum(command[:, :5], dim=1) > 0.5
-  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
-  legal = ~_has_any_contact(env, nonwheel_sensor_name)
-  wheel_positions = asset.data.site_pos_w[:, asset_cfg.site_ids]
-  root_positions = asset.data.root_link_pos_w.unsqueeze(1)
-  furthest_wheel_distance = torch.max(
-    torch.linalg.vector_norm(wheel_positions - root_positions, dim=2), dim=1
-  ).values
-  normalized_excess = torch.relu(
-    furthest_wheel_distance - max_wheel_root_distance
-  ) / softness
-  descending = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
-  if descent_only:
-    descending = asset.data.root_link_lin_vel_w[:, 2] <= 0.0
-  return (
-    active.to(normalized_excess.dtype)
-    * airborne.to(normalized_excess.dtype)
-    * legal.to(normalized_excess.dtype)
-    * descending.to(normalized_excess.dtype)
-    * torch.square(normalized_excess)
-    * env.step_dt
-  )
-
-
 class AerialNetRotationProgress:
   """Reward only new net desired-axis radians in one ballistic event.
 
@@ -1055,100 +982,23 @@ class AerialNetRotationProgress:
     )
 
 
-def _advance_qualified_aerial_rotation(
-  *,
-  env: ManagerBasedRlEnv,
-  active: torch.Tensor,
-  contacts: torch.Tensor,
-  axis_rate: torch.Tensor,
-  has_grounded: torch.Tensor,
-  airborne_time: torch.Tensor,
-  current_flight_qualified: torch.Tensor,
-  flight_rotation: torch.Tensor,
-  min_ballistic_time: float,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-  """Accumulate a continuous, genuinely wheel-free flight interval."""
-  if min_ballistic_time <= 0.0:
-    raise ValueError("min_ballistic_time must be positive.")
-  airborne = ~torch.any(contacts, dim=1)
-  has_grounded = has_grounded | (active & torch.all(contacts, dim=1))
-  flight_step = active & has_grounded & airborne
-  airborne_time = torch.where(
-    flight_step, airborne_time + env.step_dt, torch.zeros_like(airborne_time)
-  )
-  raw_delta = flight_step.to(axis_rate.dtype) * axis_rate * env.step_dt
-  flight_rotation = torch.where(
-    flight_step, flight_rotation + raw_delta, torch.zeros_like(flight_rotation)
-  )
-  newly_qualified = (
-    flight_step & (~current_flight_qualified) & (airborne_time >= min_ballistic_time)
-  )
-  current_flight_qualified = torch.where(
-    flight_step,
-    current_flight_qualified | (airborne_time >= min_ballistic_time),
-    torch.zeros_like(current_flight_qualified),
-  )
-  increment = torch.where(
-    newly_qualified,
-    flight_rotation,
-    torch.where(
-      flight_step & current_flight_qualified,
-      raw_delta,
-      torch.zeros_like(axis_rate),
-    ),
-  )
-  return (
-    has_grounded,
-    airborne_time,
-    current_flight_qualified,
-    flight_rotation,
-    increment,
-  )
-
-
 class AerialRotationCompletion:
-  """Reward a full-turn wheel touchdown, then its strict stable completion."""
+  """Pay only a quiet, one-turn return to four-wheel default idle.
+
+  Rotation progress and the launch frame are already maintained by the command
+  term.  Recomputing them here, then adding partial-touchdown bridges, made a
+  0.7--0.95 turn hop profitable even though the requested event had failed.
+  Keep one dense reward (new desired-axis radians) and one strict endpoint.
+  """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
-    self.progress = torch.zeros(env.num_envs, device=env.device)
-    self.was_airborne = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    self.has_grounded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    self.touchdown_awarded = torch.zeros(
-      env.num_envs, dtype=torch.bool, device=env.device
-    )
+    self.settle_time = torch.zeros(env.num_envs, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    self.previous_active = torch.zeros(
-      env.num_envs, dtype=torch.bool, device=env.device
-    )
-    self.previous_mode = torch.full(
-      (env.num_envs,), -1, dtype=torch.long, device=env.device
-    )
-    self.post_idle_settle_time = torch.zeros(env.num_envs, device=env.device)
-    self.launch_axis_w = torch.zeros(env.num_envs, 3, device=env.device)
-    self.launch_root_quat_w = torch.zeros(env.num_envs, 4, device=env.device)
-    self.airborne_time = torch.zeros(env.num_envs, device=env.device)
-    self.flight_qualified = torch.zeros(
-      env.num_envs, dtype=torch.bool, device=env.device
-    )
-    self.flight_rotation = torch.zeros(env.num_envs, device=env.device)
-    self.recovery_peak = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
-    self.progress[env_ids] = 0.0
-    self.was_airborne[env_ids] = False
-    self.has_grounded[env_ids] = False
-    self.touchdown_awarded[env_ids] = False
+    self.settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
-    self.previous_active[env_ids] = False
-    self.previous_mode[env_ids] = -1
-    self.post_idle_settle_time[env_ids] = 0.0
-    self.launch_axis_w[env_ids] = 0.0
-    self.launch_root_quat_w[env_ids] = 0.0
-    self.airborne_time[env_ids] = 0.0
-    self.flight_qualified[env_ids] = False
-    self.flight_rotation[env_ids] = 0.0
-    self.recovery_peak[env_ids] = 0.0
 
   def __call__(
     self,
@@ -1156,231 +1006,61 @@ class AerialRotationCompletion:
     command_name: str,
     sensor_name: str,
     nonwheel_sensor_name: str,
-    axes: tuple[tuple[float, float, float], ...],
     target_angle: float = math.tau,
-    soft_touchdown_reward: float = 1.0,
-    soft_touchdown_speed_scale: float = 4.0,
-    landing_gravity_std: float = 0.3,
+    max_overrotation: float = 0.50,
+    landing_gravity_std: float = 0.30,
+    landing_orientation_dot_min: float = 0.985,
     landing_linear_velocity_limit: float = 0.75,
     landing_angular_velocity_limit: float = 1.5,
-    landing_orientation_dot_min: float = 0.985,
-    soft_touchdown_orientation_floor: float = 0.50,
-    soft_touchdown_orientation_exponent: float = 1.0,
-    soft_touchdown_turn_exponent: float = 2.0,
-    max_overrotation: float = 1.25,
-    settle_reward: float = 0.0,
     post_idle_settle_time: float = 0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    if soft_touchdown_reward < 0.0:
-      raise ValueError("soft_touchdown_reward must be non-negative.")
-    if soft_touchdown_speed_scale <= 0.0:
-      raise ValueError("soft_touchdown_speed_scale must be positive.")
+    if target_angle <= 0.0 or max_overrotation <= 0.0:
+      raise ValueError("target_angle and max_overrotation must be positive.")
+    if landing_gravity_std <= 0.0 or post_idle_settle_time <= 0.0:
+      raise ValueError("landing_gravity_std and post_idle_settle_time must be positive.")
     if not 0.0 < landing_orientation_dot_min <= 1.0:
       raise ValueError("landing_orientation_dot_min must be in (0, 1].")
-    if not 0.0 <= soft_touchdown_orientation_floor < landing_orientation_dot_min:
-      raise ValueError(
-        "soft_touchdown_orientation_floor must be non-negative and below the strict threshold."
-      )
-    if soft_touchdown_turn_exponent <= 0.0:
-      raise ValueError("soft_touchdown_turn_exponent must be positive.")
-    if soft_touchdown_orientation_exponent <= 0.0:
-      raise ValueError("soft_touchdown_orientation_exponent must be positive.")
-    if max_overrotation <= 0.0:
-      raise ValueError("max_overrotation must be positive.")
-    if settle_reward < 0.0:
-      raise ValueError("settle_reward must be non-negative.")
-    if post_idle_settle_time <= 0.0:
-      raise ValueError("post_idle_settle_time must be positive.")
+    if landing_linear_velocity_limit <= 0.0 or landing_angular_velocity_limit <= 0.0:
+      raise ValueError("landing velocity limits must be positive.")
+
     asset: Entity = env.scene[asset_cfg.name]
+    command_term = env.command_manager.get_term(command_name)
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
-    mode = torch.argmax(command[:, :5], dim=1)
-    reset = env.episode_length_buf == 0
-    new_skill = active & (
-      (~self.previous_active) | (mode != self.previous_mode) | reset
-    )
-    # After a first landing, the command term clears the public one-hot and
-    # hands control to literal default idle.  Keep the landing state through
-    # that final window so the reward can reject a pose that looked correct at
-    # touchdown but drifts after the maneuver has supposedly ended.
-    command_term = env.command_manager.get_term(command_name)
     landing_started = getattr(
       command_term, "_landing_started", torch.zeros_like(active)
     )
     post_landing_idle = (~active) & landing_started
-    clear = new_skill | reset | ((~active) & (~post_landing_idle))
-    self.progress[clear] = 0.0
-    self.was_airborne[clear] = False
-    self.has_grounded[clear] = False
-    self.touchdown_awarded[clear] = False
-    self.awarded[clear] = False
-    self.post_idle_settle_time[clear] = 0.0
-    self.airborne_time[clear] = 0.0
-    self.flight_qualified[clear] = False
-    self.flight_rotation[clear] = 0.0
-    self.recovery_peak[clear] = 0.0
-
-    axes_b = torch.tensor(
-      axes, dtype=asset.data.root_link_quat_w.dtype, device=env.device
-    )[mode]
-    self.launch_axis_w[new_skill] = quat_apply(
-      asset.data.root_link_quat_w[new_skill], axes_b[new_skill]
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
     )
-    self.launch_root_quat_w[new_skill] = asset.data.root_link_quat_w[new_skill]
-    axis_rate = torch.sum(asset.data.root_link_ang_vel_w * self.launch_axis_w, dim=1)
+    was_airborne = getattr(
+      command_term, "was_airborne", torch.zeros_like(active)
+    )
+    launch_quat = getattr(
+      command_term,
+      "_launch_root_quat_w",
+      torch.zeros_like(asset.data.root_link_quat_w),
+    )
     contacts = _wheel_contacts(env, sensor_name)
-    (
-      self.has_grounded,
-      self.airborne_time,
-      self.flight_qualified,
-      self.flight_rotation,
-      increment,
-    ) = _advance_qualified_aerial_rotation(
-      env=env,
-      active=active & (~getattr(command_term, "_landing_started", torch.zeros_like(active))),
-      contacts=contacts,
-      axis_rate=axis_rate,
-      has_grounded=self.has_grounded,
-      airborne_time=self.airborne_time,
-      current_flight_qualified=self.flight_qualified,
-      flight_rotation=self.flight_rotation,
-      min_ballistic_time=command_term.cfg.min_ballistic_time,
-    )
-    self.was_airborne |= self.flight_qualified
-    self.progress = torch.clamp_min(self.progress + increment, 0.0)
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    # This is the learnable bridge to the exact five-frame settle event below.
-    # The command intentionally becomes public idle at its *first* wheel
-    # contact, so the default controller can recover instead of being asked to
-    # continue a flip.  A real four-wheel touchdown often arrives one or two
-    # frames later; limiting this result to ``active`` would silently throw
-    # away the only endpoint signal for that recovery.  Keep the same one-shot
-    # physical landing event alive through its immediate public-idle window.
-    # Its value remains scaled by measured turn fraction, contact, velocity,
-    # and whole-base orientation below—there is no pose, phase, or motion
-    # reference introduced here.
-    # A low hop at m500 was collecting the active-command touchdown signal at
-    # only 0.22 turns, then displacing the useful 0.7--0.9 turn attempts.
-    # The bridge is an endpoint result, not a generic landing bonus: require
-    # substantial signed turn progress whether the first wheel contact is
-    # still active or has already exposed public idle.  Rotation progress and
-    # airborne clearance remain dense discovery signals below this threshold.
-    landing_turn_eligible = self.progress >= 0.70 * target_angle
-    wheel_touchdown = (
-      (active | post_landing_idle)
-      & landing_turn_eligible
-      & self.was_airborne
-      & torch.all(contacts, dim=1)
-      & legal
-    )
-    touchdown_reward = wheel_touchdown & (~self.touchdown_awarded)
-    self.touchdown_awarded |= wheel_touchdown
-
     normal_gravity = torch.tensor(
-      (0.0, 0.0, -1.0),
-      dtype=asset.data.projected_gravity_b.dtype,
-      device=env.device,
+      (0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device
     )
     gravity_error = torch.sum(
       torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
     )
     orientation_similarity = torch.abs(
-      torch.sum(asset.data.root_link_quat_w * self.launch_root_quat_w, dim=1)
+      torch.sum(asset.data.root_link_quat_w * launch_quat, dim=1)
     )
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    # The original geometric touchdown bridge gave exactly the same credit to
-    # a quiet landing and a high-speed wheel graze.  Preserve the *same*
-    # one-shot outcome, but grade it continuously by the already public
-    # landing variables.  The multiplier keeps early full-turn discoveries
-    # informative; the unchanged strict five-frame event remains the only
-    # high-value completion reward.
-    # Before one turn, the existing power gives a smooth discovery signal.
-    # After one turn, however, clamping it to one would make a 450-degree
-    # bounce just as profitable as a 360-degree flip.  Multiply the same
-    # first-touchdown outcome by a continuous final-angle quality instead.
-    # This is an endpoint measurement, not a phase/reference trajectory.
-    turn_fraction = torch.clamp(self.progress / target_angle, min=0.0, max=1.0)
-    overrotation = torch.clamp(
-      (self.progress - target_angle) / max_overrotation,
-      min=0.0,
-      max=1.0,
-    )
-    turn_quality = torch.pow(turn_fraction, soft_touchdown_turn_exponent) * (
-      1.0 - overrotation
-    )
-    touchdown_quality = (
-      torch.clamp(
-        1.0 - gravity_error / (soft_touchdown_speed_scale * landing_gravity_std),
-        min=0.0,
-        max=1.0,
-      )
-      * torch.clamp(
-        1.0
-        - linear_speed
-        / (soft_touchdown_speed_scale * landing_linear_velocity_limit),
-        min=0.0,
-        max=1.0,
-      )
-      * torch.clamp(
-        1.0
-        - angular_speed
-        / (soft_touchdown_speed_scale * landing_angular_velocity_limit),
-        min=0.0,
-        max=1.0,
-      )
-      * torch.pow(
-        torch.clamp(
-          (orientation_similarity - soft_touchdown_orientation_floor)
-          / (1.0 - soft_touchdown_orientation_floor),
-          min=0.0,
-          max=1.0,
-        ),
-        soft_touchdown_orientation_exponent,
-      )
-      * turn_quality
-    )
-    # The one-hot clears on its first wheel contact.  Requiring a simultaneous
-    # four-wheel contact before *any* endpoint signal made that recovery
-    # transition sparse: a policy could land a wheel pair close to the launch
-    # frame but receive no preference for settling the remaining wheels.  Pay
-    # only new progress of the same terminal-quality measurement while public
-    # idle is recovering.  This still contains no pose, timing, or trajectory
-    # target, and strict completion below remains the sole success criterion.
-    recovery_eligible = (
+    stable = (
       post_landing_idle
-      & self.was_airborne
-      & legal
-      & (self.progress >= 0.70 * target_angle)
-    )
-    recovery_quality = touchdown_quality * contacts.float().mean(dim=1)
-    recovery_increment = recovery_eligible.to(recovery_quality.dtype) * torch.clamp(
-      recovery_quality - self.recovery_peak, min=0.0
-    )
-    self.recovery_peak = torch.where(
-      recovery_eligible,
-      torch.maximum(self.recovery_peak, recovery_quality),
-      torch.zeros_like(self.recovery_peak),
-    )
-    # An already all-wheel touchdown has received the same endpoint quality
-    # through the existing bridge; seed the monotonic recovery potential so it
-    # cannot collect that result twice on the following public-idle frame.
-    self.recovery_peak = torch.where(
-      touchdown_reward,
-      torch.maximum(self.recovery_peak, touchdown_quality),
-      self.recovery_peak,
-    )
-    # The command clears on the first wheel contact.  From then on this same
-    # reward owns the entire measured outcome: it must have completed one
-    # bounded rotation and remain quietly recovered under the public idle
-    # command.  No landing pose, reference action, or timing signal is added.
-    turn_complete = (self.progress >= target_angle) & (
-      self.progress <= target_angle + max_overrotation
-    )
-    idle_stable = (
-      post_landing_idle
-      & turn_complete
+      & was_airborne
+      & (progress >= target_angle)
+      & (progress <= target_angle + max_overrotation)
       & torch.all(contacts, dim=1)
       & legal
       & (gravity_error < landing_gravity_std)
@@ -1388,28 +1068,12 @@ class AerialRotationCompletion:
       & (linear_speed < landing_linear_velocity_limit)
       & (angular_speed < landing_angular_velocity_limit)
     )
-    self.post_idle_settle_time = torch.where(
-      idle_stable,
-      self.post_idle_settle_time + env.step_dt,
-      torch.zeros_like(self.post_idle_settle_time),
+    self.settle_time = torch.where(
+      stable, self.settle_time + env.step_dt, torch.zeros_like(self.settle_time)
     )
-    completed = idle_stable & (
-      self.post_idle_settle_time + 0.5 * env.step_dt >= post_idle_settle_time
+    completed = stable & (
+      self.settle_time + 0.5 * env.step_dt >= post_idle_settle_time
     )
-    strict_reward = completed & (~self.awarded)
+    new_completion = completed & (~self.awarded)
     self.awarded |= completed
-    self.previous_active = active
-    self.previous_mode = torch.where(active, mode, self.previous_mode)
-    return (
-      soft_touchdown_reward
-      * (touchdown_reward.float() * touchdown_quality + recovery_increment)
-      # A real full-turn, all-wheel, launch-frame landing is now observable
-      # before it survives the complete settle window.  Reward each moment
-      # that this *same strict endpoint* remains true, so PPO can reinforce
-      # braking/idle recovery instead of receiving a signal only after an
-      # unlikely uninterrupted 0.6-s dwell.  It is gated by the exact
-      # endpoint below; no pose, time-indexed trajectory, or new action goal
-      # is introduced, and ``completed`` remains the sole success event.
-      + settle_reward * idle_stable.float() * env.step_dt
-      + strict_reward.float() / env.step_dt
-    )
+    return new_completion.to(asset.data.root_link_pos_w.dtype) / env.step_dt

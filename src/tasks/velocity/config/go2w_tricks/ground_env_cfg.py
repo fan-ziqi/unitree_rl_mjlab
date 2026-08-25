@@ -249,16 +249,16 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 12_800,
-            "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.20, 0.50, 0.50),
+            "step": 96_000,
+            "mode_probabilities": (0.20, 0.40, 0.40),
+            "mode_idle_probabilities": (0.25, 0.55, 0.55),
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 51_200,
-            "mode_probabilities": (0.25, 0.375, 0.375),
+            "step": 256_000,
+            "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
@@ -347,7 +347,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # previous 40% bridge converged to low-speed deformation instead of
         # the reference pivot; this still supplies a measured discovery path
         # without becoming a substitute for rotation.
-        "normal_coaxial_weight": 0.10,
+        "normal_formation_weight": 0.45,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
@@ -373,7 +373,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 1.5,
-      "enable_after_steps": 76_800,
+      "enable_after_steps": 256_000,
     },
   )
   cfg.curriculum = {
@@ -397,32 +397,32 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # segment of an episode can still be dynamic, so this also gives
             # PPO normal-to-stance transition examples without an artificial
             # pose or phase target.
-            "step": 38_400,
-            "mode_probabilities": (0.25, 0.375, 0.375, 0.0, 0.0),
+            "step": 102_400,
+            "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.75,
-            "spin_rate_range": (3.0, 6.0),
+            "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             # Remove most static examples and require slow signed pivots once
             # those two supports have a discovery route.
-            "step": 76_800,
+            "step": 179_200,
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.25,
-            "spin_rate_range": (5.0, 10.0),
+            "upright_static_probability": 0.40,
+            "spin_rate_range": (3.0, 6.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             # Final direct normal/front/rear switching keeps one signed world
             # z-rate throughout; only the separate left/right modes remain
             # static.
-            "step": 115_200,
+            "step": 256_000,
             "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "spin_rate_range": (10.0, 18.0),
+            "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
