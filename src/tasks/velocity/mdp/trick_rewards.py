@@ -202,6 +202,7 @@ def mode_support_score(
   extra_contact_discount: float = 0.75,
   minimum_root_clearance: float | tuple[float, ...] | None = None,
   orientation_power: float = 1.0,
+  orientation_progress_floor: float = 0.0,
   clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
   command_deadband: float = 0.0,
@@ -235,6 +236,8 @@ def mode_support_score(
     clearance_values = ()
   if stationary_command_index is not None and command_deadband < 0.0:
     raise ValueError("command_deadband must be non-negative.")
+  if not 0.0 <= orientation_progress_floor < 1.0:
+    raise ValueError("orientation_progress_floor must be in [0, 1).")
   if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
     raise ValueError("static_angular_velocity_scale must be positive.")
 
@@ -303,9 +306,17 @@ def mode_support_score(
   # Contact is slightly more important than height: a tall robot supported by
   # the wrong wheels is not the requested stance.  Keeping both beneath the
   # measured attitude gate prevents a fallen, contact-free orientation from
-  # being rewarded as a valid support.
+  # being rewarded as a valid support.  A caller can reserve a bounded
+  # attitude-progress component inside this same outcome.  That is useful
+  # when the reset is ordinary four-wheel idle: it gives the policy a reason
+  # to begin pitching toward the requested support before the contact pair
+  # and clearance can physically improve together.  The unique maximum
+  # remains correct attitude *and* contacts *and* clearance.
   support_progress = 0.65 * support + 0.35 * clearance
-  return active.to(orientation.dtype) * orientation * support_progress * stillness
+  result_progress = orientation_progress_floor + (
+    1.0 - orientation_progress_floor
+  ) * support_progress
+  return active.to(orientation.dtype) * orientation * result_progress * stillness
 
 
 def _stance_spin_components(

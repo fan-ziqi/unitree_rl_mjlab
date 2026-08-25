@@ -124,7 +124,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # but visual replay shows a low folded support.  Put the same measured
       # outcome ahead of velocity tracking until it is a visibly extended
       # stand; this adds neither a joint target nor a transition schedule.
-      weight=50.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         # Normal's default four-wheel support is supplied by the action gate.
@@ -164,6 +164,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # exact contacts, clearance, and non-wheel collision termination are
         # unchanged.  This is not a joint pose or transition trajectory.
         "orientation_power": 1.0,
+        # From normal four-wheel reset the desired front/rear attitude is
+        # only half aligned, while the target wheel pair and tall clearance
+        # cannot improve until the body has first begun to tip.  Reserve part
+        # of this same measured support outcome for that physical attitude
+        # progress; only the simultaneous correct contacts and clearance can
+        # reach its final full score.
+        "orientation_progress_floor": 0.50,
         "clearance_power": 1.0,
         "asset_cfg": _support_wheels(),
       },
