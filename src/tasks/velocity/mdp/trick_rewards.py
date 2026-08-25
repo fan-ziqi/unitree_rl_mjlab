@@ -896,26 +896,27 @@ def normal_leg_default_pose_exp(
   return normal.to(score.dtype) * score
 
 
-class AerialTakeoffImpulse:
-  """Pay each new amount of legal, four-wheel upward launch speed once.
+class AerialBallisticHeight:
+  """Pay each new amount of legal, wheel-free launch height once.
 
-  Aerial rewards are integrated by :class:`RewardManager` already.  The old
-  per-step velocity reward multiplied by ``step_dt`` a second time, so its
-  first useful PPO signal was fifty times too small.  This high-water version
-  is a single physical impulse reward: it pays only when the event achieves a
-  new upward speed while all four wheels are supporting it.  It has no pose,
-  action, timing, or reference-motion target.
+  A root moving upward while one or more wheels still roll on the floor is a
+  pitch/ground-pivot shortcut, not an aerial launch.  The previous reward
+  measured exactly that transient upward speed, so a low, never-qualified hop
+  could obtain the launch return and then run out the clock.  This term instead
+  measures the physical result requested by the task: all four wheels clear
+  the ground and the base gains height relative to the command onset.  It has
+  no pose, desired action, phase, or reference trajectory.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
-    self.peak_upward_speed = torch.zeros(env.num_envs, device=env.device)
+    self.peak_height = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(
       env.num_envs, dtype=torch.bool, device=env.device
     )
 
   def reset(self, env_ids: torch.Tensor) -> None:
-    self.peak_upward_speed[env_ids] = 0.0
+    self.peak_height[env_ids] = 0.0
     self.previous_active[env_ids] = False
 
   def __call__(
@@ -924,11 +925,11 @@ class AerialTakeoffImpulse:
     command_name: str,
     sensor_name: str,
     nonwheel_sensor_name: str,
-    target_upward_speed: float,
+    target_height: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    if target_upward_speed <= 0.0:
-      raise ValueError("target_upward_speed must be positive.")
+    if target_height <= 0.0:
+      raise ValueError("target_height must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -937,20 +938,29 @@ class AerialTakeoffImpulse:
       | (active & ~self.previous_active)
       | (env.episode_length_buf == 0)
     )
-    self.peak_upward_speed[reset] = 0.0
-    grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
+    self.peak_height[reset] = 0.0
+    wheel_free = ~_has_any_contact(env, sensor_name)
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    upward_speed = torch.clamp(
-      asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
+    command_term = env.command_manager.get_term(command_name)
+    launch_pos = getattr(
+      command_term,
+      "_launch_root_pos_w",
+      torch.zeros_like(asset.data.root_link_pos_w),
+    )
+    height = torch.clamp(
+      (asset.data.root_link_pos_w[:, 2] - launch_pos[:, 2]) / target_height,
       min=0.0,
       max=1.0,
     )
-    gain = torch.clamp(upward_speed - self.peak_upward_speed, min=0.0)
-    valid = active & grounded & legal
-    self.peak_upward_speed = torch.where(
+    gain = torch.clamp(height - self.peak_height, min=0.0)
+    valid = active & wheel_free & legal
+    self.peak_height = torch.where(
       active,
-      torch.maximum(self.peak_upward_speed, upward_speed),
-      torch.zeros_like(self.peak_upward_speed),
+      torch.maximum(
+        self.peak_height,
+        torch.where(valid, height, torch.zeros_like(height)),
+      ),
+      torch.zeros_like(self.peak_height),
     )
     self.previous_active = active
     # RewardManager supplies the dt integral.  Divide once so this remains a
@@ -961,23 +971,24 @@ class AerialTakeoffImpulse:
 def aerial_launch_spin_rate(
   env: ManagerBasedRlEnv,
   command_name: str,
+  sensor_name: str,
   nonwheel_sensor_name: str,
-  minimum_upward_speed: float,
   target_angular_speed: float,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
-  """Reward correct-axis angular speed only while the body is lifting off.
+  """Reward correct-axis angular speed only during legal wheel-free flight.
 
   A net-angle reward begins after a qualified ballistic interval, which is too
   late to tell an untrained policy *how* to convert a strong four-wheel push
   into its requested front/back/side/yaw turn.  This is the same physical
   measurement one moment earlier: positive angular speed around the public
-  command axis, gated by positive root vertical speed.  A stationary floor
-  pivot receives zero, and no pose, phase, desired joint action, or reference
-  trajectory is introduced.
+  command axis, gated by the physical fact that every wheel has left the
+  ground.  A stationary floor pivot or a body-supported rotation receives
+  zero, and no pose, phase, desired joint action, or reference trajectory is
+  introduced.
   """
-  if minimum_upward_speed <= 0.0 or target_angular_speed <= 0.0:
-    raise ValueError("aerial lift and angular-speed scales must be positive.")
+  if target_angular_speed <= 0.0:
+    raise ValueError("target_angular_speed must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
   command = _command(env, command_name)
   active = torch.sum(command[:, :5], dim=1) > 0.5
@@ -987,13 +998,14 @@ def aerial_launch_spin_rate(
   )
   signed_axis_rate = torch.sum(asset.data.root_link_ang_vel_w * launch_axis, dim=1)
   rate_score = torch.clamp(signed_axis_rate / target_angular_speed, min=0.0, max=1.0)
-  lift_score = torch.clamp(
-    asset.data.root_link_lin_vel_w[:, 2] / minimum_upward_speed,
-    min=0.0,
-    max=1.0,
-  )
+  wheel_free = ~_has_any_contact(env, sensor_name)
   legal = ~_has_any_contact(env, nonwheel_sensor_name)
-  return active.to(rate_score.dtype) * legal.to(rate_score.dtype) * lift_score * rate_score
+  return (
+    active.to(rate_score.dtype)
+    * wheel_free.to(rate_score.dtype)
+    * legal.to(rate_score.dtype)
+    * rate_score
+  )
 
 
 class AerialNetRotationProgress:
@@ -1089,8 +1101,13 @@ def aerial_event_failure(
   )
   missing_fraction = 1.0 - torch.clamp(progress / target_angle, min=0.0, max=1.0)
   # RewardManager supplies the sole dt integral; this is one outcome cost.
+  # ``time_out`` is also an incomplete aerial outcome unless the turn has
+  # already reached its exact target, in which case ``missing_fraction`` is
+  # zero.  Omitting it made a low, unqualified hop profitable: it collected
+  # ground-contact lift reward then escaped through the ordinary episode
+  # timeout without ever paying for its missing rotation.
   return (
-    env.termination_manager.terminated.to(missing_fraction.dtype)
+    env.termination_manager.dones.to(missing_fraction.dtype)
     * missing_fraction
     / env.step_dt
   )

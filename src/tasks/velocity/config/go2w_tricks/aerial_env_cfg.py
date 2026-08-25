@@ -86,6 +86,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # abs(dot(q_land, q_launch)) = .985 admits about 20 degrees of total
       # rotation error while still rejecting an obviously changed heading.
       landing_orientation_dot_min=0.985,
+      # Two control frames reject a contact glitch but let a genuine compact
+      # wheel-free hop receive the same angle signal that later grows into a
+      # full aerial turn.  The endpoint remains exactly one 2π event.
+      min_ballistic_time=0.04,
       debug_vis=False,
     )
   }
@@ -133,17 +137,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # deliberately no pose, timing, joint, clearance, or reference trajectory
   # reward.  A partial touchdown is a failure shaped only by missing angle.
   cfg.rewards = {
-    "takeoff_impulse": RewardTermCfg(
-      func=trick_rewards.AerialTakeoffImpulse,
-      # A completed 2.5 m/s launch pays 120 once.  It is strong enough for
-      # PPO to discover a real jump before any full turn exists, yet cannot
-      # outscore the failure cost of a partial hop.
-      weight=120.0,
+    "ballistic_height": RewardTermCfg(
+      func=trick_rewards.AerialBallisticHeight,
+      # Reward actual wheel-free height rather than the old transient upward
+      # speed while tyres remained on the floor.  A 30-cm vertical launch is
+      # enough ballistic time for a 2π turn at the commanded-rate target.
+      weight=160.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 2.5,
+        "target_height": 0.30,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -159,16 +163,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "launch_spin_rate": RewardTermCfg(
       func=trick_rewards.aerial_launch_spin_rate,
-      # This is only an early lift-off bridge to the same net-angle objective:
-      # a full target-rate ballistic takeoff earns at most a few tens of
-      # points, well below a completed turn.  Its upward-speed gate rejects
-      # rolling or ground-pivot shortcuts.
-      weight=100.0,
+      # The direct companion to ballistic height: while every wheel is off
+      # ground, rotate fast in the one-hot's signed axis.  There is no floor
+      # pivot credit and no desired limb trajectory.
+      weight=160.0,
       params={
         "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "minimum_upward_speed": 0.75,
-        "target_angular_speed": 16.0,
+        "target_angular_speed": 18.0,
       },
     ),
     "completed_turn": RewardTermCfg(

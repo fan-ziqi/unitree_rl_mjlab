@@ -635,6 +635,10 @@ class AerialRotationCommand(CommandTerm):
     )
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
+    # The initial world height is private event bookkeeping for the single
+    # ballistic-height outcome.  It is deliberately not exposed to the actor:
+    # the public observation remains only command + proprioception history.
+    self._launch_root_pos_w = torch.zeros(self.num_envs, 3, device=self.device)
     # A 2π aerial turn is only complete when the whole base frame—not merely
     # its gravity vector—returns to the frame present at command onset.  The
     # initial orientation is private event bookkeeping, just like the world
@@ -669,6 +673,7 @@ class AerialRotationCommand(CommandTerm):
     self._landing_started[env_ids] = False
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
+    self._launch_root_pos_w[env_ids] = 0.0
     self._launch_root_quat_w[env_ids] = 0.0
     self._new_skill[env_ids] = False
     self._pending_mode[env_ids] = 0
@@ -725,6 +730,9 @@ class AerialRotationCommand(CommandTerm):
     self._launch_axis_w[self._new_skill] = quat_apply(
       asset.data.root_link_quat_w[self._new_skill], axes_b[self._new_skill]
     )
+    self._launch_root_pos_w[self._new_skill] = asset.data.root_link_pos_w[
+      self._new_skill
+    ]
     self._launch_root_quat_w[self._new_skill] = asset.data.root_link_quat_w[
       self._new_skill
     ]
