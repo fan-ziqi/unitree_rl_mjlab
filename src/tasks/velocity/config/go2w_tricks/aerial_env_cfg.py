@@ -254,28 +254,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
           {
-            # The m200 fixed-command audit showed that even a 5% yaw branch
-            # can become the shared policy's early high-return shortcut:
-            # yaw reached 0.79 turns while every somersault axis remained at
-            # 0.24--0.32.  Keep yaw only for the first 100 iterations as a
-            # generic launch bridge, then give the four genuinely aerial
-            # directions an uninterrupted common-policy discovery interval.
-            # This changes sampling only: it preserves the same five-element
-            # actor command and never introduces a pose, phase, or reference
-            # trajectory.
+            # Keep every requested one-hot present throughout discovery.
+            # Removing yaw for 700 iterations makes it a stale observation
+            # branch rather than a fused five-direction policy, and the fixed
+            # audit showed its partial turn then cannot improve.  The small
+            # 5% share prevents yaw from dominating while preserving its own
+            # PPO evidence and the common launch representation.
             "step": 4_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
+            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
           {
-            # Reintroduce the easy fifth branch only after the four real
-            # somersault directions have received a long uninterrupted
-            # discovery interval.  The f32 fixed m300 audit still measured
-            # only 0.25--0.33 turns on the hard modes; exposing yaw at 400
-            # iterations would recreate its proven high-return shortcut
-            # before any hard axis had a full turn.  At 48 control steps per
-            # PPO iteration, 38,400 is iteration 800 and leaves a matching
-            # long five-way interval in the fresh 1,600-iteration run.
+            # Once all branches have the shared launch skill, balance the
+            # five one-hots equally for full-turn and landing refinement.
             "step": 38_400,
             "idle_probability": 0.0,
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),

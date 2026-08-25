@@ -92,7 +92,7 @@ def aerial_command_stages(
   command_name: str,
   stages: tuple[dict[str, Any], ...],
 ) -> dict[str, torch.Tensor]:
-  """Balance hard aerial axes before exposing the easy yaw branch.
+  """Set a shared aerial one-hot sampling distribution.
 
   This changes only which public one-hot is sampled.  It keeps one actor, the
   same five-element command tensor, and the same outcome rewards; it does not
