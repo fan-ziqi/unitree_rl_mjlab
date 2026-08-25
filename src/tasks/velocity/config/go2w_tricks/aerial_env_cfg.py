@@ -62,11 +62,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # The four somersault axes are initially balanced.  The command
-      # curriculum below introduces yaw only after they have their own
-      # discovery evidence: yaw is mechanically much easier and otherwise
-      # monopolizes shared-policy PPO updates despite equal sampling.
-      mode_probabilities=(0.25, 0.25, 0.25, 0.25, 0.0),
+      # The four somersault axes dominate sampling, but retain a small yaw
+      # fraction as a shared takeoff-discovery bridge.  With yaw removed
+      # entirely, PPO never found a first wheel-free launch in the harder
+      # four branches; at equal 20% sampling yaw then monopolized updates.
+      mode_probabilities=(0.2375, 0.2375, 0.2375, 0.2375, 0.05),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -207,9 +207,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       time_out=True,
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
-  # emitted command is still one complete 2π event from the first sample; the
-  # only change is withholding the simple yaw outcome long enough for its
-  # much harder sibling one-hots to obtain a usable policy gradient.
+  # emitted command is still one complete 2π event from the first sample.  A
+  # small yaw fraction supplies a shared ballistic-launch discovery signal;
+  # its probability is held below the four somersault branches so it cannot
+  # monopolize the fused actor's PPO updates.
   cfg.curriculum = {
     "aerial_commands": CurriculumTermCfg(
       func=trick_curriculums.aerial_command_stages,
@@ -220,7 +221,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # 500 aerial PPO iterations at 48 rollout steps per environment.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
+            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
           {
             # Add the already easy fifth branch only after the four real
