@@ -141,14 +141,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       func=trick_rewards.AerialBallisticLaunch,
       # One compact physical launch outcome: upward impulse while all four
       # wheels push, then the continuous wheel-free interval it produces.
-      # A full 2π turn at the requested 16-rad/s rate needs about 0.39 s.
+      # A 1,600-environment physical action sweep measures 1.87 m/s and
+      # 0.26 s as attainable compact-launch baselines under the native Go2W
+      # limits.  Keep targets just below those measured values so PPO has a
+      # dense path to a real launch instead of an unreachable saturated goal.
       weight=300.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 2.5,
-        "target_duration": 0.35,
+        "target_upward_speed": 1.75,
+        "target_duration": 0.22,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
