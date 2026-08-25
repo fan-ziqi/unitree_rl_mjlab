@@ -606,14 +606,17 @@ class StanceSpinPivotResult:
       discovery_weight + (1.0 - discovery_weight) * dynamic_quality
     )
     # Formation must be discoverable before the strict common-axis product is
-    # non-zero.  At the final solution the strict term and the smooth measured
-    # formation term both equal one; only the strict term can earn rotation
-    # credit, so a default four-wheel stance cannot be the endpoint.
+    # non-zero.  Use the same continuous measured formation to expose the
+    # *rate* route as well: gating it by the strict product made a quiet
+    # four-wheel default locally optimal, because it could never receive a
+    # first rotation gradient.  The strict product is still part of final
+    # geometry quality through the formation term's full endpoint and the
+    # evaluator remains the acceptance test.
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
     normal_result = support_quality * (
       normal_formation_weight * normal_formation_progress
       + (1.0 - normal_formation_weight)
-      * coaxial_factor
+      * normal_formation_progress
       * pivot_stillness
       * normal_dynamic_quality
     )
