@@ -173,7 +173,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # outcome route to bleed angular momentum while its full orientation
       # returns to launch.  It is deliberately one landing-quality term, not
       # a joint target or a reference landing trajectory.
-      weight=250.0,
+      weight=600.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -185,7 +185,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         "post_idle_settle_time": 0.30,
-        "recovery_start_fraction": 0.75,
+        # Begin braking feedback before the final quarter.  At the prior
+        # 0.75 gate the policy could spend its short flight reaching 2π at
+        # full speed, leaving too little time for the same physical outcome
+        # to influence the contact decision.
+        "recovery_start_fraction": 0.65,
         "recovery_angular_speed": 8.0,
       },
     ),
@@ -204,7 +208,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # progress approached 2π, selecting a fast crash instead of wheel
         # recovery.  The completion term remains the only way to erase this
         # base outcome cost.
-        "non_timeout_base_cost": 0.30,
+        "non_timeout_base_cost": 0.75,
       },
     ),
   }
