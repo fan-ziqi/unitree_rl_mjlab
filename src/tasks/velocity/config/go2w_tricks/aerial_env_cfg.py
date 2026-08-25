@@ -237,7 +237,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
           {
-            # Add the already easy fifth branch only after the four real
+            # The m200 fixed-command audit showed that even a 5% yaw branch
+            # can become the shared policy's early high-return shortcut:
+            # yaw reached 0.79 turns while every somersault axis remained at
+            # 0.24--0.32.  Keep yaw only for the first 100 iterations as a
+            # generic launch bridge, then give the four genuinely aerial
+            # directions an uninterrupted common-policy discovery interval.
+            # This changes sampling only: it preserves the same five-element
+            # actor command and never introduces a pose, phase, or reference
+            # trajectory.
+            "step": 4_800,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
+          },
+          {
+            # Reintroduce the easy fifth branch only after the four real
             # somersault directions have received equal discovery samples.
             "step": 19_200,
             "idle_probability": 0.0,
