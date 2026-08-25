@@ -61,13 +61,13 @@ def normal_four_wheel_axle_layout(
   wheel_axles: torch.Tensor,
   wheel_positions: torch.Tensor,
   *,
-  line_scale: float = 0.14,
+  line_scale: float = 0.07,
   front_inside_margin: float = 0.05,
   front_inside_scale: float = 0.06,
   inner_pair_min_spacing: float = 0.10,
   outer_pair_extra_spacing: float = 0.10,
-  outer_pair_max_ratio: float = 3.0,
-  outer_pair_max_bias: float = 0.08,
+  outer_pair_max_ratio: float = 1.75,
+  outer_pair_max_bias: float = 0.04,
 ) -> tuple[
   torch.Tensor,
   torch.Tensor,
@@ -173,8 +173,8 @@ def normal_four_wheel_spacing_ok(
   *,
   inner_pair_min_spacing: float = 0.10,
   outer_pair_extra_spacing: float = 0.10,
-  outer_pair_max_ratio: float = 3.0,
-  outer_pair_max_bias: float = 0.08,
+  outer_pair_max_ratio: float = 1.75,
+  outer_pair_max_bias: float = 0.04,
 ) -> torch.Tensor:
   """Check that normal-spin inner/outer pairs are distinct and compact."""
   return (
