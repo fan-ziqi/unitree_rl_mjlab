@@ -173,10 +173,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "post_idle_settle_time": 0.30,
       },
     ),
-    # Any non-timeout terminal result is one failed event, rather than a
-    # per-second cost.  This closes the old 0.2--0.4-turn local optimum.
+    # Any non-timeout terminal result pays once, in proportion to its missing
+    # desired-axis angle.  It keeps every partial landing invalid without
+    # making a stronger, correctly directed jump indistinguishable from a
+    # zero-turn fall during PPO discovery.
     "event_failure": RewardTermCfg(
-      func=trick_rewards.aerial_event_failure, weight=-300.0
+      func=trick_rewards.aerial_event_failure,
+      weight=-200.0,
+      params={"command_name": "trick", "target_angle": math.tau},
     ),
   }
   # Collision ends an episode immediately.  The decisive terminal term

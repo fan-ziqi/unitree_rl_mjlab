@@ -1029,14 +1029,33 @@ class AerialNetRotationProgress:
     )
 
 
-def aerial_event_failure(env: ManagerBasedRlEnv) -> torch.Tensor:
-  """Apply a discrete failure cost to non-timeout aerial outcomes.
+def aerial_event_failure(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  target_angle: float,
+) -> torch.Tensor:
+  """Apply one terminal cost proportional to the missing requested turn.
 
-  This is deliberately the counterpart of the discrete completion bonus: an
-  incomplete first landing, illegal body contact, or relaunch costs the term
-  weight once.  It cannot be diluted by RewardManager's time integration.
+  A fixed failure cost taught the first corrected aerial run to suppress its
+  launch: every intermediate 0.1--0.9 turn was equally bad as a zero-turn
+  fall.  The only physical quantity that should reduce this cost is the
+  measured desired-axis angle already used by the endpoint.  Thus a partial
+  landing is still a failure, but each additional correct radian improves its
+  return and PPO has a continuous route to the one-turn completion bonus.
   """
-  return env.termination_manager.terminated.float() / env.step_dt
+  if target_angle <= 0.0:
+    raise ValueError("target_angle must be positive.")
+  command_term = env.command_manager.get_term(command_name)
+  progress = getattr(
+    command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+  )
+  missing_fraction = 1.0 - torch.clamp(progress / target_angle, min=0.0, max=1.0)
+  # RewardManager supplies the sole dt integral; this is one outcome cost.
+  return (
+    env.termination_manager.terminated.to(missing_fraction.dtype)
+    * missing_fraction
+    / env.step_dt
+  )
 
 
 class AerialRotationCompletion:
