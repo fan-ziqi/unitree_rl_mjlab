@@ -203,6 +203,7 @@ def mode_support_score(
   minimum_root_clearance: float | tuple[float, ...] | None = None,
   orientation_power: float = 1.0,
   orientation_progress_floor: float = 0.0,
+  mode_weights: tuple[float, ...] | None = None,
   clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
   static_command_start_index: int | None = None,
@@ -247,6 +248,10 @@ def mode_support_score(
     raise ValueError("static_command_start_index is outside the command tensor.")
   if not 0.0 <= orientation_progress_floor < 1.0:
     raise ValueError("orientation_progress_floor must be in [0, 1).")
+  if mode_weights is not None and (
+    len(mode_weights) != num_modes or any(weight < 0.0 for weight in mode_weights)
+  ):
+    raise ValueError("mode_weights must be non-negative and cover every mode.")
   if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
     raise ValueError("static_angular_velocity_scale must be positive.")
   if static_linear_velocity_scale is not None and static_linear_velocity_scale <= 0.0:
@@ -351,7 +356,11 @@ def mode_support_score(
   result_progress = orientation_progress_floor + (
     1.0 - orientation_progress_floor
   ) * support_progress
-  return active.to(orientation.dtype) * orientation * result_progress * stillness
+  result = active.to(orientation.dtype) * orientation * result_progress * stillness
+  if mode_weights is not None:
+    weights = torch.tensor(mode_weights, dtype=result.dtype, device=env.device)
+    result = result * weights[mode]
+  return result
 
 
 def _stance_spin_components(

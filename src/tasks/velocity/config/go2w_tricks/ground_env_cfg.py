@@ -93,7 +93,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # policy allocate the support feature to rear and leaves front unused.
       # Keep both public one-hots present, with a slight front bias until both
       # static two-wheel outcomes are actually discovered.
-      mode_probabilities=(0.0, 0.60, 0.40),
+      mode_probabilities=(0.0, 0.55, 0.45),
       mode_idle_probabilities=(0.0, 1.0, 1.0),
       lin_vel_x_range=(0.0, 0.0),
       yaw_rate_range=(0.0, 0.0),
@@ -179,6 +179,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # progress; only the simultaneous correct contacts and clearance can
         # reach its final full score.
         "orientation_progress_floor": 0.50,
+        # The front/rear stances use identical outcome measurements, but the
+        # front support discovers first and otherwise consumes the shared
+        # actor's PPO advantage.  Weight the harder rear *same outcome* so
+        # its one-hot receives comparable policy pressure without a separate
+        # network, a pose target, or a reference transition.
+        "mode_weights": (0.0, 1.0, 2.5),
         "clearance_power": 1.0,
         # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
         # audit found that without this existing outcome's stillness factor,
@@ -264,7 +270,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # rear-heavy split produced a stable rear stand but zero front
             # arrivals in the m1000 fixed evaluation, so retain enough front
             # evidence for one fused actor to represent both supports.
-            "mode_probabilities": (0.0, 0.60, 0.40),
+            "mode_probabilities": (0.0, 0.55, 0.45),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
@@ -276,7 +282,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # easier substitute for the unfinished front/rear outcomes.
             # Iteration 800.
             "step": 51_200,
-            "mode_probabilities": (0.0, 0.60, 0.40),
+            "mode_probabilities": (0.0, 0.55, 0.45),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
