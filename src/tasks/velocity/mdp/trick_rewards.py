@@ -416,13 +416,16 @@ def _stance_spin_components(
   # only that product to PPO made every useful first deformation effectively
   # reward-free.  This bounded average uses the *same two measured outcomes*
   # as a formation-progress signal; it does not choose a joint posture.
-  # The reference layout's ordering is not cosmetic: front wheels must be
-  # the inner pair and rear wheels the outer pair.  Equal averaging let PPO
-  # obtain a high parallel-line score by swapping that nesting, which looks
-  # unlike the AS2W pivot and leaves the wrong support leverage for speed.
-  # Keep the same two measured quantities but make correct four-wheel order
-  # the dominant part of continuous formation progress.
-  normal_formation_progress = 0.25 * normal_coaxiality + 0.75 * front_inside_score
+  # The reference layout needs *both* a common axle and the front-inside/rear-
+  # outside order.  Arithmetic weighting let PPO trade one against the other:
+  # it first learned a crossed common line, then a correctly nested but
+  # non-coaxial static form.  A small-floor geometric mean is continuous at
+  # reset yet treats either missing physical property as a real limitation.
+  formation_floor = 0.05
+  normal_formation_progress = torch.sqrt(
+    (formation_floor + (1.0 - formation_floor) * normal_coaxiality)
+    * (formation_floor + (1.0 - formation_floor) * front_inside_score)
+  )
   support_masks = masks[mode]
   normal_support_mask = torch.ones_like(support_masks)
   support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
