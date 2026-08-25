@@ -176,6 +176,16 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # reach its final full score.
         "orientation_progress_floor": 0.50,
         "clearance_power": 1.0,
+        # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
+        # audit found that without this existing outcome's stillness factor,
+        # rear could collect a large support reward while translating at
+        # 0.54 m/s and yawing at 1.02 rad/s.  These measured root speeds are
+        # applied only when both public command components are zero; moving
+        # x/yaw requests later in the same fused policy are unaffected.
+        "static_command_start_index": 3,
+        "command_deadband": 0.04,
+        "static_angular_velocity_scale": 0.75,
+        "static_linear_velocity_scale": 0.20,
         "asset_cfg": _support_wheels(),
       },
     ),

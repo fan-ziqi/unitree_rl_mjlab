@@ -205,8 +205,10 @@ def mode_support_score(
   orientation_progress_floor: float = 0.0,
   clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
+  static_command_start_index: int | None = None,
   command_deadband: float = 0.0,
   static_angular_velocity_scale: float | None = None,
+  static_linear_velocity_scale: float | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Measure the commanded contact pair, attitude, and optional height.
@@ -234,12 +236,21 @@ def mode_support_score(
       raise ValueError("minimum_root_clearance must be positive.")
   else:
     clearance_values = ()
-  if stationary_command_index is not None and command_deadband < 0.0:
+  if (
+    stationary_command_index is not None
+    or static_command_start_index is not None
+  ) and command_deadband < 0.0:
     raise ValueError("command_deadband must be non-negative.")
+  if static_command_start_index is not None and not 0 <= static_command_start_index < _command(
+    env, command_name
+  ).shape[1]:
+    raise ValueError("static_command_start_index is outside the command tensor.")
   if not 0.0 <= orientation_progress_floor < 1.0:
     raise ValueError("orientation_progress_floor must be in [0, 1).")
   if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
     raise ValueError("static_angular_velocity_scale must be positive.")
+  if static_linear_velocity_scale is not None and static_linear_velocity_scale <= 0.0:
+    raise ValueError("static_linear_velocity_scale must be positive.")
 
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
@@ -291,17 +302,34 @@ def mode_support_score(
       ),
       clearance_power,
     )
-  # Static one-hots (including left/right dual-wheel support) mean a held
-  # support, not an unspecified spin.  Keep this inside the existing support
-  # outcome rather than adding a separate regularizer.  Moving spin commands
-  # are already excluded by ``stationary_command_index`` before this factor.
+  # A zero x/yaw command means a held support, not an unspecified travelling
+  # balance.  Keep this inside the existing physical support outcome rather
+  # than adding a posture term or a separate reward.  The factor is disabled
+  # as soon as any public command component from ``static_command_start_index``
+  # is nonzero, so commanded locomotion remains free to move.
+  static_command = torch.ones_like(active)
+  if static_command_start_index is not None:
+    static_command = torch.amax(
+      torch.abs(command[:, static_command_start_index:]), dim=1
+    ) <= command_deadband
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    stillness = torch.clamp(
+    angular_stillness = torch.clamp(
       1.0 - angular_speed / static_angular_velocity_scale,
       min=0.0,
       max=1.0,
+    )
+    stillness = torch.where(static_command, angular_stillness, stillness)
+  if static_linear_velocity_scale is not None:
+    planar_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
+    linear_stillness = torch.clamp(
+      1.0 - planar_speed / static_linear_velocity_scale,
+      min=0.0,
+      max=1.0,
+    )
+    stillness = torch.where(
+      static_command, stillness * linear_stillness, stillness
     )
   # Contact is slightly more important than height: a tall robot supported by
   # the wrong wheels is not the requested stance.  Keeping both beneath the
