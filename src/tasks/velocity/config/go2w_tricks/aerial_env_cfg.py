@@ -156,26 +156,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "net_rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialNetRotationProgress,
-      # One legal 2π turn pays 50 * 2π = 314.  The matching incomplete-event
-      # cost below makes a half turn negative even after a strong launch.
-      weight=50.0,
+      # This is the direct maneuver objective: each additional legal radian
+      # is valuable.  It intentionally outweighs a merely high instantaneous
+      # rate, so a one-frame angular-velocity spike cannot replace a sustained
+      # one-turn rotation.
+      weight=180.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
-      },
-    ),
-    "launch_spin_rate": RewardTermCfg(
-      func=trick_rewards.AerialBallisticSpinRate,
-      # The direct companion to ballistic height: while every wheel is off
-      # ground, rotate fast in the one-hot's signed axis.  There is no floor
-      # pivot credit and no desired limb trajectory.
-      weight=160.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_angular_speed": 16.0,
       },
     ),
     "completed_turn": RewardTermCfg(
