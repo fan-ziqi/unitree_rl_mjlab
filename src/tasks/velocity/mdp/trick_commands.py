@@ -57,6 +57,8 @@ class StanceSpinCommand(CommandTerm):
       raise ValueError("spin_rate_ramp_rate must be positive.")
     if cfg.transition_active_time <= 0.0:
       raise ValueError("spin transition duration must be positive.")
+    if not 0.0 <= cfg.direct_switch_probability <= 1.0:
+      raise ValueError("direct_switch_probability must be in [0, 1].")
 
     self.command_buf = torch.zeros(self.num_envs, 6, device=self.device)
     self._target_spin_rate = torch.zeros(self.num_envs, device=self.device)
@@ -98,6 +100,13 @@ class StanceSpinCommand(CommandTerm):
     no_alternative = next_probabilities.sum(dim=1) == 0.0
     next_probabilities[no_alternative] = self._mode_probabilities
     next_modes = torch.multinomial(next_probabilities, 1).squeeze(1)
+    # A direct A -> B change is the final public behaviour, but making every
+    # early sample solve both a new support and a mode switch diluted the
+    # two-wheel discovery return.  This sampler-only curriculum never changes
+    # the public command tensor or inserts a hidden target: a zero probability
+    # merely holds the sampled one-hot until its next resample.
+    switch = torch.rand(count, device=self.device) < self.cfg.direct_switch_probability
+    next_modes = torch.where(switch, next_modes, modes)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
     self._scheduled_command[env_ids] = 0.0
@@ -232,6 +241,7 @@ class StanceSpinCommand(CommandTerm):
     mode_probabilities: tuple[float, float, float, float, float] | None = None,
     spin_idle_probability: float | None = None,
     upright_static_probability: float | None = None,
+    direct_switch_probability: float | None = None,
     spin_rate_range: tuple[float, float] | None = None,
     resampling_time_range: tuple[float, float] | None = None,
   ) -> None:
@@ -253,6 +263,10 @@ class StanceSpinCommand(CommandTerm):
       if not 0.0 <= upright_static_probability <= 1.0:
         raise ValueError("upright_static_probability must be in [0, 1].")
       self.cfg.upright_static_probability = upright_static_probability
+    if direct_switch_probability is not None:
+      if not 0.0 <= direct_switch_probability <= 1.0:
+        raise ValueError("direct_switch_probability must be in [0, 1].")
+      self.cfg.direct_switch_probability = direct_switch_probability
     if spin_rate_range is not None:
       if spin_rate_range[0] <= 0.0 or spin_rate_range[0] > spin_rate_range[1]:
         raise ValueError("spin_rate_range must be a positive ordered magnitude range.")
@@ -285,6 +299,10 @@ class StanceSpinCommandCfg(CommandTermCfg):
   # dynamic one-hot switch into a stop: final dynamic-switch stages set it to
   # zero altogether.
   upright_static_probability: float = 0.0
+  # Sampling-only curriculum knob.  The actor always receives the same
+  # persistent one-hot plus signed rate; early support discovery can hold one
+  # command, while final stages restore direct A -> B changes.
+  direct_switch_probability: float = 1.0
   spin_rate_range: tuple[float, float] = (5.0, 9.0)
   spin_rate_ramp_rate: float = 12.0
   transition_active_time: float = 4.2
@@ -465,7 +483,15 @@ class StanceLocomotionCommand(CommandTerm):
     self._transition_time[env_ids] = 0.0
 
   def _update_command(self) -> None:
-    """Hold one requested mode, switch directly, then recover to normal."""
+    """Hold one mode, make a direct switch, then hold the new command.
+
+    A public one-hot remains meaningful after a mode change.  Clearing it to
+    normal at 4.2 seconds used to teach the policy an unrequested recovery in
+    the final third of every rollout, while fixed-command validation and the
+    intended controller both hold the selected mode.  The all-zero/default
+    state remains available to callers; this sampler simply stops injecting
+    it between two active user commands.
+    """
     pending = self._transition_phase < 3
     self._transition_time[pending] += self._env.step_dt
     second_start = (
@@ -480,8 +506,9 @@ class StanceLocomotionCommand(CommandTerm):
       & (self._transition_time >= self.cfg.transition_active_time)
     )
     if torch.any(finish):
-      self.command_buf[finish] = 0.0
-      self.command_buf[finish, 0] = 1.0
+      # Preserve the second one-hot plus its x/yaw request until the next
+      # resample.  This makes the generated A -> B segment match a persistent
+      # external command rather than appending a normal-only cooldown.
       self._transition_phase[finish] = 3
 
   def set_curriculum(

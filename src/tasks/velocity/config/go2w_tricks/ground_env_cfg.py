@@ -327,6 +327,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       resampling_time_range=(6.0, 6.0),
       mode_probabilities=(1.0, 0.0, 0.0, 0.0, 0.0),
       spin_idle_probability=0.0,
+      direct_switch_probability=0.0,
       spin_rate_range=(0.5, 2.0),
       spin_rate_ramp_rate=36.0,
       debug_vis=False,
@@ -403,8 +404,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 1.5,
-      # Match the final high-speed five-mode curriculum stage below.
-      "enable_after_steps": 76_800,
+      # Match the final dynamic five-mode curriculum stage below.
+      "enable_after_steps": 115_200,
     },
   )
   cfg.curriculum = {
@@ -435,37 +436,61 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # The fixed m500 audit showed the former 250-iteration normal
             # interval was not enough: it had nested wheel order but neither
             # the common axle nor continuous four-wheel contact.  Preserve a
-            # full 400 iterations for that prerequisite before introducing
-            # the other dynamic supports.
-            "step": 25_600,
+            # full 450 iterations for that prerequisite before introducing
+            # frequent dynamic switches.  The previous run mixed a normal
+            # high-rate pivot and a direct normal -> front/rear change into
+            # every early support trial; its m800 audit showed that neither
+            # upright pair had actually been discovered.
+            # Iteration 350.
+            "step": 22_400,
             "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.75,
-            "spin_rate_range": (1.0, 3.0),
+            "upright_static_probability": 0.85,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Remove most static examples and require slow signed pivots once
-            # those two supports have a discovery route.
+            # Retain the already-working low normal rate while introducing
+            # only occasional direct switches and slow dynamic front/rear
+            # pivots.  Raising both the rate range and switch frequency at
+            # once erased the m300 normal pivot before either upright mode
+            # had enough static support experience.
             # Iteration 800.
             "step": 51_200,
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.40,
-            "spin_rate_range": (2.0, 5.0),
+            "direct_switch_probability": 0.25,
+            "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Final direct normal/front/rear switching keeps one signed world
-            # z-rate throughout; only the separate left/right modes remain
-            # static.
-            # Iteration 1200, leaving a 600-iteration final high-speed
-            # five-one-hot interval in a 1800-iteration from-zero run.
-            "step": 76_800,
-            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
+            # Add the two static side supports only after normal/front/rear
+            # share a usable low-speed pivot.  Direct changes now appear in
+            # most samples but the normal/front/rear rate remains inside the
+            # range that has a demonstrated stable solution.
+            # Iteration 1300.
+            "step": 83_200,
+            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.10,
+            "direct_switch_probability": 0.60,
+            "spin_rate_range": (1.0, 3.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Only a policy that has already passed the low-speed geometry
+            # audit is asked for the faster reference pivot.  This leaves a
+            # full 600 PPO iterations for high-rate direct switching in the
+            # standard 2,400-iteration from-zero run.
+            # Iteration 1800.
+            "step": 115_200,
+            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "spin_rate_range": (4.0, 8.0),
+            "direct_switch_probability": 1.0,
+            "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
