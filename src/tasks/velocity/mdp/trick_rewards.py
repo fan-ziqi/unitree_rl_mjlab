@@ -900,6 +900,42 @@ def aerial_airborne_clearance(
   )
 
 
+def aerial_takeoff_upward_velocity(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  sensor_name: str,
+  nonwheel_sensor_name: str,
+  target_upward_speed: float,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward a legal wheel-supported upward impulse before ballistic flight.
+
+  This is the missing physical predecessor of every aerial axis: the existing
+  clearance/turn terms only activate *after* the robot has already found a
+  jump.  It is generic across all five one-hots and never specifies a joint
+  pose, flight phase, rotation axis, or reference motion.
+  """
+  if target_upward_speed <= 0.0:
+    raise ValueError("target_upward_speed must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  command = _command(env, command_name)
+  active = torch.sum(command[:, :5], dim=1) > 0.5
+  grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
+  legal = ~_has_any_contact(env, nonwheel_sensor_name)
+  upward_speed = torch.clamp(
+    asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
+    min=0.0,
+    max=1.0,
+  )
+  return (
+    active.to(upward_speed.dtype)
+    * grounded.to(upward_speed.dtype)
+    * legal.to(upward_speed.dtype)
+    * upward_speed
+    * env.step_dt
+  )
+
+
 class AerialNetRotationProgress:
   """Reward only new net desired-axis radians in one ballistic event.
 

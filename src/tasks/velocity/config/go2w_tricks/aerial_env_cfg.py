@@ -133,6 +133,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # terminal result.  A partial touchdown deliberately earns nothing: it was
   # the source of the yaw-only local optimum in the previous long run.
   cfg.rewards = {
+    "takeoff_upward_velocity": RewardTermCfg(
+      func=trick_rewards.aerial_takeoff_upward_velocity,
+      # Every flip needs a real vertical launch.  Keep this below the
+      # command-specific radians reward; it is only a generic discovery route
+      # to the already-required wheel-free flight, not an alternate endpoint.
+      weight=30.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "target_upward_speed": 2.0,
+      },
+    ),
     "airborne_clearance": RewardTermCfg(
       func=trick_rewards.aerial_airborne_clearance,
       weight=20.0,
