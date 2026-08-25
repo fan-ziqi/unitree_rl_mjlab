@@ -89,11 +89,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Rear is the less-discovered support.  Its front-only counterpart
-      # reaches a valid static stand early even from few samples, so begin
-      # with a rear-biased discovery mix and return to a balanced shared
-      # policy before walking commands are introduced below.
-      mode_probabilities=(0.0, 0.25, 0.75),
+      # Rear is the less-stable static support, so resolve that physical
+      # outcome before the same policy is asked to roll in either stance.
+      mode_probabilities=(0.0, 0.15, 0.85),
       mode_idle_probabilities=(0.0, 1.0, 1.0),
       lin_vel_x_range=(0.0, 0.0),
       yaw_rate_range=(0.0, 0.0),
@@ -194,8 +192,8 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # x/yaw requests later in the same fused policy are unaffected.
         "static_command_start_index": 3,
         "command_deadband": 0.04,
-        "static_angular_velocity_scale": 0.75,
-        "static_linear_velocity_scale": 0.20,
+        "static_angular_velocity_scale": 0.40,
+        "static_linear_velocity_scale": 0.15,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -266,30 +264,29 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Let the harder rear condition discover its first legal support
-            # without a front branch monopolising the shared PPO advantage.
-            # This changes only how often public one-hots appear; both are
-            # still evaluated by exactly the same policy and support result.
-            "mode_probabilities": (0.0, 0.25, 0.75),
+            # Resolve the less-stable rear support first.  Both commands
+            # still use the same actor, reward, and observation interface.
+            "mode_probabilities": (0.0, 0.15, 0.85),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # After 400 static-rear iterations, restore enough front
-            # evidence to preserve both directions in the one fused actor.
-            "step": 25_600,
-            "mode_probabilities": (0.0, 0.55, 0.45),
+            # Rebalance only after the rear stance has had a long static
+            # consolidation window; the preceding trial reached the pose but
+            # still lost its exact wheel pair in almost half of evaluations.
+            "step": 96_000,
+            "mode_probabilities": (0.0, 0.40, 0.60),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Hold static front/rear supports longer before enabling rolling
-            # commands in the same fused policy.
-            "step": 89_600,
+            # Do not introduce rolling until both two-wheel supports have
+            # been trained as stationary outcomes for 2,000 PPO iterations.
+            "step": 120_000,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.10, 0.10),
@@ -300,7 +297,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # The final stage keeps enough rollout budget for the requested
             # x/yaw tracking and direct stance changes after both static
             # supports have been repeatedly observed.
-            "step": 102_400,
+            "step": 153_600,
             "mode_probabilities": (0.34, 0.33, 0.33),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
