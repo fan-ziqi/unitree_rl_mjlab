@@ -660,17 +660,15 @@ class StanceSpinPivotResult:
     normal_geometry = normal_coaxiality * front_inside_score
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
     # A four-wheel contact product is zero as soon as one wheel unloads while
-    # the legs form the common axle.  That erased the only geometry signal
-    # during the physical transition and selected the low default rectangle.
-    # Keep four-wheel contact the unique maximum, but retain a bounded bridge
-    # for the measured axle geometry while the contact set is being restored.
-    # It is an outcome measurement, not a limb-pose or action target.
-    normal_contact_bridge = 0.25 + 0.75 * normal_contact_score
+    # the legs form the common axle.  The prior 25% bridge was too generous:
+    # fixed replay showed it selecting a hopping, travelling layout even
+    # after the axle geometry itself was found.  Retain only a small smooth
+    # bridge for discovery; continuous four-wheel contact is now the dominant
+    # measured quality of every normal pivot.
+    normal_contact_bridge = 0.05 + 0.95 * normal_contact_score
     # Formation without locality produced a travelling, low four-wheel
-    # rectangle: at the old 75% bridge weight it could collect most of the
-    # geometry return while its support centre raced across the plane.  Keep
-    # a small discovery bridge, but make a measured stationary centre and
-    # requested signed rate the dominant quality of every normal pivot.
+    # rectangle.  A measured stationary centre and requested signed rate
+    # remain the other dominant qualities of every normal pivot.
     normal_result = (
       normal_contact_bridge
       * normal_geometry
