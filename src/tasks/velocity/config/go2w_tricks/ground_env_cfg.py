@@ -435,90 +435,60 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Learn the normal pivot while front/rear one-hots are already
-            # present as *held static* supports.  A global PPO Gaussian that
-            # only saw normal for 350 iterations collapsed its variance before
-            # either upright input existed in its data, so the later static
-            # curriculum simply replayed normal actions and fell.  This small
-            # early mixture keeps one fused policy and one public command
-            # interface, but gives every eventual dynamic mode an exploratory
-            # gradient from reset.  There is deliberately no direct switch or
-            # front/rear rate demand in this discovery stage.
-            "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
+            # First discover the AS2W-defining four-wheel common-axis form.
+            # It is still the final fused policy and public command layout;
+            # the later stages merely add the other one-hots after there is a
+            # useful normal-pivot feature to share with them.
+            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.0,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 1.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Add held front/rear two-wheel supports after 600 normal-pivot
+            # iterations; all three retain the same fused actor and command.
+            "step": 38_400,
+            "mode_probabilities": (0.60, 0.20, 0.20, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,
-            # Establish the all-wheel common-axis form under a gentle but
-            # nonzero request.  The literal zero command must remain the
-            # ordinary default idle, so a low rate is the least invasive way
-            # to discover this physically distinct support geometry.
             "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # First discover front/rear as legal, still two-wheel supports
-            # using their existing zero-rate command value.  The second
-            # segment of an episode can still be dynamic, so this also gives
-            # PPO normal-to-stance transition examples without an artificial
-            # pose or phase target.
-            # The fixed m500 audit showed the former 250-iteration normal
-            # interval was not enough: it had nested wheel order but neither
-            # the common axle nor continuous four-wheel contact.  Preserve a
-            # full 450 iterations for that prerequisite before introducing
-            # frequent dynamic switches.  The previous run mixed a normal
-            # high-rate pivot and a direct normal -> front/rear change into
-            # every early support trial; its m800 audit showed that neither
-            # upright pair had actually been discovered.
-            # Iteration 350.
-            "step": 22_400,
-            "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.85,
-            "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 2.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Retain the already-working low normal rate while introducing
-            # only occasional direct switches and slow dynamic front/rear
-            # pivots.  Raising both the rate range and switch frequency at
-            # once erased the m300 normal pivot before either upright mode
-            # had enough static support experience.
-            # Iteration 800.
-            "step": 51_200,
+            # Start slow dynamic front/rear pivots and direct changes once
+            # each support has a static discovery window.
+            "step": 64_000,
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.40,
+            "upright_static_probability": 0.30,
             "direct_switch_probability": 0.25,
-            "spin_rate_range": (0.5, 2.0),
+            "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Add the two static side supports only after normal/front/rear
-            # share a usable low-speed pivot.  Direct changes now appear in
-            # most samples but the normal/front/rear rate remains inside the
-            # range that has a demonstrated stable solution.
-            # Iteration 1300.
-            "step": 83_200,
+            # All five one-hots are now present.  Preserve rate sign through
+            # dynamic switches while the two side supports remain static.
+            "step": 102_400,
             "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.10,
+            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
-            "spin_rate_range": (1.0, 3.0),
+            "spin_rate_range": (5.0, 10.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Only a policy that has already passed the low-speed geometry
-            # audit is asked for the faster reference pivot.  This leaves a
-            # full 600 PPO iterations for high-rate direct switching in the
-            # standard 2,400-iteration from-zero run.
-            # Iteration 1800.
-            "step": 115_200,
+            # Keep a full 600-iteration budget at the reference-rate range;
+            # the previous 1,800-iteration run entered this final stage only
+            # at its final update, so it never trained the requested skill.
+            "step": 128_000,
             "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
-            "spin_rate_range": (2.0, 5.0),
+            "spin_rate_range": (10.0, 15.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),

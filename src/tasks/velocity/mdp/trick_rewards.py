@@ -645,12 +645,15 @@ class StanceSpinPivotResult:
     # final maximum.
     normal_geometry = 0.5 * (normal_coaxiality + front_inside_score)
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
-    # Geometry is valuable independently while it is being formed.  Motion
-    # earns the remaining return only after that measured geometry is present
-    # and its four-wheel centroid is stationary, so translating the footprint
-    # cannot substitute for an in-place pivot.
+    # A four-wheel contact product is zero as soon as one wheel unloads while
+    # the legs form the common axle.  That erased the only geometry signal
+    # during the physical transition and selected the low default rectangle.
+    # Keep four-wheel contact the unique maximum, but retain a bounded bridge
+    # for the measured axle geometry while the contact set is being restored.
+    # It is an outcome measurement, not a limb-pose or action target.
+    normal_contact_bridge = 0.25 + 0.75 * normal_contact_score
     normal_result = (
-      normal_contact_score
+      normal_contact_bridge
       * normal_geometry
       * (0.75 + 0.25 * pivot_stillness * normal_dynamic_quality)
     )
