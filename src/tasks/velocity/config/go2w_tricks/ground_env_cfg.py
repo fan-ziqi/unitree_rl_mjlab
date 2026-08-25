@@ -354,17 +354,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "upright_support_weight": 0.20,
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,
-        # Keep a small geometry bridge, but make a stationary common-axis
-        # form materially inferior to one that actually tracks z-rate.  The
-        # previous 40% bridge converged to low-speed deformation instead of
-        # the reference pivot; this still supplies a measured discovery path
-        # without becoming a substitute for rotation.
-        "normal_formation_weight": 0.45,
+        # The m200--m500 fixed normal audits found a repeatable local
+        # optimum: front wheels moved inside the rears, but the axle score
+        # stalled around 0.5 and only half the trials kept all wheels down.
+        # At this stage rate progress was still valuable enough to pay for
+        # that travelling, partly formed layout.  Give the two required
+        # measured geometry properties clear precedence until the common axle
+        # is physically stable; later curriculum stages still demand the
+        # signed z rate.  This is not a joint target or reference posture.
+        "normal_formation_weight": 0.70,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
         # discoverable without adding a pose or transition target.
-        "rate_progress_weight": 0.75,
+        "rate_progress_weight": 0.50,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -390,10 +393,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
       "grace_period_s": 1.5,
-      # Match the final high-speed five-mode curriculum stage below.  The
-      # previous 256k gate lay far outside the 600-iteration diagnostic, so
-      # it could not validate the no-hop requirement during training.
-      "enable_after_steps": 64_000,
+      # Match the final high-speed five-mode curriculum stage below.
+      "enable_after_steps": 76_800,
     },
   )
   cfg.curriculum = {
@@ -421,11 +422,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # segment of an episode can still be dynamic, so this also gives
             # PPO normal-to-stance transition examples without an artificial
             # pose or phase target.
-            # 64 control steps per PPO iteration: begin at iteration 250,
-            # after the normal formation has had a substantial discovery
-            # interval but while the same fresh run still has room to learn
-            # command-to-command transitions.
-            "step": 16_000,
+            # The fixed m500 audit showed the former 250-iteration normal
+            # interval was not enough: it had nested wheel order but neither
+            # the common axle nor continuous four-wheel contact.  Preserve a
+            # full 400 iterations for that prerequisite before introducing
+            # the other dynamic supports.
+            "step": 25_600,
             "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.75,
@@ -435,8 +437,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Remove most static examples and require slow signed pivots once
             # those two supports have a discovery route.
-            # Iteration 600.
-            "step": 38_400,
+            # Iteration 800.
+            "step": 51_200,
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.40,
@@ -447,9 +449,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Final direct normal/front/rear switching keeps one signed world
             # z-rate throughout; only the separate left/right modes remain
             # static.
-            # Iteration 1000, leaving a long final high-speed five-one-hot
-            # interval in a 1600-iteration from-zero run.
-            "step": 64_000,
+            # Iteration 1200, leaving a 600-iteration final high-speed
+            # five-one-hot interval in a 1800-iteration from-zero run.
+            "step": 76_800,
             "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
