@@ -62,11 +62,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # samples on a condition whose output is already deterministic.  Every
       # training event is consequently one of the five requested flips.
       idle_probability=0.0,
-      # The four somersault axes dominate sampling, but retain a small yaw
-      # fraction as a shared takeoff-discovery bridge.  With yaw removed
-      # entirely, PPO never found a first wheel-free launch in the harder
-      # four branches; at equal 20% sampling yaw then monopolized updates.
-      mode_probabilities=(0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+      # Every one-hot must stay represented from the very first reset.  This
+      # is still one fused actor; it only prevents a lucky easy branch from
+      # monopolizing PPO's first updates.
+      mode_probabilities=(0.2, 0.2, 0.2, 0.2, 0.2),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -139,13 +138,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   cfg.rewards = {
     "ballistic_launch": RewardTermCfg(
       func=trick_rewards.AerialBallisticLaunch,
-      # One compact physical launch outcome: upward impulse while all four
-      # wheels push, then the continuous wheel-free interval it produces.
-      # A 1,600-environment physical action sweep measures 1.87 m/s and
-      # 0.26 s as attainable compact-launch baselines under the native Go2W
-      # limits.  Keep targets just below those measured values so PPO has a
-      # dense path to a real launch instead of an unreachable saturated goal.
-      weight=300.0,
+      # The first half of a flip is simply a powerful legal take-off.  The
+      # native torque-limited model can reach this target in a physical action
+      # sweep; retaining it prevents a low hop from becoming a local optimum
+      # before the slower back/left branches ever spin.
+      weight=400.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -156,11 +153,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "net_rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialNetRotationProgress,
-      # This is the direct maneuver objective: each additional legal radian
-      # is valuable.  It intentionally outweighs a merely high instantaneous
-      # rate, so a one-frame angular-velocity spike cannot replace a sustained
-      # one-turn rotation.
-      weight=180.0,
+      # During the single legal flight interval this is exactly the integral
+      # of the commanded-axis angular speed.  It asks for sustained fast
+      # rotation without a separate rate target that a one-frame spike could
+      # game.
+      weight=300.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -169,11 +166,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "landing_recovery": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      # Once the already-measured turn approaches 2π, give PPO a continuous
-      # outcome route to bleed angular momentum while its full orientation
-      # returns to launch.  It is deliberately one landing-quality term, not
-      # a joint target or a reference landing trajectory.
-      weight=600.0,
+      # This is endpoint-only.  The former arbitrary in-air brake curve
+      # competed with the one-turn objective and selected crashes.  PPO is
+      # free to discover its own braking action, but receives this result only
+      # when it returns to the launch frame and settles on four wheels.
+      weight=1_000.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -185,12 +182,6 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         "post_idle_settle_time": 0.30,
-        # A 40% brake gate was tested directly and collapsed the proven left
-        # landing while leaving front/yaw unchanged.  Keep the 65% gate that
-        # reliably discovers compact side-turn recovery; the sampler below
-        # now gives the unfinished front/yaw one-hots their own PPO evidence.
-        "recovery_start_fraction": 0.65,
-        "recovery_angular_speed": 8.0,
       },
     ),
     # Any non-timeout terminal result pays once, in proportion to its missing
@@ -199,7 +190,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # zero-turn fall during PPO discovery.
     "event_failure": RewardTermCfg(
       func=trick_rewards.aerial_event_failure,
-      weight=-200.0,
+      weight=-150.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
@@ -208,7 +199,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # progress approached 2π, selecting a fast crash instead of wheel
         # recovery.  The completion term remains the only way to erase this
         # base outcome cost.
-        "non_timeout_base_cost": 0.75,
+        "non_timeout_base_cost": 0.50,
       },
     ),
   }
@@ -257,12 +248,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
   # emitted command is still one complete 2π event from the first sample.
-  # The first 600 iterations give every somersault direction equal discovery
-  # opportunity.  In the fixed-command f75 audit, left then completed while
-  # front was near a landing and back/right/yaw still crashed.  Keep that
-  # solved branch in the *same* fused policy, but spend subsequent samples on
-  # the remaining conditional outcomes rather than letting its large return
-  # dominate their PPO advantages.
+  # Each one-hot is a first-class branch of one fused policy.  Altering their
+  # probabilities after discovery made rare branches regress, so retain equal
+  # data for all five throughout training.
   cfg.curriculum = {
     "aerial_commands": CurriculumTermCfg(
       func=trick_curriculums.aerial_command_stages,
@@ -270,22 +258,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "stages": (
           {
-            # 400 aerial PPO iterations at 48 rollout steps per environment.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
-          },
-          {
-            # At 48 rollout steps per PPO iteration this starts at m600,
-            # immediately after the shared launch/turn discovery window.
-            # These are only sampler probabilities: the actor still sees the
-            # same five-dimensional one-hot and one set of weights.  Keeping
-            # Side turns already have a proven landing in fixed replay.  Keep
-            # a small maintenance share for both and concentrate refinement
-            # on the two branches that still never complete: front and yaw.
-            "step": 28_800,
-            "idle_probability": 0.0,
-            "mode_probabilities": (0.35, 0.20, 0.05, 0.05, 0.35),
+            "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
           },
         ),
       },
