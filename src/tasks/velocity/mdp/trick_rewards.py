@@ -1057,6 +1057,7 @@ def aerial_event_failure(
   env: ManagerBasedRlEnv,
   command_name: str,
   target_angle: float,
+  non_timeout_base_cost: float = 0.0,
 ) -> torch.Tensor:
   """Apply one terminal cost proportional to the missing requested turn.
 
@@ -1067,43 +1068,48 @@ def aerial_event_failure(
   landing is still a failure, but each additional correct radian improves its
   return and PPO has a continuous route to the one-turn completion bonus.
   """
-  if target_angle <= 0.0:
-    raise ValueError("target_angle must be positive.")
+  if target_angle <= 0.0 or not 0.0 <= non_timeout_base_cost <= 1.0:
+    raise ValueError("target_angle must be positive and failure cost must be in [0, 1].")
   command_term = env.command_manager.get_term(command_name)
   progress = getattr(
     command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
   )
   missing_fraction = 1.0 - torch.clamp(progress / target_angle, min=0.0, max=1.0)
   # RewardManager supplies the sole dt integral; this is one outcome cost.
-  # ``time_out`` is also an incomplete aerial outcome unless the turn has
-  # already reached its exact target, in which case ``missing_fraction`` is
-  # zero.  Omitting it made a low, unqualified hop profitable: it collected
-  # ground-contact lift reward then escaped through the ordinary episode
-  # timeout without ever paying for its missing rotation.
+  # Angle loss alone is insufficient near 2π: it made a fast trunk/leg crash
+  # nearly free once a policy had learned to rotate.  A non-timeout terminal
+  # event is physically invalid even at the requested angle.  A genuine
+  # completed event uses the dedicated timeout boundary and has no base cost.
+  invalid_terminal = env.termination_manager.terminated.to(missing_fraction.dtype)
+  failure = missing_fraction + non_timeout_base_cost * invalid_terminal
   return (
     env.termination_manager.dones.to(missing_fraction.dtype)
-    * missing_fraction
+    * failure
     / env.step_dt
   )
 
 
 class AerialRotationCompletion:
-  """Pay only a quiet, one-turn return to four-wheel default idle.
+  """Reward one physical recovery outcome after the measured 2π turn.
 
-  Rotation progress and the launch frame are already maintained by the command
-  term.  Recomputing them here, then adding partial-touchdown bridges, made a
-  0.7--0.95 turn hop profitable even though the requested event had failed.
-  Keep one dense reward (new desired-axis radians) and one strict endpoint.
+  Before a turn is close to complete, the separate progress term is the sole
+  dense objective.  Afterwards this term pays only new best recovery quality:
+  return the *whole base* toward its launch orientation while reducing angular
+  speed in the same legal wheel-free interval, then settle on four wheels.
+  That supplies a continuous brake-and-land signal without a reference pose,
+  joint target, phase clock, or prescribed action sequence.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.settle_time = torch.zeros(env.num_envs, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.peak_recovery_quality = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
+    self.peak_recovery_quality[env_ids] = 0.0
 
   def __call__(
     self,
@@ -1118,6 +1124,8 @@ class AerialRotationCompletion:
     landing_linear_velocity_limit: float = 0.75,
     landing_angular_velocity_limit: float = 1.5,
     post_idle_settle_time: float = 0.30,
+    recovery_start_fraction: float = 0.75,
+    recovery_angular_speed: float = 8.0,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if target_angle <= 0.0 or max_overrotation <= 0.0:
@@ -1128,6 +1136,8 @@ class AerialRotationCompletion:
       raise ValueError("landing_orientation_dot_min must be in (0, 1].")
     if landing_linear_velocity_limit <= 0.0 or landing_angular_velocity_limit <= 0.0:
       raise ValueError("landing velocity limits must be positive.")
+    if not 0.0 < recovery_start_fraction < 1.0 or recovery_angular_speed <= 0.0:
+      raise ValueError("recovery start fraction and angular-speed scale are invalid.")
 
     asset: Entity = env.scene[asset_cfg.name]
     command_term = env.command_manager.get_term(command_name)
@@ -1161,6 +1171,40 @@ class AerialRotationCompletion:
     )
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+
+    # A 2π turn must not merely reach the desired-axis angle at high speed and
+    # crash.  Start this direct recovery measurement only in the final quarter
+    # of that same turn.  Its high-water form pays each improvement once, so
+    # holding a quiet aerial pose cannot farm return.  Wheel-free gating keeps
+    # the final contact itself reserved for the strict four-wheel endpoint.
+    recovery_start = recovery_start_fraction * target_angle
+    turn_gate = torch.clamp(
+      (progress - recovery_start) / (target_angle - recovery_start), min=0.0, max=1.0
+    )
+    wheel_free = ~torch.any(contacts, dim=1)
+    recovery_candidate = (
+      active
+      & was_airborne
+      & (~landing_started)
+      & wheel_free
+      & legal
+      & (progress <= target_angle + max_overrotation)
+    )
+    angular_stillness = 1.0 / (
+      1.0 + torch.square(angular_speed / recovery_angular_speed)
+    )
+    recovery_quality = turn_gate * orientation_similarity * angular_stillness
+    recovery_quality = torch.where(
+      recovery_candidate, recovery_quality, torch.zeros_like(recovery_quality)
+    )
+    recovery_gain = torch.clamp(
+      recovery_quality - self.peak_recovery_quality, min=0.0
+    )
+    self.peak_recovery_quality = torch.where(
+      active,
+      torch.maximum(self.peak_recovery_quality, recovery_quality),
+      torch.zeros_like(self.peak_recovery_quality),
+    )
     stable = (
       post_landing_idle
       & was_airborne
@@ -1181,4 +1225,6 @@ class AerialRotationCompletion:
     )
     new_completion = completed & (~self.awarded)
     self.awarded |= completed
-    return new_completion.to(asset.data.root_link_pos_w.dtype) / env.step_dt
+    return (
+      recovery_gain + new_completion.to(recovery_gain.dtype)
+    ) / env.step_dt

@@ -167,9 +167,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
       },
     ),
-    "completed_turn": RewardTermCfg(
+    "landing_recovery": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      weight=75.0,
+      # Once the already-measured turn approaches 2π, give PPO a continuous
+      # outcome route to bleed angular momentum while its full orientation
+      # returns to launch.  It is deliberately one landing-quality term, not
+      # a joint target or a reference landing trajectory.
+      weight=250.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -181,6 +185,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         "post_idle_settle_time": 0.30,
+        "recovery_start_fraction": 0.75,
+        "recovery_angular_speed": 8.0,
       },
     ),
     # Any non-timeout terminal result pays once, in proportion to its missing
@@ -190,7 +196,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     "event_failure": RewardTermCfg(
       func=trick_rewards.aerial_event_failure,
       weight=-200.0,
-      params={"command_name": "trick", "target_angle": math.tau},
+      params={
+        "command_name": "trick",
+        "target_angle": math.tau,
+        # A nearly-complete turn that lands its trunk or a leg is still a
+        # failure.  Angle-only cost accidentally made that failure free as
+        # progress approached 2π, selecting a fast crash instead of wheel
+        # recovery.  The completion term remains the only way to erase this
+        # base outcome cost.
+        "non_timeout_base_cost": 0.30,
+      },
     ),
   }
   # Collision ends an episode immediately.  The decisive terminal term
