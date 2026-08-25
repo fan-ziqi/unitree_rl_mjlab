@@ -69,11 +69,13 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # policy.  Match the aerial policy capacity so the easy normal branch
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
-    # Both the common-axis pivot and the upright supports require a coordinated
-    # lift that is absent from reset.  With 0.60/0.004 the learned scalar
-    # standard deviation collapsed to 0.05 before any upright support had
-    # appeared.  Keep bounded (clipped) exploration active for discovery.
-    init_std=1.0,
+    # A unit-variance 16-DOF sample immediately drove a hip or trunk into the
+    # floor in almost every fresh rollout, so the new measured formation
+    # signal never survived long enough to inform PPO.  At 0.25 the default
+    # four-wheel state remains physically valid while still perturbing every
+    # leg and wheel; the entropy term can subsequently widen exploration once
+    # formation progress gives it a direction.
+    init_std=0.25,
     entropy_coef=0.008,
     clip_actions=1.0,
   )

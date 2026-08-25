@@ -356,7 +356,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _support_wheels(),
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.03),
+    # Common-axis formation is a coordinated but smooth movement over many
+    # control frames.  The former temporal cost was comparable to the entire
+    # zero-action formation signal, so it selected immobility before PPO could
+    # measure any useful geometric improvement.  Retain a light regularizer
+    # without turning a visibly fluid pivot into a frozen default pose.
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   # The reference's final normal pivot keeps every wheel in continuous
