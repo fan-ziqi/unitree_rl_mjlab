@@ -89,11 +89,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # The fixed-command audit showed that a rear-heavy mix lets the shared
-      # policy allocate the support feature to rear and leaves front unused.
-      # Keep both public one-hots present, with a slight front bias until both
-      # static two-wheel outcomes are actually discovered.
-      mode_probabilities=(0.0, 0.55, 0.45),
+      # Rear is the less-discovered support.  Its front-only counterpart
+      # reaches a valid static stand early even from few samples, so begin
+      # with a rear-biased discovery mix and return to a balanced shared
+      # policy before walking commands are introduced below.
+      mode_probabilities=(0.0, 0.25, 0.75),
       mode_idle_probabilities=(0.0, 1.0, 1.0),
       lin_vel_x_range=(0.0, 0.0),
       yaw_rate_range=(0.0, 0.0),
@@ -266,22 +266,20 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Both static directions are trained from the first rollout.  A
-            # rear-heavy split produced a stable rear stand but zero front
-            # arrivals in the m1000 fixed evaluation, so retain enough front
-            # evidence for one fused actor to represent both supports.
-            "mode_probabilities": (0.0, 0.55, 0.45),
+            # Let the harder rear condition discover its first legal support
+            # without a front branch monopolising the shared PPO advantage.
+            # This changes only how often public one-hots appear; both are
+            # still evaluated by exactly the same policy and support result.
+            "mode_probabilities": (0.0, 0.25, 0.75),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Do not expose x/yaw until both fixed-command static supports
-            # have a credible arrival rate; ordinary rolling is otherwise an
-            # easier substitute for the unfinished front/rear outcomes.
-            # Iteration 800.
-            "step": 51_200,
+            # After 400 static-rear iterations, restore enough front
+            # evidence to preserve both directions in the one fused actor.
+            "step": 25_600,
             "mode_probabilities": (0.0, 0.55, 0.45),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
