@@ -11,6 +11,8 @@ def _trick_runner_cfg(
   hidden_dims: tuple[int, ...] = (512, 256, 128),
   lam: float = 0.95,
   init_std: float = 1.0,
+  distribution_class: str = "GaussianDistribution",
+  std_type: str = "scalar",
   entropy_coef: float = 0.01,
   learning_rate: float = 1.0e-3,
   desired_kl: float | None = 0.01,
@@ -24,9 +26,9 @@ def _trick_runner_cfg(
       activation="elu",
       obs_normalization=True,
       distribution_cfg={
-        "class_name": "GaussianDistribution",
+        "class_name": distribution_class,
         "init_std": init_std,
-        "std_type": "scalar",
+        "std_type": std_type,
       },
     ),
     critic=RslRlModelCfg(
@@ -69,14 +71,16 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # policy.  Match the aerial policy capacity so the easy normal branch
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
-    # The prior normal-only warm-up drove this *global* Gaussian standard
-    # deviation from 0.25 to 0.08 before the actor saw front/rear one-hots.
-    # Those unseen branches could then only replay the normal pivot and fell
-    # immediately.  Start with a still-bounded, support-safe spread and keep
-    # a modest entropy floor through the early multi-one-hot discovery stage.
-    # This changes training exploration only; deterministic evaluation keeps
-    # using the learned mean action.
-    init_std=0.55,
+    # A scalar learned standard deviation collapsed to 0.11 after normal
+    # pivot rewards arrived, leaving front/rear one-hots no ability to
+    # explore their distinct support forms.  RSL's built-in heteroscedastic
+    # distribution uses the same existing observation (including one-hot) to
+    # predict a bounded-positive log standard deviation per state.  It adds
+    # no command, target, reward, or controller—only prevents normal from
+    # globally removing exploration from its sibling public modes.
+    init_std=0.70,
+    distribution_class="HeteroscedasticGaussianDistribution",
+    std_type="log",
     entropy_coef=0.005,
     clip_actions=1.0,
   )
