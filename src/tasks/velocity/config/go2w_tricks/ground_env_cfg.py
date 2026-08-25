@@ -137,6 +137,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 3,
+        # Four wheels touching is the reset, not a partial front/rear
+        # support.  Any non-commanded wheel contact must remove the support
+        # fraction, otherwise the policy can improve the attitude score while
+        # retaining the low ordinary gait that the task explicitly rejects.
+        "extra_contact_discount": 1.0,
         # Normal four-wheel idle has the natural low clearance of the Go2W
         # default.  A front/rear two-wheel command instead must visibly lift
         # the trunk above its transverse support axle; without this existing

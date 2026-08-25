@@ -433,6 +433,20 @@ class StanceLocomotionCommand(CommandTerm):
     next_sampled = sampled.clone()
     next_sampled[:, :3] = 0.0
     next_sampled[torch.arange(count, device=self.device), next_modes] = 1.0
+    # The zero-x/zero-yaw first curriculum is support discovery, not yet a
+    # transition task.  Forcing an untrained actor from a front static stand
+    # directly into a rear static stand halfway through that first episode
+    # made each sample require two distinct upright balances before either
+    # could be reinforced.  Hold the same public one-hot for this deliberately
+    # stationary segment.  As soon as the curriculum introduces a nonzero
+    # x/yaw range, retain the direct A -> B schedule below so the final fused
+    # policy still learns command-to-command switches.
+    static_support_discovery = (
+      self.cfg.lin_vel_x_range == (0.0, 0.0)
+      and self.cfg.yaw_rate_range == (0.0, 0.0)
+    )
+    if static_support_discovery:
+      next_sampled = sampled.clone()
     # The reset state is physically normal four-wheel idle, so training can
     # issue its first public one-hot immediately.  This matches a controller
     # that switches directly from normal driving to a front/rear stance.
