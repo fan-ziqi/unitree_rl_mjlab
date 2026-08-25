@@ -252,8 +252,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           },
           {
             # Reintroduce the easy fifth branch only after the four real
-            # somersault directions have received equal discovery samples.
-            "step": 19_200,
+            # somersault directions have received a long uninterrupted
+            # discovery interval.  The f32 fixed m300 audit still measured
+            # only 0.25--0.33 turns on the hard modes; exposing yaw at 400
+            # iterations would recreate its proven high-return shortcut
+            # before any hard axis had a full turn.  At 48 control steps per
+            # PPO iteration, 38,400 is iteration 800 and leaves a matching
+            # long five-way interval in the fresh 1,600-iteration run.
+            "step": 38_400,
             "idle_probability": 0.0,
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
