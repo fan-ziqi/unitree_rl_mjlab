@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs import mdp as envs_mdp
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
@@ -129,41 +128,33 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # endpoint below still evaluates the complete launch-frame orientation.
     cfg.observations[group_name].history_length = 10
 
-  # A flip has one generic launch signal, one command-specific net-angle
-  # result, and one strict terminal landing.  A partial touchdown is a real
-  # failure below, not an unpenalized timeout.
+  # A flip is exactly three physical objectives: a legal four-wheel launch,
+  # net rotation around its public one-hot axis, and a quiet normal landing.
+  # There is deliberately no pose, timing, joint, clearance, or reference
+  # trajectory reward.  A partial touchdown is a discrete failure.
   cfg.rewards = {
-    "takeoff_upward_velocity": RewardTermCfg(
-      func=trick_rewards.aerial_takeoff_upward_velocity,
-      # Every flip needs a real vertical launch.  Keep this below the
-      # command-specific radians reward; it is only a generic discovery route
-      # to the already-required wheel-free flight, not an alternate endpoint.
-      weight=30.0,
+    "takeoff_impulse": RewardTermCfg(
+      func=trick_rewards.AerialTakeoffImpulse,
+      # A completed 2.5 m/s launch pays 120 once.  It is strong enough for
+      # PPO to discover a real jump before any full turn exists, yet cannot
+      # outscore the failure cost of a partial hop.
+      weight=120.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 2.0,
-      },
-    ),
-    "airborne_clearance": RewardTermCfg(
-      func=trick_rewards.aerial_airborne_clearance,
-      weight=20.0,
-      params={
-        "command_name": "trick",
-        "sensor_name": wheel_contact_cfg.name,
-        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_clearance": 0.45,
+        "target_upward_speed": 2.5,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialNetRotationProgress,
-      weight=300.0,
+      # One legal 2π turn pays 50 * 2π = 314.  The matching incomplete-event
+      # cost below makes a half turn negative even after a strong launch.
+      weight=50.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
-        "target_clearance": 0.45,
       },
     ),
     "completed_turn": RewardTermCfg(
@@ -182,15 +173,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "post_idle_settle_time": 0.30,
       },
     ),
-    # This generic temporal regularizer rejects high-frequency flailing but
-    # does not choose a pose, phase, or reference action for the maneuver.
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.01),
-    # Colliding the trunk or a leg is already a physical failure.  Once the
-    # policy has discovered real multi-axis jumps, a decisive terminal cost
-    # prevents a high-but-illegal partial turn from competing with a recoverable
-    # wheel landing.  Timeouts remain excluded by the standard termination
-    # reward function.
-    "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-300.0),
+    # Any non-timeout terminal result is one failed event, rather than a
+    # per-second cost.  This closes the old 0.2--0.4-turn local optimum.
+    "event_failure": RewardTermCfg(
+      func=trick_rewards.aerial_event_failure, weight=-300.0
+    ),
   }
   # Collision ends an episode immediately.  The decisive terminal term
   # distinguishes an illegal partial turn from a wheelward recovery without

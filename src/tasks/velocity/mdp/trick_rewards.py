@@ -896,89 +896,81 @@ def normal_leg_default_pose_exp(
   return normal.to(score.dtype) * score
 
 
-def aerial_airborne_clearance(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  nonwheel_sensor_name: str,
-  target_clearance: float,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Reward measured wheel-free height for one active aerial command.
+class AerialTakeoffImpulse:
+  """Pay each new amount of legal, four-wheel upward launch speed once.
 
-  This is deliberately just the first physical part of a flip: leave the
-  floor.  It contains no desired joint pose, takeoff time, reference state, or
-  landing phase.  Multiplying by ``step_dt`` gives comparable return for the
-  same physical airborne duration at different control rates.
+  Aerial rewards are integrated by :class:`RewardManager` already.  The old
+  per-step velocity reward multiplied by ``step_dt`` a second time, so its
+  first useful PPO signal was fifty times too small.  This high-water version
+  is a single physical impulse reward: it pays only when the event achieves a
+  new upward speed while all four wheels are supporting it.  It has no pose,
+  action, timing, or reference-motion target.
   """
-  if target_clearance <= 0.0:
-    raise ValueError("target_clearance must be positive.")
-  asset: Entity = env.scene[asset_cfg.name]
-  command = _command(env, command_name)
-  active = torch.sum(command[:, :5], dim=1) > 0.5
-  airborne = ~torch.any(_wheel_contacts(env, sensor_name), dim=1)
-  legal = ~_has_any_contact(env, nonwheel_sensor_name)
-  default_root_state = asset.data.default_root_state
-  assert default_root_state is not None
-  clearance = torch.clamp(
-    (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
-    / target_clearance,
-    min=0.0,
-    max=1.0,
-  )
-  return (
-    active.to(clearance.dtype)
-    * airborne.to(clearance.dtype)
-    * legal.to(clearance.dtype)
-    * clearance
-    * env.step_dt
-  )
 
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.peak_upward_speed = torch.zeros(env.num_envs, device=env.device)
+    self.previous_active = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
 
-def aerial_takeoff_upward_velocity(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  nonwheel_sensor_name: str,
-  target_upward_speed: float,
-  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> torch.Tensor:
-  """Reward a legal wheel-supported upward impulse before ballistic flight.
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_upward_speed[env_ids] = 0.0
+    self.previous_active[env_ids] = False
 
-  This is the missing physical predecessor of every aerial axis: the existing
-  clearance/turn terms only activate *after* the robot has already found a
-  jump.  It is generic across all five one-hots and never specifies a joint
-  pose, flight phase, rotation axis, or reference motion.
-  """
-  if target_upward_speed <= 0.0:
-    raise ValueError("target_upward_speed must be positive.")
-  asset: Entity = env.scene[asset_cfg.name]
-  command = _command(env, command_name)
-  active = torch.sum(command[:, :5], dim=1) > 0.5
-  grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
-  legal = ~_has_any_contact(env, nonwheel_sensor_name)
-  upward_speed = torch.clamp(
-    asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
-    min=0.0,
-    max=1.0,
-  )
-  return (
-    active.to(upward_speed.dtype)
-    * grounded.to(upward_speed.dtype)
-    * legal.to(upward_speed.dtype)
-    * upward_speed
-    * env.step_dt
-  )
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    sensor_name: str,
+    nonwheel_sensor_name: str,
+    target_upward_speed: float,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if target_upward_speed <= 0.0:
+      raise ValueError("target_upward_speed must be positive.")
+    asset: Entity = env.scene[asset_cfg.name]
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    reset = (
+      (~active)
+      | (active & ~self.previous_active)
+      | (env.episode_length_buf == 0)
+    )
+    self.peak_upward_speed[reset] = 0.0
+    grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
+    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    upward_speed = torch.clamp(
+      asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
+      min=0.0,
+      max=1.0,
+    )
+    gain = torch.clamp(upward_speed - self.peak_upward_speed, min=0.0)
+    valid = active & grounded & legal
+    self.peak_upward_speed = torch.where(
+      active,
+      torch.maximum(self.peak_upward_speed, upward_speed),
+      torch.zeros_like(self.peak_upward_speed),
+    )
+    self.previous_active = active
+    # RewardManager supplies the dt integral.  Divide once so this remains a
+    # discrete launch impulse rather than being attenuated by control rate.
+    return valid.to(gain.dtype) * gain / env.step_dt
 
 
 class AerialNetRotationProgress:
-  """Reward only new net desired-axis radians in one ballistic event.
+  """Pay only new net desired-axis radians in one ballistic event.
 
   ``AerialRotationCommand`` already integrates signed angular displacement only
   during its first continuous wheel-free interval.  This term pays a radian
   once, when that integration reaches a new high-water mark.  A policy cannot
   collect extra reward by briefly turning forward, undoing the turn, then
-  repeating it.  No pose, phase, or desired joint state is introduced.
+  repeating it.  No pose, phase, desired rate, or joint state is introduced.
+
+  The command-side increment is already in radians (and therefore already
+  contains one ``dt``).  Return it in per-second form because RewardManager
+  performs the sole time integration.  The prior extra integration reduced a
+  complete-turn signal by fifty times and made short hops deceptively cheap.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -998,11 +990,9 @@ class AerialNetRotationProgress:
     command_name: str,
     nonwheel_sensor_name: str,
     target_angle: float,
-    target_clearance: float,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    if target_angle <= 0.0 or target_clearance <= 0.0:
-      raise ValueError("target_angle and target_clearance must be positive.")
+    if target_angle <= 0.0:
+      raise ValueError("target_angle must be positive.")
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     # Reset at the literal idle boundary as well as the environment reset.  A
@@ -1031,38 +1021,22 @@ class AerialNetRotationProgress:
     )
     self.previous_active = active
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    asset: Entity = env.scene[asset_cfg.name]
-    default_root_state = asset.data.default_root_state
-    assert default_root_state is not None
-    clearance = torch.clamp(
-      (asset.data.root_link_pos_w[:, 2] - default_root_state[:, 2])
-      / target_clearance,
-      min=0.0,
-      max=1.0,
-    )
-    launch_axis = getattr(
-      command_term,
-      "_launch_axis_w",
-      torch.zeros(env.num_envs, 3, device=env.device),
-    )
-    angular_velocity = asset.data.root_link_ang_vel_w
-    desired_axis_speed = torch.abs(torch.sum(angular_velocity * launch_axis, dim=1))
-    axis_purity = desired_axis_speed / torch.linalg.vector_norm(
-      angular_velocity, dim=1
-    ).clamp_min(1.0e-4)
-    # Preserve an early takeoff/turn gradient even before PPO has separated
-    # the requested axis from the other two body rates.  A full multiplicative
-    # purity gate made the no-jump local optimum preferable; this bounded
-    # interpolation still strictly favours a pure commanded-axis flip without
-    # adding another reward term, posture target, or phase signal.
-    purity_factor = 0.25 + 0.75 * axis_purity
     return (
       active.to(increment.dtype)
       * legal.to(increment.dtype)
-      * torch.sqrt(clearance)
-      * purity_factor
       * increment
+      / env.step_dt
     )
+
+
+def aerial_event_failure(env: ManagerBasedRlEnv) -> torch.Tensor:
+  """Apply a discrete failure cost to non-timeout aerial outcomes.
+
+  This is deliberately the counterpart of the discrete completion bonus: an
+  incomplete first landing, illegal body contact, or relaunch costs the term
+  weight once.  It cannot be diluted by RewardManager's time integration.
+  """
+  return env.termination_manager.terminated.float() / env.step_dt
 
 
 class AerialRotationCompletion:
