@@ -167,7 +167,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # sparse.  Use the measured attitude itself as the continuous route;
         # exact contacts, clearance, and non-wheel collision termination are
         # unchanged.  This is not a joint pose or transition trajectory.
-        "orientation_power": 1.0,
+        # Once the sampled pair is correct, the prior linear alignment score
+        # made a 30-degree crouch worth more than 90% of a true two-wheel
+        # stand.  Squaring the same measured gravity alignment leaves the
+        # normal-reset bridge present but gives the last part of the rise a
+        # materially stronger PPO advantage.  This remains an outcome
+        # measurement, not a posture target.
+        "orientation_power": 2.0,
         # From normal four-wheel reset the desired front/rear attitude is
         # only half aligned, while the target wheel pair and tall clearance
         # cannot improve until the body has first begun to tip.  Reserve part
@@ -256,7 +262,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.0, 0.25, 0.75),
+            # Front and rear have opposite contact geometry.  A rear-heavy
+            # sampler left the front branch with too little early on-policy
+            # evidence; sample both static supports equally from reset.
+            "mode_probabilities": (0.0, 0.50, 0.50),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
