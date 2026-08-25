@@ -89,7 +89,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      mode_probabilities=(0.0, 0.5, 0.5),
+      # Front support discovers first and otherwise dominates the shared
+      # policy's return.  Bias the still-fused static discovery distribution
+      # toward the physically harder rear support; both one-hots remain
+      # present from reset and use the same actor/reward, with no pose target.
+      mode_probabilities=(0.0, 0.25, 0.75),
       mode_idle_probabilities=(0.0, 1.0, 1.0),
       lin_vel_x_range=(0.0, 0.0),
       yaw_rate_range=(0.0, 0.0),
@@ -242,7 +246,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            "mode_probabilities": (0.0, 0.5, 0.5),
+            "mode_probabilities": (0.0, 0.25, 0.75),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
