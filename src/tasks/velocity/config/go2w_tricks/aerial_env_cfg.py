@@ -185,11 +185,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
         "post_idle_settle_time": 0.30,
-        # Begin braking feedback before the final quarter.  At the prior
-        # 0.75 gate the policy could spend its short flight reaching 2π at
-        # full speed, leaving too little time for the same physical outcome
-        # to influence the contact decision.
-        "recovery_start_fraction": 0.65,
+        # At the observed 20--28-rad/s turn rates, a 0.65 gate leaves only
+        # about 0.10 s between first braking feedback and 2π.  That was
+        # enough for one side branch by chance but physically too late for
+        # front/yaw to bleed angular momentum before wheel contact.  Start
+        # the same measured recovery outcome at 40% of the turn: it still
+        # requires net commanded-axis progress, but now offers roughly
+        # 0.17--0.19 s of flight to trade spin for a quiet four-wheel landing.
+        "recovery_start_fraction": 0.40,
         "recovery_angular_speed": 8.0,
       },
     ),
