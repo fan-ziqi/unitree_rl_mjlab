@@ -325,8 +325,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      mode_probabilities=(1.0, 0.0, 0.0, 0.0, 0.0),
+      mode_probabilities=(0.70, 0.15, 0.15, 0.0, 0.0),
       spin_idle_probability=0.0,
+      upright_static_probability=1.0,
       direct_switch_probability=0.0,
       spin_rate_range=(0.5, 2.0),
       spin_rate_ramp_rate=36.0,
@@ -416,10 +417,19 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Find the normal four-wheel common-axis pivot from default idle.
-            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            # Learn the normal pivot while front/rear one-hots are already
+            # present as *held static* supports.  A global PPO Gaussian that
+            # only saw normal for 350 iterations collapsed its variance before
+            # either upright input existed in its data, so the later static
+            # curriculum simply replayed normal actions and fell.  This small
+            # early mixture keeps one fused policy and one public command
+            # interface, but gives every eventual dynamic mode an exploratory
+            # gradient from reset.  There is deliberately no direct switch or
+            # front/rear rate demand in this discovery stage.
+            "mode_probabilities": (0.70, 0.15, 0.15, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
+            "upright_static_probability": 1.0,
+            "direct_switch_probability": 0.0,
             # Establish the all-wheel common-axis form under a gentle but
             # nonzero request.  The literal zero command must remain the
             # ordinary default idle, so a low rate is the least invasive way

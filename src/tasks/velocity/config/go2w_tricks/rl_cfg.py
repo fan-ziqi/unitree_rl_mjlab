@@ -69,18 +69,15 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # policy.  Match the aerial policy capacity so the easy normal branch
     # cannot exhaust a narrow latent before front/rear/side supports form.
     hidden_dims=(512, 512, 256),
-    # A unit-variance 16-DOF sample immediately drove a hip or trunk into the
-    # floor in almost every fresh rollout, so the new measured formation
-    # signal never survived long enough to inform PPO.  At 0.25 the default
-    # four-wheel state remains physically valid while still perturbing every
-    # leg and wheel; the entropy term can subsequently widen exploration once
-    # formation progress gives it a direction.
-    init_std=0.25,
-    # Once the initial safe geometric perturbations have discovered the
-    # common-axis direction, high entropy widens into wheel lift-off and a
-    # travelling floor circle.  Keep enough exploration for the free joint
-    # coordination, but let continuous four-wheel contact consolidate.
-    entropy_coef=0.002,
+    # The prior normal-only warm-up drove this *global* Gaussian standard
+    # deviation from 0.25 to 0.08 before the actor saw front/rear one-hots.
+    # Those unseen branches could then only replay the normal pivot and fell
+    # immediately.  Start with a still-bounded, support-safe spread and keep
+    # a modest entropy floor through the early multi-one-hot discovery stage.
+    # This changes training exploration only; deterministic evaluation keeps
+    # using the learned mean action.
+    init_std=0.55,
+    entropy_coef=0.005,
     clip_actions=1.0,
   )
 
