@@ -510,27 +510,10 @@ def _stance_spin_components(
   # and specifies neither a leg pose nor a transition trajectory.  Normal and
   # side modes retain their existing stricter geometry products.
   upright_support_progress = alignment * (0.65 * contact_score + 0.35 * height_score)
-  # The normal common-axis pivot is allowed to briefly unload one wheel while
-  # it folds four rectangular supports onto one line.  A binary all-contact
-  # product made every such early formation frame reward-free; the m400 video
-  # consequently stayed in a low, crossed support instead of discovering the
-  # reference layout.  Use only the measured fraction of wheel-ground
-  # contacts as a dense *training* route, with a cubic that still strongly
-  # prefers four wheels (3/4 contact is 0.42, 2/4 is 0.125).  The final
-  # evaluator and late termination retain the exact continuous-four-wheel
-  # requirement, so this neither prescribes a pose nor accepts hopping.
-  normal_contact_progress = torch.mean(contacts, dim=1).pow(3)
-  normal_support_progress = (
-    normal_contact_progress * alignment_score * height_score
-  )
   support_quality = torch.where(
-    mode == 0,
-    normal_support_progress,
-    torch.where(
-      (mode == 1) | (mode == 2),
-      upright_support_progress,
-      contact_score * alignment_score * height_score,
-    ),
+    (mode == 1) | (mode == 2),
+    upright_support_progress,
+    contact_score * alignment_score * height_score,
   )
   return (
     asset,

@@ -186,7 +186,14 @@ class StanceSpinCommand(CommandTerm):
       self._transition_phase[active_ids] = 1
 
   def _update_command(self) -> None:
-    """Hold a commanded mode, directly switch it, then return to idle."""
+    """Hold a command, directly switch once, then hold until resampling.
+
+    A persistent external one-hot is the public spin interface.  Returning to
+    idle before the sampler's 6-s command interval had elapsed trained a
+    distribution that never occurs under fixed-command evaluation or the
+    requested continuous AS2W pivot.  The all-zero command remains available
+    when the sampler explicitly emits it through ``spin_idle_probability``.
+    """
     pending = self._transition_phase < 3
     self._transition_time[pending] += self._env.step_dt
     second_start = (
@@ -204,8 +211,9 @@ class StanceSpinCommand(CommandTerm):
       & (self._transition_time >= self.cfg.transition_active_time)
     )
     if torch.any(finish):
-      self.command_buf[finish] = 0.0
-      self._target_spin_rate[finish] = 0.0
+      # Keep the second public one-hot and its signed rate through the next
+      # resample.  This makes stage-0 normal a sustained pivot and makes a
+      # direct dynamic A -> B switch continuous instead of ending in a brake.
       self._transition_phase[finish] = 3
 
     active = torch.sum(self.command_buf[:, :5], dim=1) > 0.5
