@@ -76,7 +76,11 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # leg and wheel; the entropy term can subsequently widen exploration once
     # formation progress gives it a direction.
     init_std=0.25,
-    entropy_coef=0.008,
+    # Once the initial safe geometric perturbations have discovered the
+    # common-axis direction, high entropy widens into wheel lift-off and a
+    # travelling floor circle.  Keep enough exploration for the free joint
+    # coordination, but let continuous four-wheel contact consolidate.
+    entropy_coef=0.002,
     clip_actions=1.0,
   )
 

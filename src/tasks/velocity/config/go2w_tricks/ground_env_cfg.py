@@ -305,7 +305,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       resampling_time_range=(6.0, 6.0),
       mode_probabilities=(1.0, 0.0, 0.0, 0.0, 0.0),
       spin_idle_probability=0.0,
-      spin_rate_range=(2.0, 5.0),
+      spin_rate_range=(0.5, 2.0),
       spin_rate_ramp_rate=36.0,
       debug_vis=False,
     )
@@ -393,7 +393,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "spin_rate_range": (2.0, 5.0),
+            # Establish the all-wheel common-axis form under a gentle but
+            # nonzero request.  The literal zero command must remain the
+            # ordinary default idle, so a low rate is the least invasive way
+            # to discover this physically distinct support geometry.
+            "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -406,7 +410,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "mode_probabilities": (0.50, 0.25, 0.25, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.75,
-            "spin_rate_range": (2.0, 5.0),
+            "spin_rate_range": (1.0, 3.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -416,7 +420,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.40,
-            "spin_rate_range": (3.0, 6.0),
+            "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
