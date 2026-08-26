@@ -133,6 +133,8 @@ def mode_support_score(
   static_angular_velocity_scale: float | None = None,
   static_linear_velocity_scale: float | None = None,
   static_stillness_floor: float = 0.10,
+  attitude_progress_weight: float = 0.0,
+  attitude_progress_rate_scale: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Measure the commanded contact pair, attitude, and optional height.
@@ -181,6 +183,10 @@ def mode_support_score(
     raise ValueError("static_linear_velocity_scale must be positive.")
   if not 0.0 <= static_stillness_floor < 1.0:
     raise ValueError("static_stillness_floor must be in [0, 1).")
+  if not 0.0 <= attitude_progress_weight <= 1.0:
+    raise ValueError("attitude_progress_weight must be in [0, 1].")
+  if attitude_progress_rate_scale <= 0.0:
+    raise ValueError("attitude_progress_rate_scale must be positive.")
 
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
@@ -275,20 +281,33 @@ def mode_support_score(
     stillness = torch.where(
       static_settling, stillness * linear_stillness, stillness
     )
-  # Contact is slightly more important than height: a tall robot supported by
-  # the wrong wheels is not the requested stance.  Keeping both beneath the
-  # measured attitude gate prevents a fallen, contact-free orientation from
-  # being rewarded as a valid support.  A caller can reserve a bounded
-  # attitude-progress component inside this same outcome.  That is useful
-  # when the reset is ordinary four-wheel idle: it gives the policy a reason
-  # to begin pitching toward the requested support before the contact pair
-  # and clearance can physically improve together.  The unique maximum
-  # remains correct attitude *and* contacts *and* clearance.
-  support_progress = 0.65 * support + 0.35 * clearance
+  # The support itself must be a valid contact outcome.  Additive clearance
+  # let the previous task pay a robot that merely leaned toward the target
+  # while keeping all four wheels down: it had no commanded pair but still
+  # collected clearance return every frame.  Contact provides the bridge from
+  # a four-wheel reset (lift an uncommanded wheel first); clearance completes
+  # that same bridge once the selected pair actually bears the robot.
+  support_progress = support * (0.65 + 0.35 * clearance)
   result_progress = orientation_progress_floor + (
     1.0 - orientation_progress_floor
   ) * support_progress
-  result = active.to(orientation.dtype) * orientation * result_progress * stillness
+  support_result = orientation * result_progress * stillness
+
+  # A static contact outcome alone is zero at the ordinary four-wheel reset,
+  # even though the robot must first rotate toward the requested gravity
+  # direction before a wheel can leave the floor.  Reward only the *instant
+  # physical angular progress* toward that direction.  It vanishes when the
+  # robot holds a half-tilted pose, so unlike a persistent attitude score it
+  # cannot become the local optimum observed in the m600 audit.  This uses no
+  # phase, joint target, or reference trajectory.
+  gravity_rate = -torch.linalg.cross(asset.data.root_link_ang_vel_b, gravity)
+  alignment_rate = torch.sum(gravity_rate * targets[mode], dim=1)
+  attitude_progress = torch.clamp(
+    alignment_rate / attitude_progress_rate_scale, min=0.0, max=1.0
+  )
+  result = active.to(orientation.dtype) * (
+    support_result + attitude_progress_weight * attitude_progress
+  )
   if mode_weights is not None:
     weights = torch.tensor(mode_weights, dtype=result.dtype, device=env.device)
     result = result * weights[mode]

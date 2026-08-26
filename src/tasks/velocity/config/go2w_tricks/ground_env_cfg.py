@@ -170,13 +170,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # makes that visibly incomplete outcome materially worse than a true
         # upright support, without introducing any joint-pose target.
         "orientation_power": 6.0,
-        # From normal four-wheel reset the desired front/rear attitude is
-        # only half aligned, while the target wheel pair and tall clearance
-        # cannot improve until the body has first begun to tip.  Reserve part
-        # of this same measured support outcome for that physical attitude
-        # progress; only the simultaneous correct contacts and clearance can
-        # reach its final full score.
-        "orientation_progress_floor": 0.50,
+        # Contact/clearance now stay a strict support result.  A separate
+        # instantaneous gravity-alignment velocity inside the same term gives
+        # PPO a physical route out of the four-wheel reset without paying a
+        # half-tilted static pose.
+        "orientation_progress_floor": 0.0,
+        "attitude_progress_weight": 0.20,
+        "attitude_progress_rate_scale": 4.0,
         # The front/rear stances use identical outcome measurements, but the
         # front support discovers first and otherwise consumes the shared
         # actor's PPO advantage.  Weight the harder rear *same outcome* so
