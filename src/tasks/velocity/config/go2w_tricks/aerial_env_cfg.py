@@ -142,13 +142,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # native torque-limited model can reach this target in a physical action
       # sweep; retaining it prevents a low hop from becoming a local optimum
       # before the slower back/left branches ever spin.
-      weight=350.0,
+      weight=700.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 1.75,
-        "target_duration": 0.22,
+        "target_upward_speed": 1.25,
+        "target_duration": 0.12,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -195,10 +195,16 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # times more profitable than a quiet landing.  Rotation is normalized
       # above; this matched terminal scale now makes a partial turn better
       # than zero, but worse than completing the same one event.
-      weight=-800.0,
+      weight=-350.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
+        # A full angle-loss penalty at iteration zero made a tentative legal
+        # lift much less valuable than simply failing without a jump.  Let
+        # PPO first discover measurable launch/turn evidence, then restore
+        # the exact same one-turn requirement before landing pressure ramps.
+        "early_missing_angle_cost": 0.10,
+        "final_missing_angle_cost": 1.0,
         # A nearly-complete turn that lands its trunk or a leg is still a
         # failure.  Angle-only cost accidentally made that failure free as
         # progress approached 2π, selecting a fast crash instead of wheel

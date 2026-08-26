@@ -1003,6 +1003,8 @@ def aerial_event_failure(
   env: ManagerBasedRlEnv,
   command_name: str,
   target_angle: float,
+  early_missing_angle_cost: float = 1.0,
+  final_missing_angle_cost: float = 1.0,
   early_non_timeout_base_cost: float = 0.0,
   final_non_timeout_base_cost: float = 0.0,
   base_cost_ramp_start_steps: int = 0,
@@ -1019,6 +1021,8 @@ def aerial_event_failure(
   """
   if (
     target_angle <= 0.0
+    or not 0.0 <= early_missing_angle_cost <= 1.0
+    or not 0.0 <= final_missing_angle_cost <= 1.0
     or not 0.0 <= early_non_timeout_base_cost <= 1.0
     or not 0.0 <= final_non_timeout_base_cost <= 1.0
     or base_cost_ramp_start_steps < 0
@@ -1053,7 +1057,18 @@ def aerial_event_failure(
   non_timeout_base_cost = early_non_timeout_base_cost + base_ramp * (
     final_non_timeout_base_cost - early_non_timeout_base_cost
   )
-  failure = missing_fraction + non_timeout_base_cost * invalid_terminal
+  # At reset, a full missing-angle cost makes every exploratory launch much
+  # worse than standing still: its terminal loss arrives before PPO has seen
+  # enough legal flight to assign credit to takeoff.  Ramp only this scalar
+  # outcome cost from a small value to its final strict value.  The command,
+  # target angle, observations, and physical validity rules remain unchanged.
+  missing_angle_cost = early_missing_angle_cost + base_ramp * (
+    final_missing_angle_cost - early_missing_angle_cost
+  )
+  failure = (
+    missing_angle_cost * missing_fraction
+    + non_timeout_base_cost * invalid_terminal
+  )
   return (
     env.termination_manager.dones.to(missing_fraction.dtype)
     * failure
