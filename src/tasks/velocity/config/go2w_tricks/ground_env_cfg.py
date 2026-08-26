@@ -397,7 +397,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # after discovery so the same geometry must carry the signed rate at
         # a stationary all-wheel centroid.
         "normal_final_geometry_weight": 0.04,
-        "normal_geometry_decay_start_steps": 76_800,
+        # A spin rollout contains 64 control steps.  Keep the bridge through
+        # the first 600 PPO updates, then make the normal branch earn its
+        # reward from an actual local pivot while the named forms are learned.
+        "normal_geometry_decay_start_steps": 38_400,
         "normal_geometry_decay_steps": 38_400,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
@@ -424,8 +427,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             "step": 0,
             # First discover a compact, level four-wheel common axle from the
-            # ordinary reset.  Named two-wheel supports enter only after this
-            # same actor can make a local normal pivot without body contact.
+            # ordinary reset.  At 64 control steps/update, this lasts 600
+            # updates—not 1,200.  The policy still needs a normal discovery
+            # period, but a 3,000-update run must spend most of its time on
+            # the required five-command fused behaviour.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -434,9 +439,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Introduce the named two-wheel pivots only after the normal
-            # four-wheel common-axis behaviour exists in this same actor.
-            "step": 76_800,
+            # Introduce all four named pivots once the normal bridge has had
+            # 600 updates.  Keep their first rate deliberately low and do not
+            # yet ask the actor to solve a support change in the same sample.
+            "step": 38_400,
             "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -445,11 +451,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep the same low-rate, no-switch distribution for a full
-            # 1,000 iterations of two-wheel discovery.  Raising rate and
-            # reducing normal to 30% here caused immediate forgetting before
-            # any named support was stable.
-            "step": 128_000,
+            # Give the named supports about 350 updates at low rate, then
+            # begin sparse direct changes.  Previously this stage began only
+            # at update 2,000, leaving too little training after the five
+            # command interface was ever exercised.
+            "step": 60_800,
             "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -462,7 +468,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # supports are accelerated.  Make the next request overlap in
             # speed and keep switches rare until each pair can survive on its
             # own.
-            "step": 160_000,
+            "step": 86_400,
             "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -471,10 +477,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Use a second overlapping speed step for the initial fused
-            # policy.  Reference-rate 10--15 rad/s remains a subsequent
-            # zero-start long run after all five supports are validated.
-            "step": 179_200,
+            # Put the fused high-rate/direct-switch distribution in place by
+            # update 1,700.  It therefore receives roughly 1,300 updates in
+            # this zero-start run instead of only the final 200.
+            # Reference-rate 10--15 rad/s remains a subsequent zero-start
+            # long run after all five supports are validated.
+            "step": 108_800,
             "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
