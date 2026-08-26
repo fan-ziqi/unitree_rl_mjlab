@@ -132,6 +132,7 @@ def mode_support_score(
   command_deadband: float = 0.0,
   static_angular_velocity_scale: float | None = None,
   static_linear_velocity_scale: float | None = None,
+  static_stillness_floor: float = 0.10,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Measure the commanded contact pair, attitude, and optional height.
@@ -178,6 +179,8 @@ def mode_support_score(
     raise ValueError("static_angular_velocity_scale must be positive.")
   if static_linear_velocity_scale is not None and static_linear_velocity_scale <= 0.0:
     raise ValueError("static_linear_velocity_scale must be positive.")
+  if not 0.0 <= static_stillness_floor < 1.0:
+    raise ValueError("static_stillness_floor must be in [0, 1).")
 
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
@@ -247,19 +250,18 @@ def mode_support_score(
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    # Do not turn a valid support's stillness measurement into a binary
-    # exploration gate.  The initial Gaussian policy is often far beyond a
-    # small static-speed tolerance; a clipped zero then makes every such
-    # action equally uninformative to PPO.  The rational score still gives a
-    # genuinely motionless stand the unique value one, limits a fast spinning
-    # stand to a 10% bridge, and supplies an observable improvement path.
-    angular_stillness = 0.10 + 0.90 / (
+    # The rational score preserves a continuous route from a moving upright
+    # support to a quiet one.  A caller may retain a small discovery floor,
+    # but a demonstrated upright that repeatedly flings itself out of the
+    # commanded wheel pair must also be able to receive no static-support
+    # return at all.
+    angular_stillness = static_stillness_floor + (1.0 - static_stillness_floor) / (
       1.0 + torch.square(angular_speed / static_angular_velocity_scale)
     )
     stillness = torch.where(static_settling, angular_stillness, stillness)
   if static_linear_velocity_scale is not None:
     planar_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
-    linear_stillness = 0.10 + 0.90 / (
+    linear_stillness = static_stillness_floor + (1.0 - static_stillness_floor) / (
       1.0 + torch.square(planar_speed / static_linear_velocity_scale)
     )
     stillness = torch.where(

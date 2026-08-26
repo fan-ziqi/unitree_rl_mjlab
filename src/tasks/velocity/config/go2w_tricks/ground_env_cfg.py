@@ -192,8 +192,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # x/yaw requests later in the same fused policy are unaffected.
         "static_command_start_index": 3,
         "command_deadband": 0.04,
-        "static_angular_velocity_scale": 0.75,
-        "static_linear_velocity_scale": 0.20,
+        "static_angular_velocity_scale": 0.55,
+        "static_linear_velocity_scale": 0.15,
+        # The m600 replay reaches a tall rear support but repeatedly throws
+        # itself sideways.  Once the measured support is substantially there,
+        # static one-hots must rank a truly quiet wheel balance above that
+        # high-speed transient; this does not apply to requested x/yaw motion.
+        "static_stillness_floor": 0.0,
         "asset_cfg": _support_wheels(),
       },
     ),
