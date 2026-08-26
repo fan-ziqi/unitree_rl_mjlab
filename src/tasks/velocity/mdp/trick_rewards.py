@@ -192,12 +192,10 @@ def mode_support_score(
 
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
-  orientation = torch.pow(
-    torch.clamp(
-      0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
-    ),
-    orientation_power,
+  alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
   )
+  orientation = torch.pow(alignment, orientation_power)
   contacts = _wheel_contacts(env, sensor_name).float()
   masks = torch.tensor(contact_masks, dtype=contacts.dtype, device=env.device)
   target = masks[mode]
@@ -244,8 +242,18 @@ def mode_support_score(
     static_command = torch.amax(
       torch.abs(command[:, static_command_start_index:]), dim=1
     ) <= command_deadband
-  static_settling = static_command & (orientation >= 0.85) & (support >= 0.75) & (
-    clearance >= 0.75
+  # ``orientation`` can intentionally use a high power to suppress the
+  # ordinary four-wheel bypass.  It must not also decide when a physically
+  # recognizable support starts being asked to settle: with the previous
+  # power-eight configuration, ``orientation >= .85`` meant raw alignment
+  # above .98, so the policy could
+  # keep collecting the support result while rocking or translating through
+  # almost every usable two-wheel attempt.  Enter the same stillness outcome
+  # from the unpowered, measured gravity alignment instead.  The moderate
+  # contact/clearance gates leave room to finish rising but switch the return
+  # toward quiet balance before the transient is lost.
+  static_settling = static_command & (alignment >= 0.85) & (support >= 0.60) & (
+    clearance >= 0.60
   )
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:

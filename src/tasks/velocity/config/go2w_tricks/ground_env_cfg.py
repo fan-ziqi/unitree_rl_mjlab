@@ -169,7 +169,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # orientation alignment.  A sixth power keeps the reset bridge but
         # makes that visibly incomplete outcome materially worse than a true
         # upright support, without introducing any joint-pose target.
-        "orientation_power": 8.0,
+        "orientation_power": 6.0,
         # From normal four-wheel reset the desired front/rear attitude is
         # only half aligned, while the target wheel pair and tall clearance
         # cannot improve until the body has first begun to tip.  Reserve part
@@ -282,10 +282,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Continue rear-biased static discovery through update 750.  A
-            # 64-step rollout would otherwise postpone velocity commands to
-            # update 1,875, leaving too little of a 3,000-update run to learn
-            # the required fused walking and direct stance switches.
+            # Continue rear-biased static discovery through update 1,200.
+            # The m600 audit can touch a rear support but cannot hold it: its
+            # commanded contact rate is only 11%.  Asking for locomotion at
+            # m750 would turn that incomplete balance into a rolling escape.
+            # Keep the same fused actor and direct command interface, but
+            # make a quiet static support the prerequisite for x/yaw motion.
             "step": 25_600,
             "mode_probabilities": (0.10, 0.35, 0.55),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
@@ -294,11 +296,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Introduce conservative x/yaw requests after 750 updates of
+            # Introduce conservative x/yaw requests after 1,200 updates of
             # static support discovery.  The command still switches directly
             # between all three modes; the reduced range only lets the same
             # policy discover rolling without overwriting the new supports.
-            "step": 48_000,
+            "step": 76_800,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.10, 0.10),
@@ -306,10 +308,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Reach the requested command range at update 1,200, leaving
-            # about 1,800 full-range updates for stable normal/front/rear
-            # walking and A -> B transitions in the zero-start run.
-            "step": 76_800,
+            # Reach the requested command range at update 1,800, leaving
+            # 1,200 full-range updates after the static forms are actually
+            # stable, rather than consuming that capacity on a moving fall.
+            "step": 115_200,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
