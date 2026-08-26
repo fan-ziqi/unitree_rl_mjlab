@@ -30,10 +30,10 @@ class StanceSpinCommand(CommandTerm):
   rate requests a local world-down rotation in one of the five contact modes.
   ``normal`` is the reference's folded *four-wheel* in-place pivot: all wheel
   centres share one horizontal axle, with the front pair nested inside the
-  rear pair.  Front/rear are their named upright two-wheel pivots and
-  left/right are static side-wheel supports.  The side supports canonicalize
-  their irrelevant rate channel to zero; normal/front/rear carry the signed
-  rotation request.
+  rear pair.  Each of the four named two-wheel modes carries the same signed
+  world-down rotation request.  The stance itself—and the leg reshaping needed
+  to make a local pivot possible—is discovered by the policy rather than
+  encoded in the command.
   No command carries a pose, phase, or limb target.
   """
 
@@ -90,12 +90,6 @@ class StanceSpinCommand(CommandTerm):
 
     modes = torch.multinomial(self._mode_probabilities, count, replacement=True)
     next_probabilities = self._mode_probabilities.expand(count, -1).clone()
-    # Dynamic normal/front/rear pivots all track the same signed world-down
-    # rate.  Keep their direct A->B sequences inside that set so switching
-    # never inserts a static side stand that would brake or reverse the turn.
-    dynamic_first = modes <= 2
-    next_probabilities[dynamic_first, 3:] = 0.0
-    next_probabilities[~dynamic_first, :3] = 0.0
     next_probabilities[torch.arange(count, device=self.device), modes] = 0.0
     no_alternative = next_probabilities.sum(dim=1) == 0.0
     next_probabilities[no_alternative] = self._mode_probabilities
@@ -125,12 +119,6 @@ class StanceSpinCommand(CommandTerm):
       self._scheduled_command[active_ids, modes[non_idle]] = 1.0
       self._next_scheduled_command[active_ids, next_modes[non_idle]] = 1.0
 
-    # Side stands are static physical outcomes: their wheel axes are vertical
-    # in the target pose, so a world-down spin rate is semantically
-    # meaningless.  Feeding random signed values there let the fused actor
-    # arbitrarily branch its side balance on an input the task ignores.  Use
-    # the canonical zero representation for both training and external
-    # command updates; normal/front/rear retain the full signed-rate command.
     # Static front/rear samples are useful only while PPO is discovering that
     # those two supports exist.  They must be self-contained holds.  The old
     # per-segment sampling could create ``normal@+r -> front@0`` (or the
@@ -151,7 +139,7 @@ class StanceSpinCommand(CommandTerm):
         self._next_scheduled_command[static_ids] = 0.0
         self._next_scheduled_command[static_ids, modes[static_upright_hold]] = 1.0
 
-    dynamic = non_idle & ((modes <= 2) | (next_modes <= 2))
+    dynamic = non_idle
     dynamic_ids = env_ids[dynamic]
     if len(dynamic_ids) > 0:
       magnitude = torch.empty(len(dynamic_ids), device=self.device).uniform_(
@@ -163,18 +151,12 @@ class StanceSpinCommand(CommandTerm):
         torch.ones_like(magnitude),
       )
       signed_rate = sign * magnitude
-      first_dynamic = modes[dynamic] <= 2
       # ``static_upright_hold`` may have replaced the initially sampled next
       # one-hot.  Read the scheduled command rather than the stale sample so
       # both rate assignments describe the public command that will actually
       # be emitted.
-      second_dynamic = torch.argmax(
-        self._next_scheduled_command[dynamic_ids, :5], dim=1
-      ) <= 2
-      self._scheduled_spin_rate[dynamic_ids[first_dynamic]] = signed_rate[first_dynamic]
-      self._next_scheduled_spin_rate[dynamic_ids[second_dynamic]] = signed_rate[
-        second_dynamic
-      ]
+      self._scheduled_spin_rate[dynamic_ids] = signed_rate
+      self._next_scheduled_spin_rate[dynamic_ids] = signed_rate
       # A zero-rate front/rear one-hot is a temporary support-discovery
       # command.  It is emitted only as the self-contained hold constructed
       # above, never as one side of a mode change.  Normal deliberately stays
@@ -225,15 +207,10 @@ class StanceSpinCommand(CommandTerm):
       # direct dynamic A -> B switch continuous instead of ending in a brake.
       self._transition_phase[finish] = 3
 
-    active = torch.sum(self.command_buf[:, :5], dim=1) > 0.5
-    side_support = active & (torch.argmax(self.command_buf[:, :5], dim=1) >= 3)
-    self._target_spin_rate[side_support] = 0.0
     current_rate = self.command_buf[:, 5]
     max_delta = self.cfg.spin_rate_ramp_rate * self._env.step_dt
     delta = torch.clamp(self._target_spin_rate - current_rate, -max_delta, max_delta)
-    self.command_buf[:, 5] = torch.where(
-      side_support, torch.zeros_like(current_rate), current_rate + delta
-    )
+    self.command_buf[:, 5] = current_rate + delta
 
   def set_curriculum(
     self,

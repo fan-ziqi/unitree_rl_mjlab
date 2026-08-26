@@ -393,8 +393,9 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Normal/front/rear track a world-down rate.  Normal is the video's folded
-  # four-wheel common-axis pivot; front/rear are their named two-wheel pivots.
+  # Every active mode tracks its signed world-down rate.  Normal is the
+  # folded four-wheel common-axis pivot; the other four modes are named
+  # two-wheel pivots.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -477,9 +478,6 @@ def _stance_spin_components(
     coaxiality,
     0.15 + 0.85 * coaxiality,
   )
-  side_alignment_score = torch.square(alignment) * (
-    0.20 + 0.80 * torch.square(alignment)
-  )
   # Normal's common-axis pivot is a level four-wheel form.  Its previous
   # quadratic tolerance still made a visibly nose-up pivot worthwhile.
   normal_alignment_score = torch.pow(alignment, 16.0)
@@ -493,7 +491,7 @@ def _stance_spin_components(
     # the same measured attitude/contact/clearance outcome but expose its
     # linear physical progress; final validation still requires the strict
     # two-wheel pose and local pivot.
-    torch.where(mode <= 2, alignment, side_alignment_score),
+    alignment,
   )
   # A front/rear spin command begins from ordinary four-wheel idle.  Its
   # desired attitude is therefore only 0.5 aligned, its target pair has two
@@ -510,7 +508,7 @@ def _stance_spin_components(
   # side modes retain their existing stricter geometry products.
   upright_support_progress = alignment * (0.65 * contact_score + 0.35 * height_score)
   support_quality = torch.where(
-    (mode == 1) | (mode == 2),
+    mode != 0,
     upright_support_progress,
     contact_score * alignment_score * height_score,
   )
@@ -530,11 +528,7 @@ def _stance_spin_components(
 
 
 class StanceSpinPivotResult:
-  """Reward one fused policy's dynamic pivots and static side supports.
-
-  Normal uses the folded four-wheel common-axis layout.  Front/rear use their
-  named horizontal support axle; left/right are static side supports.
-  """
+  """Reward one fused policy's five commanded local pivots."""
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg, env
@@ -554,18 +548,12 @@ class StanceSpinPivotResult:
     pivot_speed_limit: float,
     asset_cfg: SceneEntityCfg,
     upright_support_weight: float = 0.20,
-    side_support_weight: float = 0.25,
-    side_pivot_speed_limit: float = 0.35,
     rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
     if not 0.0 <= upright_support_weight < 1.0:
       raise ValueError("upright_support_weight must be in [0, 1).")
-    if not 0.0 <= side_support_weight < 1.0:
-      raise ValueError("side_support_weight must be in [0, 1).")
-    if side_pivot_speed_limit <= 0.0:
-      raise ValueError("side_pivot_speed_limit must be positive.")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
     (
@@ -605,7 +593,6 @@ class StanceSpinPivotResult:
     # but a 0.40-m/s travelling pair receives only 8% of the result available
     # at the required 0.12-m/s local centre speed.
     pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
-    dynamic_modes = mode <= 2  # normal/front/rear: real high-rate pivots.
     # ``rate_score`` is deliberately strict near the final requested speed,
     # but has no gradient once the error exceeds ``std``.  Pair it with a
     # signed triangular progress measurement: it rises from zero to the
@@ -630,13 +617,13 @@ class StanceSpinPivotResult:
     dynamic_quality = coaxial_factor * pivot_stillness * (
       speed_quality
     )
-    # Front/rear starts at the ordinary four-wheel reset with near-zero
+    # Every named two-wheel mode starts at the ordinary four-wheel reset with near-zero
     # commanded-rate score.  Multiplying that zero by every support factor
     # gives PPO no path to discover the physically reachable two-wheel form.
     # Reserve a small fraction for the measured upright support itself; the
     # remaining value still requires the co-axial, commanded-rate,
     # stationary-centre pivot.
-    upright_mode = (mode == 1) | (mode == 2)
+    upright_mode = mode != 0
     discovery_weight = torch.where(
       upright_mode,
       torch.full_like(support_quality, upright_support_weight),
@@ -678,46 +665,19 @@ class StanceSpinPivotResult:
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
-    # Side support is the remaining two requested one-hots, not a failed
-    # version of a pivot.  Once the base has rolled onto a left/right pair,
-    # those wheel axles are vertical, so spin_rate is intentionally ignored.
-    # Reward the same measured support geometry while asking it to be still;
-    # this is the physically faithful result shown in the reference rather
-    # than a hidden target posture or a prescribed transition.
-    body_angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-    static_stillness = 1.0 / (1.0 + torch.square(body_angular_speed / 1.0))
-    # Static means no support-centre travel as well as no body rotation.  The
-    # local-centre measurement remains the final-quality factor below, so a
-    # travelling side pose cannot be the maximum-reward outcome.
-    # Settling into a side stand is briefly mobile.  The old product made
-    # every useful partial side support worth almost zero until it had already
-    # reached the static endpoint, which is an exploration dead-end.  Reuse
-    # the same support geometry as a small bridge, analogous to front/rear's
-    # existing upright-support bridge.  The strict static factors still make
-    # an actually still support the unique maximum; no pose, clock, or action
-    # target is supplied.
-    side_pivot_stillness = 1.0 / (
-      1.0 + torch.square(centre_speed / side_pivot_speed_limit)
-    )
-    static_quality = static_stillness * side_pivot_stillness
     # A zero spin rate on an active front/rear one-hot has a useful and
     # observable meaning: make the named two-wheel support, then hold it.
     # This is the same measured contact/attitude/local-centre outcome used by
     # the rotating result—only without inventing a pose target or a separate
     # reward term.  The curriculum uses it briefly so PPO can discover the
     # support before it is asked to preserve high z-rate through a switch.
-    upright_static_result = support_quality * static_quality
-    static_result = support_quality * (
-      side_support_weight + (1.0 - side_support_weight) * static_quality
-    )
+    upright_static_result = support_quality * pivot_stillness
     dynamic_or_upright_static = torch.where(
       moving,
       dynamic_result,
       torch.where(upright_mode, upright_static_result, torch.zeros_like(dynamic_result)),
     )
-    return active.to(rate_score.dtype) * torch.where(
-      dynamic_modes, dynamic_or_upright_static, static_result
-    )
+    return active.to(rate_score.dtype) * dynamic_or_upright_static
 
 
 # ---------------------------------------------------------------------------

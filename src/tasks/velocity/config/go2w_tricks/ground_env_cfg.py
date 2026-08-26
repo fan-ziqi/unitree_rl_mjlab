@@ -318,8 +318,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
   video's two-wheel, front/rear-co-axial local pivot; front/rear one-hots
   request their named two-wheel local pivots.  The
-  left/right one-hots are the physically distinct, static side supports: once
-  side-on, their wheel axes are vertical, so their spin-rate input is ignored.
+  left/right one-hots are the physically distinct side two-wheel pivots.  All
+  active one-hots retain the signed spin-rate input.
   All five modes still share exactly the same one-hot plus signed-rate command
   interface and one policy.
   """
@@ -345,7 +345,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       resampling_time_range=(6.0, 6.0),
       mode_probabilities=(0.50, 0.25, 0.25, 0.0, 0.0),
       spin_idle_probability=0.0,
-      upright_static_probability=1.0,
+      upright_static_probability=0.0,
       direct_switch_probability=0.0,
       spin_rate_range=(0.5, 2.0),
       spin_rate_ramp_rate=36.0,
@@ -382,8 +382,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "pivot_speed_limit": 0.06,
         "upright_support_weight": 0.20,
-        "side_support_weight": 0.25,
-        "side_pivot_speed_limit": 0.35,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
@@ -423,11 +421,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Keep all public one-hots visible from the beginning.  Normal
-            # remains dominant because it is the demonstrated four-wheel
-            # pivot, but no side branch is held out behind an artificial
-            # curriculum boundary.
-            "mode_probabilities": (0.60, 0.10, 0.10, 0.10, 0.10),
+            # The single actor first rediscovers the previously viable normal
+            # four-wheel pivot.  Sampling every incompatible support from
+            # iteration zero erased this bootstrap rather than improving
+            # fusion.  It is still the same public five-way command and one
+            # policy once the other modes enter below.
+            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -435,12 +434,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Increase the named two-wheel samples while retaining every
-            # one-hot in the same fused policy.
+            # Introduce all four two-wheel pivots only after the normal
+            # common-axis behaviour exists in this same actor.
             "step": 38_400,
             "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
+            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
@@ -451,14 +450,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 64_000,
             "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
+            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # All five one-hots are now present.  Preserve rate sign through
-            # dynamic switches while the two side supports remain static.
+            # All five modes retain the rate through direct dynamic switches.
             "step": 102_400,
             "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,

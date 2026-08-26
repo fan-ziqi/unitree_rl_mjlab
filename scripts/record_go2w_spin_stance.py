@@ -40,8 +40,8 @@ class RecordConfig:
   name: str = "go2w-five-mode-spin"
   seed: int = 42
   # Consecutive one-hot intervals in the same physical rollout, e.g.
-  # ``normal:2,front:3,rear:3``.  Dynamic normal/front/rear intervals retain
-  # one signed z-spin request through every boundary.
+  # ``normal:2,front:3,rear:3``.  Every active interval retains one signed
+  # world-down spin request through every boundary.
   switch_schedule: str = ""
 
 

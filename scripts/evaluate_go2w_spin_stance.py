@@ -36,7 +36,7 @@ CONTACT_MASKS = (
   (1, 0, 1, 0),
   (0, 1, 0, 1),
 )
-DYNAMIC_PIVOT_MODES = (0, 1, 2)
+DYNAMIC_PIVOT_MODES = (0, 1, 2, 3, 4)
 
 
 def _pair_coaxiality(
@@ -79,20 +79,12 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Return the canonical public rate for each physical command mode."""
-  requested = torch.full_like(modes, spin_rate, dtype=torch.float32)
-  # Left/right are static side supports.  Canonicalizing their ignored input
-  # to zero matches the command term and prevents evaluation from measuring
-  # an arbitrary, untrained side-rate branch.
-  return torch.where(modes <= 2, requested, torch.zeros_like(requested))
+  """Return the signed public rate carried by every active one-hot."""
+  return torch.full_like(modes, spin_rate, dtype=torch.float32)
 
 
 def _expected_down_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
-  """Only normal/front/rear are physical high-rate pivots.
-
-  Left/right retain the same public command layout but are static two-wheel
-  side supports; their rate channel is deliberately ignored by the task.
-  """
+  """Every physical pivot tracks the signed world-down command rate."""
   return _mode_rates(modes, spin_rate)
 
 
@@ -183,7 +175,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
     CONTACT_MASKS, device=base_env.device, dtype=torch.bool
   )
   expected_rates = _expected_down_rates(modes, cfg.spin_rate).to(base_env.device)
-  dynamic_pivot = modes <= 2
+  dynamic_pivot = torch.ones_like(modes, dtype=torch.bool)
   active_spin = dynamic_pivot & (expected_rates.abs() > 0.20)
   trial_open = torch.ones(cfg.num_envs, dtype=torch.bool, device=base_env.device)
   failed = torch.zeros_like(trial_open)
