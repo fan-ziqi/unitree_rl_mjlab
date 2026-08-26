@@ -384,7 +384,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
-        "pivot_speed_limit": 0.08,
+        "pivot_speed_limit": 0.06,
         "upright_support_weight": 0.20,
         "side_support_weight": 0.25,
         "side_pivot_speed_limit": 0.35,

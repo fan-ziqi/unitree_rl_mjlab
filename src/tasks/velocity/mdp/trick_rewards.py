@@ -659,25 +659,16 @@ class StanceSpinPivotResult:
     # alone, the only high-value normal geometry.
     normal_geometry = normal_coaxiality * front_inside_score
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
-    # A four-wheel contact product is zero as soon as one wheel unloads while
-    # the legs form the common axle.  The 25% bridge is needed while PPO
-    # first discovers that geometry, but it is too generous once the normal
-    # contact form is known: replay then selects a hopping travelling layout.
-    # Switch this *same* measured contact factor after the 600-iteration
-    # normal-only discovery stage.  Unlike an early termination, it preserves
-    # a smooth learning signal while making all-four-wheel contact dominant.
-    contact_bridge_floor = 0.25 if env.common_step_counter < 38_400 else 0.05
-    normal_contact_bridge = (
-      contact_bridge_floor
-      + (1.0 - contact_bridge_floor) * normal_contact_score
-    )
-    # Formation without locality produced a travelling, low four-wheel
-    # rectangle.  A measured stationary centre and requested signed rate
-    # remain the other dominant qualities of every normal pivot.
+    # The AS2W normal pivot is not allowed to improve by lifting a wheel.
+    # The actual four-wheel contact product is therefore a hard factor from
+    # the first rollout, while ``normal_geometry`` itself remains a smooth
+    # measurable route from the default rectangle to one common nested axle.
+    # The static geometry fraction prevents rate tracking from being the only
+    # early signal; no pose, joint target, or action reference is introduced.
     normal_result = (
-      normal_contact_bridge
+      normal_contact_score
       * normal_geometry
-      * (0.20 + 0.80 * pivot_stillness * normal_dynamic_quality)
+      * (0.25 + 0.75 * pivot_stillness * normal_dynamic_quality)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
