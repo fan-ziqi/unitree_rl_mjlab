@@ -142,7 +142,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # native torque-limited model can reach this target in a physical action
       # sweep; retaining it prevents a low hop from becoming a local optimum
       # before the slower back/left branches ever spin.
-      weight=250.0,
+      weight=350.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -158,7 +158,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # without a separate rate target that a one-frame spike could game, and
       # it is deliberately bounded so a partial crash cannot numerically
       # dominate the landing result.
-      weight=600.0,
+      weight=900.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -204,7 +204,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # progress approached 2π, selecting a fast crash instead of wheel
         # recovery.  The completion term remains the only way to erase this
         # base outcome cost.
-        "non_timeout_base_cost": 0.50,
+        "early_non_timeout_base_cost": 0.0,
+        "final_non_timeout_base_cost": 0.50,
+        # Let PPO first rediscover a legal launch/turn, then steadily make an
+        # illegal partial touchdown lose to the quiet four-wheel endpoint.
+        # These steps correspond to roughly iterations 400--800 at the
+        # current 8,192-environment rollout setup.
+        "base_cost_ramp_start_steps": 25_600,
+        "base_cost_ramp_steps": 25_600,
       },
     ),
   }

@@ -1003,7 +1003,10 @@ def aerial_event_failure(
   env: ManagerBasedRlEnv,
   command_name: str,
   target_angle: float,
-  non_timeout_base_cost: float = 0.0,
+  early_non_timeout_base_cost: float = 0.0,
+  final_non_timeout_base_cost: float = 0.0,
+  base_cost_ramp_start_steps: int = 0,
+  base_cost_ramp_steps: int = 1,
 ) -> torch.Tensor:
   """Apply one terminal cost proportional to the missing requested turn.
 
@@ -1014,8 +1017,14 @@ def aerial_event_failure(
   landing is still a failure, but each additional correct radian improves its
   return and PPO has a continuous route to the one-turn completion bonus.
   """
-  if target_angle <= 0.0 or not 0.0 <= non_timeout_base_cost <= 1.0:
-    raise ValueError("target_angle must be positive and failure cost must be in [0, 1].")
+  if (
+    target_angle <= 0.0
+    or not 0.0 <= early_non_timeout_base_cost <= 1.0
+    or not 0.0 <= final_non_timeout_base_cost <= 1.0
+    or base_cost_ramp_start_steps < 0
+    or base_cost_ramp_steps <= 0
+  ):
+    raise ValueError("aerial failure parameters are outside their valid ranges.")
   command_term = env.command_manager.get_term(command_name)
   progress = getattr(
     command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
@@ -1027,6 +1036,23 @@ def aerial_event_failure(
   # event is physically invalid even at the requested angle.  A genuine
   # completed event uses the dedicated timeout boundary and has no base cost.
   invalid_terminal = env.termination_manager.terminated.to(missing_fraction.dtype)
+  # First make a legal launch and signed rotation discoverable.  Once those
+  # outcomes have appeared, raise the fixed cost of an illegal touchdown so
+  # the same one-shot event must trade its partial turn for a quiet landing.
+  # This is a scalar task-difficulty curriculum, not an action/pose/phase
+  # reference and it changes no public command.
+  base_ramp = torch.clamp(
+    torch.tensor(
+      (env.common_step_counter - base_cost_ramp_start_steps) / base_cost_ramp_steps,
+      dtype=missing_fraction.dtype,
+      device=env.device,
+    ),
+    min=0.0,
+    max=1.0,
+  )
+  non_timeout_base_cost = early_non_timeout_base_cost + base_ramp * (
+    final_non_timeout_base_cost - early_non_timeout_base_cost
+  )
   failure = missing_fraction + non_timeout_base_cost * invalid_terminal
   return (
     env.termination_manager.dones.to(missing_fraction.dtype)
