@@ -163,13 +163,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # native torque-limited model can reach this target in a physical action
       # sweep; retaining it prevents a low hop from becoming a local optimum
       # before the slower back/left branches ever spin.
-      weight=700.0,
+      # A complete maneuver needs enough flight time to accelerate, turn, and
+      # then brake before the wheels return.  The former 1.25 m/s, 0.12 s
+      # launch cap saturated on the short low hop visible in the m600 audit,
+      # leaving no reward distinction between that crash and a real aerial.
+      # These remain measured vertical impulse and wheel-free time, not a
+      # take-off pose or a prescribed timing trace.
+      weight=1000.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 1.25,
-        "target_duration": 0.12,
+        "target_upward_speed": 1.75,
+        "target_duration": 0.35,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -179,7 +185,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # without a separate rate target that a one-frame spike could game, and
       # it is deliberately bounded so a partial crash cannot numerically
       # dominate the landing result.
-      weight=900.0,
+      weight=1100.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -200,11 +206,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "body_names": WHEEL_FIRST_ENVELOPE_BODIES,
         "target_angle": math.tau,
-        # The m800 videos show that waiting until 55% of the turn leaves too
-        # little ballistic time to fold a dangling leg back above the wheel
-        # envelope.  This is still the same physical wheel-lowest condition,
-        # merely available soon enough to affect the remainder of the flight.
-        "minimum_turn_fraction": 0.40,
+        # The m600 short-hop replay does not leave enough time after 40% of a
+        # turn for a dangling link to recover above the wheels.  Start paying
+        # this same wheel-lowest physical outcome at 30% so it can influence
+        # the rest of a genuinely long flight; it still contains no leg pose.
+        "minimum_turn_fraction": 0.30,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
@@ -234,10 +240,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # still spinning quickly has no physical path to a quiet wheel
         # touchdown.  Blend the existing late-flight orientation-return
         # score into a measured whole-body angular-speed score only over the
-        # final quarter turn.  This rewards braking an actual nearly-complete
+        # final forty percent.  This rewards braking an actual nearly-complete
         # aerial, not a prescribed phase, joint pose, or commanded rate.
-        "late_flight_brake_start_turn_fraction": 0.75,
-        "late_flight_brake_angular_speed_std": 18.0,
+        "late_flight_brake_start_turn_fraction": 0.60,
+        "late_flight_brake_angular_speed_std": 14.0,
         "post_idle_settle_time": 0.30,
       },
     ),
