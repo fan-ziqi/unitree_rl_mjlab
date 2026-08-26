@@ -583,6 +583,7 @@ class AerialRotationCommand(CommandTerm):
       or cfg.landing_angular_velocity_limit <= 0.0
       or cfg.min_ballistic_time <= 0.0
       or cfg.trigger_idle_time <= 0.0
+      or cfg.landing_control_time <= 0.0
     ):
       raise ValueError("aerial event durations and limits must be positive.")
 
@@ -608,6 +609,10 @@ class AerialRotationCommand(CommandTerm):
     self._landing_started = torch.zeros(
       self.num_envs, dtype=torch.bool, device=self.device
     )
+    # Keep the public one-hot briefly after the first wheel contact.  The
+    # policy then still knows which aerial axis it is braking, while the event
+    # remains physically closed to a second flight by ``_landing_started``.
+    self._landing_control_time = torch.zeros(self.num_envs, device=self.device)
     self._rotation_progress = torch.zeros(self.num_envs, device=self.device)
     self._launch_axis_w = torch.zeros(self.num_envs, 3, device=self.device)
     # A 2π aerial turn is only complete when the whole base frame—not merely
@@ -642,6 +647,7 @@ class AerialRotationCommand(CommandTerm):
     self._flight_rotation[env_ids] = 0.0
     self._current_flight_qualified[env_ids] = False
     self._landing_started[env_ids] = False
+    self._landing_control_time[env_ids] = 0.0
     self._rotation_progress[env_ids] = 0.0
     self._launch_axis_w[env_ids] = 0.0
     self._launch_root_quat_w[env_ids] = 0.0
@@ -667,12 +673,13 @@ class AerialRotationCommand(CommandTerm):
   def _update_command(self) -> None:
     """Finish exactly one aerial attempt, then return to idle.
 
-    CommandManager calls this after rewards.  Therefore the terminal landing
-    reward still sees the requested one-hot, while the *next* actor
-    observation sees literal idle.  The default-action gate keeps ordinary
-    policy authority until a physical four-wheel upright recovery, so there
-    is no need to keep a flip request alive for braking.  Clearing at the
-    first contact prevents that one-hot from asking for a rebound.
+    CommandManager calls this after rewards.  Once the first wheel contact
+    closes flight, retain the same public one-hot for a short landing-control
+    window so PPO can use the still-known flip axis to dissipate contact
+    angular momentum and bring the other wheels down.  The post-landing
+    relaunch termination begins at that first contact, so the retained one-hot
+    can never authorize a second aerial attempt.  The command then becomes
+    literal idle for the ordinary default-pose settling check.
     """
     pending = self._pending_trigger
     self._trigger_time[pending] += self._env.step_dt
@@ -767,7 +774,15 @@ class AerialRotationCommand(CommandTerm):
       & torch.any(contacts, dim=1)
     )
     self._landing_started |= first_landing
-    self.command_buf[first_landing] = 0.0
+    self._landing_control_time = torch.where(
+      self._landing_started,
+      self._landing_control_time + self._env.step_dt,
+      torch.zeros_like(self._landing_control_time),
+    )
+    finish_landing_control = self._landing_started & active & (
+      self._landing_control_time >= self.cfg.landing_control_time
+    )
+    self.command_buf[finish_landing_control] = 0.0
 
   def set_curriculum(
     self,
@@ -828,6 +843,10 @@ class AerialRotationCommandCfg(CommandTermCfg):
   target_angle: float = math.tau
   max_overrotation: float = 0.75
   trigger_idle_time: float = 0.5
+  # Keep the original one-hot long enough after initial wheel touchdown for
+  # the actor to apply a direction-aware contact brake, then expose literal
+  # idle for the same default-pose settling criterion as before.
+  landing_control_time: float = 0.24
 
   def build(self, env) -> AerialRotationCommand:
     return AerialRotationCommand(self, env)

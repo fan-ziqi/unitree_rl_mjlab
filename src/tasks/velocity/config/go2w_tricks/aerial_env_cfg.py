@@ -108,6 +108,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # wheel-free hop receive the same angle signal that later grows into a
       # full aerial turn.  The endpoint remains exactly one 2π event.
       min_ballistic_time=0.04,
+      # A wheel touch closes the flight immediately, but the actor retains
+      # this same one-hot for a short contact-braking interval before public
+      # idle/default-pose settlement begins.  Rebound remains a termination.
+      landing_control_time=0.24,
       debug_vis=False,
     )
   }
