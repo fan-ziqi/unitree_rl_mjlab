@@ -1186,6 +1186,8 @@ class AerialRotationCompletion:
     landing_orientation_dot_min: float = 0.985,
     landing_linear_velocity_limit: float = 0.75,
     landing_angular_velocity_limit: float = 1.5,
+    late_flight_brake_start_turn_fraction: float = 0.75,
+    late_flight_brake_angular_speed_std: float = 18.0,
     post_idle_settle_time: float = 0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
@@ -1197,6 +1199,10 @@ class AerialRotationCompletion:
       raise ValueError("landing_orientation_dot_min must be in (0, 1].")
     if landing_linear_velocity_limit <= 0.0 or landing_angular_velocity_limit <= 0.0:
       raise ValueError("landing velocity limits must be positive.")
+    if not 0.0 < late_flight_brake_start_turn_fraction < 1.0:
+      raise ValueError("late_flight_brake_start_turn_fraction must be in (0, 1).")
+    if late_flight_brake_angular_speed_std <= 0.0:
+      raise ValueError("late_flight_brake_angular_speed_std must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
     command_term = env.command_manager.get_term(command_name)
     command = _command(env, command_name)
@@ -1233,9 +1239,13 @@ class AerialRotationCompletion:
     # Reward a legal late-flight return of the *whole* base frame, rather than
     # prescribing how any leg must brake.  The fourth power keeps the trivial
     # launch orientation from being rewarded and leaves the direct desired-axis
-    # progress term responsible for the first part of the maneuver.  A
-    # high-water increment makes this a bounded event signal, not a reward for
-    # holding a particular airborne pose.
+    # progress term responsible for the first part of the maneuver.  In the
+    # final fraction of an already nearly-complete turn, blend that same score
+    # into measured whole-body angular quietness.  Without this physical
+    # braking condition the previous term paid an aerial that returned to its
+    # launch orientation at high angular speed, although it could only crash
+    # at the wheel touchdown.  No target action, joint pose, timing trace, or
+    # rate command is introduced.
     flight_candidate = (
       active
       & was_airborne
@@ -1245,7 +1255,19 @@ class AerialRotationCompletion:
       & (progress <= target_angle + max_overrotation)
     )
     turn_fraction = torch.clamp(progress / target_angle, min=0.0, max=1.0)
-    orientation_return = torch.pow(turn_fraction, 4) * orientation_similarity
+    brake_fraction = torch.clamp(
+      (turn_fraction - late_flight_brake_start_turn_fraction)
+      / (1.0 - late_flight_brake_start_turn_fraction),
+      min=0.0,
+      max=1.0,
+    )
+    brake_quality = torch.exp(
+      -torch.square(angular_speed / late_flight_brake_angular_speed_std)
+    )
+    late_recovery_quality = (1.0 - brake_fraction) + brake_fraction * brake_quality
+    orientation_return = (
+      torch.pow(turn_fraction, 4) * orientation_similarity * late_recovery_quality
+    )
     orientation_return = torch.where(
       flight_candidate, orientation_return, torch.zeros_like(orientation_return)
     )

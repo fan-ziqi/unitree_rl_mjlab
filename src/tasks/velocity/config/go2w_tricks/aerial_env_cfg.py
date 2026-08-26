@@ -193,14 +193,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a physical reason to fold a flailing leg back into a compact recovery
       # package, while leaving launch, angular acceleration, and braking free
       # for PPO to discover.
-      weight=500.0,
+      weight=900.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "body_names": WHEEL_FIRST_ENVELOPE_BODIES,
         "target_angle": math.tau,
-        "minimum_turn_fraction": 0.55,
+        # The m800 videos show that waiting until 55% of the turn leaves too
+        # little ballistic time to fold a dangling leg back above the wheel
+        # envelope.  This is still the same physical wheel-lowest condition,
+        # merely available soon enough to affect the remainder of the flight.
+        "minimum_turn_fraction": 0.40,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
@@ -226,6 +230,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "max_overrotation": 0.50,
         "landing_linear_velocity_limit": 0.75,
         "landing_angular_velocity_limit": 1.5,
+        # A complete turn that reaches its launch-frame orientation while
+        # still spinning quickly has no physical path to a quiet wheel
+        # touchdown.  Blend the existing late-flight orientation-return
+        # score into a measured whole-body angular-speed score only over the
+        # final quarter turn.  This rewards braking an actual nearly-complete
+        # aerial, not a prescribed phase, joint pose, or commanded rate.
+        "late_flight_brake_start_turn_fraction": 0.75,
+        "late_flight_brake_angular_speed_std": 18.0,
         "post_idle_settle_time": 0.30,
       },
     ),
