@@ -142,7 +142,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # native torque-limited model can reach this target in a physical action
       # sweep; retaining it prevents a low hop from becoming a local optimum
       # before the slower back/left branches ever spin.
-      weight=400.0,
+      weight=250.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -153,11 +153,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "net_rotation_progress": RewardTermCfg(
       func=trick_rewards.AerialNetRotationProgress,
-      # During the single legal flight interval this is exactly the integral
-      # of the commanded-axis angular speed.  It asks for sustained fast
-      # rotation without a separate rate target that a one-frame spike could
-      # game.
-      weight=300.0,
+      # During the single legal flight interval this is the completed fraction
+      # of the commanded one-turn angle.  It asks for sustained rotation
+      # without a separate rate target that a one-frame spike could game, and
+      # it is deliberately bounded so a partial crash cannot numerically
+      # dominate the landing result.
+      weight=600.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -170,7 +171,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # turn from one that has the right commanded-axis integral but unwanted
       # off-axis tumble.  It contains no joint, timing, or rate reference;
       # the strict four-wheel endpoint is still paid by the same term.
-      weight=600.0,
+      weight=1600.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -190,7 +191,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # zero-turn fall during PPO discovery.
     "event_failure": RewardTermCfg(
       func=trick_rewards.aerial_event_failure,
-      weight=-150.0,
+      # With raw-radian rotation reward a 0.6-turn body crash was several
+      # times more profitable than a quiet landing.  Rotation is normalized
+      # above; this matched terminal scale now makes a partial turn better
+      # than zero, but worse than completing the same one event.
+      weight=-800.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,

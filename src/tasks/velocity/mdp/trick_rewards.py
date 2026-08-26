@@ -920,7 +920,7 @@ class AerialBallisticLaunch:
 
 
 class AerialNetRotationProgress:
-  """Pay only new net desired-axis radians in one ballistic event.
+  """Pay only new *fraction* of one desired-axis turn in a ballistic event.
 
   ``AerialRotationCommand`` already integrates signed angular displacement only
   during its first continuous wheel-free interval.  This term pays a radian
@@ -929,9 +929,10 @@ class AerialNetRotationProgress:
   repeating it.  No pose, phase, desired rate, or joint state is introduced.
 
   The command-side increment is already in radians (and therefore already
-  contains one ``dt``).  Return it in per-second form because RewardManager
-  performs the sole time integration.  The prior extra integration reduced a
-  complete-turn signal by fifty times and made short hops deceptively cheap.
+  contains one ``dt``).  Normalize it by the requested one-turn angle before
+  returning its per-second form, so this result has a bounded value of one per
+  completed event.  Paying raw radians made a 0.6-turn crash worth several
+  times more than the entire recovery outcome, regardless of its bad landing.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -985,7 +986,7 @@ class AerialNetRotationProgress:
     return (
       active.to(increment.dtype)
       * legal.to(increment.dtype)
-      * increment
+      * increment / target_angle
       / env.step_dt
     )
 
