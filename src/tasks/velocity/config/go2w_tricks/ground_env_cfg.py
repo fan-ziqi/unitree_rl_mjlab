@@ -454,55 +454,62 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Introduce all four named pivots once the normal bridge has had
-            # 600 updates.  Keep their first rate deliberately low and do not
-            # yet ask the actor to solve a support change in the same sample.
+            # Introduce every named two-wheel support once the normal bridge
+            # has had 600 updates.  First expose a mostly static one-hot with
+            # exactly the same command shape and reward outcome; m1200 showed
+            # that asking for 0.5--2 rad/s before a support exists leaves all
+            # four named modes as travelling/unstable partial pivots.
             "step": 38_400,
             "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
+            "upright_static_probability": 0.75,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 1.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Keep a minority of low-rate trials while static supports settle.
+            # A caller still uses the same five one-hots plus rate channel;
+            # this is sampling difficulty, not a sixth mode or a pose target.
+            "step": 64_000,
+            "mode_probabilities": (0.40, 0.20, 0.20, 0.10, 0.10),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.30,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Give the named supports about 350 updates at low rate, then
-            # begin sparse direct changes.  Previously this stage began only
-            # at update 2,000, leaving too little training after the five
-            # command interface was ever exercised.
-            "step": 60_800,
+            # Only after named supports have static and low-rate evidence do
+            # we introduce sparse direct one-hot changes and moderate speed.
+            "step": 89_600,
             "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.10,
+            "upright_static_probability": 0.10,
+            "direct_switch_probability": 0.05,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep a substantial normal replay share while the low-rate named
-            # supports are accelerated.  Make the next request overlap in
-            # speed and keep switches rare until each pair can survive on its
-            # own.
-            "step": 86_400,
-            "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.15,
-            "spin_rate_range": (3.0, 6.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Put the fused high-rate/direct-switch distribution in place by
-            # update 1,700.  It therefore receives roughly 1,300 updates in
-            # this zero-start run instead of only the final 200.
-            # Reference-rate 10--15 rad/s remains a subsequent zero-start
-            # long run after all five supports are validated.
-            "step": 108_800,
+            # Restore all-dynamic samples while keeping switches common.
+            "step": 115_200,
             "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.25,
-            "spin_rate_range": (5.0, 8.0),
+            "direct_switch_probability": 0.20,
+            "spin_rate_range": (4.0, 8.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # The final portion is the visibly fast, continuous AS2-W-style
+            # pivot distribution.  It receives 800 zero-start updates after
+            # every support has first been established at lower difficulty.
+            "step": 140_800,
+            "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.0,
+            "direct_switch_probability": 0.30,
+            "spin_rate_range": (8.0, 12.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),

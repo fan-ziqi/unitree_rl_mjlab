@@ -119,25 +119,23 @@ class StanceSpinCommand(CommandTerm):
       self._scheduled_command[active_ids, modes[non_idle]] = 1.0
       self._next_scheduled_command[active_ids, next_modes[non_idle]] = 1.0
 
-    # Static front/rear samples are useful only while PPO is discovering that
-    # those two supports exist.  They must be self-contained holds.  The old
-    # per-segment sampling could create ``normal@+r -> front@0`` (or the
-    # converse) in the middle of an episode.  That asks the actor to brake
-    # exactly when a public one-hot changes, whereas the reference changes
-    # contact form while retaining its signed world-z rotation.  If a static
-    # sample is selected, repeat the same upright one-hot for both segments.
-    # Every *different* dynamic one-hot pair below therefore has one shared
-    # signed target rate throughout the direct switch.
-    static_upright_hold = torch.zeros(count, dtype=torch.bool, device=self.device)
+    # A static named-mode sample is useful only while PPO is discovering the
+    # corresponding two-wheel support.  It must be a self-contained hold: an
+    # old sampler could create ``normal@+r -> front@0`` midway through one
+    # event, which asks the actor to brake exactly because the one-hot
+    # changes.  Static holds apply to every named support (front/rear/left/
+    # right), while every *different* dynamic pair below retains one signed
+    # rate through its direct switch.
+    static_named_hold = torch.zeros(count, dtype=torch.bool, device=self.device)
     if self.cfg.upright_static_probability > 0.0:
-      first_upright = non_idle & ((modes == 1) | (modes == 2))
-      static_upright_hold = first_upright & (
+      first_named = non_idle & (modes != 0)
+      static_named_hold = first_named & (
         torch.rand(count, device=self.device) < self.cfg.upright_static_probability
       )
-      static_ids = env_ids[static_upright_hold]
+      static_ids = env_ids[static_named_hold]
       if len(static_ids) > 0:
         self._next_scheduled_command[static_ids] = 0.0
-        self._next_scheduled_command[static_ids, modes[static_upright_hold]] = 1.0
+        self._next_scheduled_command[static_ids, modes[static_named_hold]] = 1.0
 
     dynamic = non_idle
     dynamic_ids = env_ids[dynamic]
@@ -151,7 +149,7 @@ class StanceSpinCommand(CommandTerm):
         torch.ones_like(magnitude),
       )
       signed_rate = sign * magnitude
-      # ``static_upright_hold`` may have replaced the initially sampled next
+      # ``static_named_hold`` may have replaced the initially sampled next
       # one-hot.  Read the scheduled command rather than the stale sample so
       # both rate assignments describe the public command that will actually
       # be emitted.
@@ -161,7 +159,7 @@ class StanceSpinCommand(CommandTerm):
       # command.  It is emitted only as the self-contained hold constructed
       # above, never as one side of a mode change.  Normal deliberately stays
       # dynamic: default four-wheel idle remains the literal all-zero command.
-      static_dynamic = static_upright_hold[dynamic]
+      static_dynamic = static_named_hold[dynamic]
       self._scheduled_spin_rate[dynamic_ids[static_dynamic]] = 0.0
       self._next_scheduled_spin_rate[dynamic_ids[static_dynamic]] = 0.0
 
@@ -270,7 +268,7 @@ class StanceSpinCommandCfg(CommandTermCfg):
     0.10,
   )
   spin_idle_probability: float = 0.55
-  # A zero rate on an active front/rear one-hot asks for a static two-wheel
+  # A zero rate on any active named one-hot asks for that static two-wheel
   # support.  It is a curriculum sampling probability for a *held* support,
   # not another command component.  It must never turn one half of a direct
   # dynamic one-hot switch into a stop: final dynamic-switch stages set it to
