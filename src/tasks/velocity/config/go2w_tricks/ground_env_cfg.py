@@ -316,8 +316,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
-  video's two-wheel, front/rear-co-axial local pivot; front/rear one-hots
-  request their named two-wheel local pivots.  The
+  video's compact two-wheel local pivot; its existing sign selects the
+  mirrored front/rear support.  Front/rear one-hots request their named pivots. The
   left/right one-hots are the physically distinct side two-wheel pivots.  All
   active one-hots retain the signed spin-rate input.
   All five modes still share exactly the same one-hot plus signed-rate command

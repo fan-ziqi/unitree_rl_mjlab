@@ -29,9 +29,10 @@ class StanceSpinCommand(CommandTerm):
   Its literal all-zero value is the normal four-wheel idle.  A nonzero normal
   rate requests a local world-down rotation in one of the five contact modes.
   ``normal`` with zero rate is ordinary four-wheel idle.  With a nonzero rate
-  it requests the reference's compact tall two-wheel pivot, whose front/rear
-  support choice is discovered by the policy rather than encoded in a hidden
-  command.  Each of the four named two-wheel modes carries the same signed
+  it requests the reference's compact tall two-wheel pivot.  Its existing
+  signed rate selects the mirrored front/rear support (negative/front,
+  positive/rear), so the command remains one-hot plus one scalar rather than
+  acquiring a hidden support choice.  Each of the four named two-wheel modes carries the same signed
   world-down rotation request.  The stance itself—and the leg reshaping needed
   to make a local pivot possible—is discovered by the policy rather than
   encoded in the command.
