@@ -164,20 +164,26 @@ def command_support_lost(
 class AerialPostLandingRelaunch:
   """Terminate an aerial event that bounces into a second flight.
 
-  The first post-flight wheel contact closes the physical event immediately,
-  even though ``AerialRotationCommand`` keeps its one-hot for a brief landing
-  verdict.  Watch from that contact rather than from the later command clear:
-  otherwise a rebound within the verdict window would escape the one-shot
-  rule.  A short contact glitch is ignored by the same threshold used for the
-  initial flight.
+  A first individual wheel graze is not yet a landed robot: ending the event
+  as soon as that grazing contact rebounds removes the only contact-braking
+  evidence from PPO.  Arm the one-shot relaunch check only after a short,
+  continuous four-wheel landing.  A later genuinely wheel-free interval then
+  is a second jump; an ordinary first-impact bounce remains part of the same
+  event and can recover or fail through its normal landing outcome.
   """
 
   def __init__(self, cfg, env: ManagerBasedRlEnv):
     del cfg
     self.airborne_time = torch.zeros(env.num_envs, device=env.device)
+    self.landed_time = torch.zeros(env.num_envs, device=env.device)
+    self.relaunch_armed = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.airborne_time[env_ids] = 0.0
+    self.landed_time[env_ids] = 0.0
+    self.relaunch_armed[env_ids] = False
 
   def __call__(
     self,
@@ -185,9 +191,10 @@ class AerialPostLandingRelaunch:
     command_name: str,
     sensor_name: str,
     min_ballistic_time: float,
+    arming_settle_time: float,
   ) -> torch.Tensor:
-    if min_ballistic_time <= 0.0:
-      raise ValueError("min_ballistic_time must be positive.")
+    if min_ballistic_time <= 0.0 or arming_settle_time <= 0.0:
+      raise ValueError("aerial relaunch times must be positive.")
     command_term = env.command_manager.get_term(command_name)
     landed = getattr(
       command_term,
@@ -198,13 +205,26 @@ class AerialPostLandingRelaunch:
     found = sensor.data.found
     assert found is not None
     contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
+    four_wheel_landed = torch.all(contacts, dim=1)
+    self.landed_time = torch.where(
+      landed & (~self.relaunch_armed) & four_wheel_landed,
+      self.landed_time + env.step_dt,
+      torch.where(
+        self.relaunch_armed,
+        self.landed_time,
+        torch.zeros_like(self.landed_time),
+      ),
+    )
+    self.relaunch_armed |= landed & (
+      self.landed_time + 0.5 * env.step_dt >= arming_settle_time
+    )
     airborne = ~torch.any(contacts, dim=1)
     self.airborne_time = torch.where(
-      landed & airborne,
+      self.relaunch_armed & airborne,
       self.airborne_time + env.step_dt,
       torch.zeros_like(self.airborne_time),
     )
-    return landed & (self.airborne_time >= min_ballistic_time)
+    return self.relaunch_armed & (self.airborne_time >= min_ballistic_time)
 
 
 class AerialEventFinished:
