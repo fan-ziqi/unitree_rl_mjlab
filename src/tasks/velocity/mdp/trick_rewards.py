@@ -614,13 +614,25 @@ class StanceSpinPivotResult:
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
-    # A zero spin rate on an active front/rear one-hot has a useful and
-    # observable meaning: make the named two-wheel support, then hold it.
-    # This is the same measured contact/attitude/local-centre outcome used by
-    # the rotating result—only without inventing a pose target or a separate
-    # reward term.  The curriculum uses it briefly so PPO can discover the
-    # support before it is asked to preserve high z-rate through a switch.
-    upright_static_result = support_quality * pivot_stillness
+    # A zero spin rate on an active named one-hot means make the requested
+    # two-wheel support *and hold it still*.  The old static branch only
+    # constrained support-centre translation, so m1200 learned to rotate the
+    # body in place at zero requested rate.  Once the same measured support
+    # quality is recognizably present, include whole-body angular stillness
+    # in that existing outcome.  It remains inactive during the initial rise,
+    # so this does not prescribe a get-up speed, pose, or trajectory.
+    static_settling = support_quality >= 0.30
+    static_angular_speed = torch.linalg.vector_norm(
+      asset.data.root_link_ang_vel_w, dim=1
+    )
+    static_angular_stillness = 1.0 / (
+      1.0 + torch.square(static_angular_speed / 0.8)
+    )
+    upright_static_result = support_quality * pivot_stillness * torch.where(
+      static_settling,
+      static_angular_stillness,
+      torch.ones_like(static_angular_stillness),
+    )
     dynamic_or_upright_static = torch.where(
       moving,
       dynamic_result,
