@@ -459,25 +459,28 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             # Keep a substantial normal replay share while the successful
-            # low-rate supports are accelerated and cross-mode switches grow.
-            "step": 128_000,
-            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
+            # low-rate supports are accelerated.  The former 2--5 -> 5--10
+            # jump plus 50% switching immediately destroyed the verified
+            # four-wheel pivot, so make the next request overlap in speed and
+            # keep switches rare until each pair can survive on its own.
+            "step": 140_800,
+            "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.50,
-            "spin_rate_range": (5.0, 10.0),
+            "direct_switch_probability": 0.15,
+            "spin_rate_range": (3.0, 6.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep a full 600-iteration budget at the reference-rate range;
-            # the previous 1,800-iteration run entered this final stage only
-            # at its final update, so it never trained the requested skill.
-            "step": 153_600,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            # Use a second overlapping speed step for the initial fused
+            # policy.  Reference-rate 10--15 rad/s remains a subsequent
+            # zero-start long run after all five supports are validated.
+            "step": 166_400,
+            "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 1.0,
-            "spin_rate_range": (10.0, 15.0),
+            "direct_switch_probability": 0.25,
+            "spin_rate_range": (5.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
