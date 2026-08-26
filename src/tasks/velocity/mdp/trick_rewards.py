@@ -498,12 +498,19 @@ class StanceSpinPivotResult:
     pivot_speed_limit: float,
     asset_cfg: SceneEntityCfg,
     upright_support_weight: float = 0.20,
+    normal_final_support_weight: float = 0.02,
+    normal_support_decay_start_steps: int = 38_400,
+    normal_support_decay_steps: int = 25_600,
     rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
     if not 0.0 <= upright_support_weight < 1.0:
       raise ValueError("upright_support_weight must be in [0, 1).")
+    if not 0.0 <= normal_final_support_weight < 1.0:
+      raise ValueError("normal_final_support_weight must be in [0, 1).")
+    if normal_support_decay_start_steps < 0 or normal_support_decay_steps <= 0:
+      raise ValueError("normal support decay steps must be non-negative/positive.")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
     (
@@ -586,10 +593,29 @@ class StanceSpinPivotResult:
     # crouched crawling turn.  This is an outcome measurement only: it does
     # not describe a joint pose, a phase, or a trajectory.
     normal_geometry = normal_all_axis_parallel * normal_compact_xy
+    # A visible normal two-wheel stand is the necessary discovery bridge from
+    # reset, but it cannot remain a permanent 20%-return shortcut: then PPO
+    # can stand, drift across the floor, and spin in either direction while
+    # never paying the signed-rate or local-pivot part of this *same* outcome.
+    # Keep that bridge through the normal-only bootstrap, then decay it while
+    # the already discovered support is asked to satisfy the public rate.
+    normal_decay = torch.clamp(
+      torch.tensor(
+        (env.common_step_counter - normal_support_decay_start_steps)
+        / normal_support_decay_steps,
+        dtype=support_quality.dtype,
+        device=env.device,
+      ),
+      min=0.0,
+      max=1.0,
+    )
+    normal_support_weight = upright_support_weight + normal_decay * (
+      normal_final_support_weight - upright_support_weight
+    )
     normal_result = (
       support_quality
       * normal_geometry
-      * (upright_support_weight + (1.0 - upright_support_weight)
+      * (normal_support_weight + (1.0 - normal_support_weight)
          * pivot_stillness * speed_quality)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)

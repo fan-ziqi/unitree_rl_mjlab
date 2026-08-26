@@ -381,6 +381,14 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "pivot_speed_limit": 0.06,
         "upright_support_weight": 0.20,
+        # A two-wheel stand is an essential early discovery bridge, but after
+        # the normal-only bootstrap its fixed return would let PPO ignore the
+        # signed rate and local-pivot outcomes.  Fade only that bridge while
+        # retaining the same contact, clearance, compactness, rate, and
+        # support-centre measurements.
+        "normal_final_support_weight": 0.02,
+        "normal_support_decay_start_steps": 38_400,
+        "normal_support_decay_steps": 25_600,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
