@@ -89,11 +89,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # Both two-wheel supports must remain in the same actor's data from the
-      # first update.  An 85% rear-only discovery mix demonstrably erased the
-      # already-discovered front support, so use a slight rear preference
-      # without starving either public one-hot.
-      mode_probabilities=(0.0, 0.45, 0.55),
+      # Rear is the harder support, but keep enough front samples for both
+      # one-hots to share a single static-discovery policy.
+      mode_probabilities=(0.0, 0.25, 0.75),
       mode_idle_probabilities=(0.0, 1.0, 1.0),
       lin_vel_x_range=(0.0, 0.0),
       yaw_rate_range=(0.0, 0.0),
@@ -266,20 +264,18 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Preserve both supports from the start while granting rear a
-            # small extra share.  They keep one actor and one outcome reward.
-            "mode_probabilities": (0.0, 0.45, 0.55),
+            # Start rear-biased discovery in the same fused actor.
+            "mode_probabilities": (0.0, 0.25, 0.75),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep balanced static evidence after the initial shared
-            # discovery phase; do not trade a solved front support for rear
-            # samples in the fused policy.
-            "step": 96_000,
-            "mode_probabilities": (0.0, 0.50, 0.50),
+            # Once rear has had a dedicated discovery window, give front
+            # enough maintenance evidence while still favoring rear support.
+            "step": 25_600,
+            "mode_probabilities": (0.0, 0.55, 0.45),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),

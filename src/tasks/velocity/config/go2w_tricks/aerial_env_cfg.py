@@ -248,9 +248,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
   # emitted command is still one complete 2π event from the first sample.
-  # Each one-hot is a first-class branch of one fused policy.  Altering their
-  # probabilities after discovery made rare branches regress, so retain equal
-  # data for all five throughout training.
+  # Each one-hot shares this one actor.  After the common launch and the two
+  # side-turn landings have been discovered, concentrate rollout evidence on
+  # the three still-unfinished conditional outcomes while retaining both
+  # solved directions as maintenance data.
   cfg.curriculum = {
     "aerial_commands": CurriculumTermCfg(
       func=trick_curriculums.aerial_command_stages,
@@ -261,6 +262,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "step": 0,
             "idle_probability": 0.0,
             "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
+          },
+          {
+            # At m1000, fixed-command audits show left/right are already
+            # solved but front/back/yaw are not.  This is sampler allocation
+            # only: all five one-hots still enter exactly the same policy.
+            "step": 48_000,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.30, 0.24, 0.08, 0.08, 0.30),
           },
         ),
       },
