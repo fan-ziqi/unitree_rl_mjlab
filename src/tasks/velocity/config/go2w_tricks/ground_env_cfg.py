@@ -455,26 +455,31 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             # Introduce every named two-wheel support once the normal bridge
-            # has had 600 updates.  First expose a mostly static one-hot with
-            # exactly the same command shape and reward outcome; m1200 showed
-            # that asking for 0.5--2 rad/s before a support exists leaves all
-            # four named modes as travelling/unstable partial pivots.
+            # has had 600 updates.  This must be a *pure* held-support block:
+            # the m800 audit with normal still occupying half the samples and
+            # a 25% moving minority showed every named one-hot being ignored
+            # in favour of ordinary four-wheel idle.  Train the four actual
+            # support outcomes densely before asking the same actor to spin
+            # or switch them.  The command remains the identical six-vector;
+            # only its sampled difficulty changes here.
             "step": 38_400,
-            "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
+            "mode_probabilities": (0.10, 0.30, 0.30, 0.15, 0.15),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.75,
+            "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (0.5, 1.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep a minority of low-rate trials while static supports settle.
-            # A caller still uses the same five one-hots plus rate channel;
-            # this is sampling difficulty, not a sixth mode or a pose target.
-            "step": 64_000,
-            "mode_probabilities": (0.40, 0.20, 0.20, 0.10, 0.10),
+            # Do not add any non-zero rate until every one-hot has received a
+            # full 800-update static discovery block.  Then retain half the
+            # holds while the remaining samples introduce only a low signed
+            # rate; this avoids replacing an unfound support with a rolling
+            # four-wheel escape.
+            "step": 89_600,
+            "mode_probabilities": (0.15, 0.27, 0.27, 0.155, 0.155),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
+            "upright_static_probability": 0.50,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
@@ -482,30 +487,31 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Only after named supports have static and low-rate evidence do
             # we introduce sparse direct one-hot changes and moderate speed.
-            "step": 89_600,
-            "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
+            "step": 115_200,
+            "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
-            "direct_switch_probability": 0.05,
+            "direct_switch_probability": 0.10,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             # Restore all-dynamic samples while keeping switches common.
-            "step": 115_200,
-            "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
+            "step": 140_800,
+            "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.20,
+            "direct_switch_probability": 0.25,
             "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             # The final portion is the visibly fast, continuous AS2-W-style
-            # pivot distribution.  It receives 800 zero-start updates after
-            # every support has first been established at lower difficulty.
-            "step": 140_800,
-            "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
+            # pivot distribution.  It still receives 400 full-rate updates
+            # in a 3,000-update run, after all supports have first been
+            # learned at static and low-rate difficulty.
+            "step": 166_400,
+            "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.30,
