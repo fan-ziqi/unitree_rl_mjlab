@@ -188,6 +188,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   normal_axis_parallel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_compact_xy_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_tall_clearance_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  normal_front_support_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   down_rate_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -350,6 +351,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       normal_tall_clearance_sum += (
         valid.float() * (modes == 0).float() * normal_tall_clearance
       )
+      normal_front_support_sum += (
+        valid.float() * (modes == 0).float() * normal_support_is_front.float()
+      )
       rate_error_sum += valid.float() * rate_error
       down_rate_sum += valid.float() * down_rate
       support_center_speed_sum += valid.float() * center_speed
@@ -385,6 +389,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       ).mean().item(),
       "mean_normal_tall_clearance_m": (
         normal_tall_clearance_sum[mask] / denom
+      ).mean().item(),
+      "mean_normal_front_support_selection_rate": (
+        normal_front_support_sum[mask] / denom
       ).mean().item(),
       "steady_normal_two_wheel_support_rate": steady_normal_two_wheel_support[mask]
       .float()
