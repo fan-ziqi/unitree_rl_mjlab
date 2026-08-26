@@ -4,9 +4,10 @@ These two tasks deliberately reward public command outcomes.  They do not
 encode leg lengths, a contact sequence, or an action-space posture for the
 two-wheel skills.  The only exception is the user's explicit normal-mode
 requirement: four-wheel rolling must remain recognizably close to the Go2W
-model default pose.  The spin task measures only trunk-to-support-wheel
-clearance so that a visibly upright two-wheel pose cannot be replaced by a low
-crouch; PPO discovers every joint coordination that realizes that geometry.
+model default pose.  With a nonzero normal spin command, PPO discovers the
+compact four-wheel common-axle geometry from measured wheel contacts, axle
+alignment, and local-centre motion; no joint pose or reference trajectory is
+provided.
 """
 
 from __future__ import annotations
@@ -315,20 +316,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
-  video's compact two-wheel local pivot; its existing sign selects the
-  mirrored front/rear support.  Front/rear one-hots request their named pivots. The
-  left/right one-hots are the physically distinct side two-wheel pivots.  All
-  active one-hots retain the signed spin-rate input.
+  video's compact, level, four-wheel common-axle local pivot.  Front/rear
+  one-hots request their named pivots; left/right one-hots are the physically
+  distinct side two-wheel pivots.  All active one-hots retain the signed
+  spin-rate input.
   All five modes still share exactly the same one-hot plus signed-rate command
   interface and one policy.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
-  # A nonzero normal command must actively rise out of the four-wheel reset
-  # into a tall two-wheel pivot.  A modest extension beyond the shared
-  # ±0.55-rad residual makes that compact reshape reachable without adding a
-  # prescribed joint pose or increasing the model's torque limits.
+  # A nonzero normal command must reshape the ordinary four-wheel rectangle
+  # into a compact common axle while all wheels remain grounded.  A modest
+  # extension beyond the shared ±0.55-rad residual makes that geometry
+  # reachable without adding a prescribed joint pose or torque authority.
   cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
   # Discovery needs the wheels to stay planted while legs find the common
   # axle.  With an 80-rad/s residual range, the bounded exploratory policy
@@ -365,7 +366,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # Normal is a compact tall two-wheel pivot, not wheel-steering.
+      # Normal is a compact level four-wheel pivot, not wheel-steering.
       weight=18.0,
       params={
         "command_name": "trick",
@@ -384,14 +385,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # a visibly local support midpoint.
         "pivot_speed_limit": 0.12,
         "upright_support_weight": 0.20,
-        # A two-wheel stand is an essential early discovery bridge, but after
-        # the normal-only bootstrap its fixed return would let PPO ignore the
-        # signed rate and local-pivot outcomes.  Fade only that bridge while
-        # retaining the same contact, clearance, compactness, rate, and
-        # support-centre measurements.
-        "normal_final_support_weight": 0.08,
-        "normal_support_decay_start_steps": 76_800,
-        "normal_support_decay_steps": 38_400,
+        # The early common-axle geometry bridge is only for discovering the
+        # four-wheel packing from its ordinary rectangular reset.  It fades
+        # after discovery so the same geometry must carry the signed rate at
+        # a stationary all-wheel centroid.
+        "normal_final_geometry_weight": 0.04,
+        "normal_geometry_decay_start_steps": 76_800,
+        "normal_geometry_decay_steps": 38_400,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
@@ -416,9 +416,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # First discover a compact tall normal pivot from ordinary
-            # four-wheel reset.  Other named supports enter once this same
-            # actor can rise without using its body as a crutch.
+            # First discover a compact, level four-wheel common axle from the
+            # ordinary reset.  Named two-wheel supports enter only after this
+            # same actor can make a local normal pivot without body contact.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -427,8 +427,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Introduce all four two-wheel pivots only after the normal
-            # common-axis behaviour exists in this same actor.
+            # Introduce the named two-wheel pivots only after the normal
+            # four-wheel common-axis behaviour exists in this same actor.
             "step": 76_800,
             "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
             "spin_idle_probability": 0.0,
@@ -451,7 +451,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep a substantial normal replay share while the low-rate tall
+            # Keep a substantial normal replay share while the low-rate named
             # supports are accelerated.  Make the next request overlap in
             # speed and keep switches rare until each pair can survive on its
             # own.

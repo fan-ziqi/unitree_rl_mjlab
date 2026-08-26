@@ -57,58 +57,56 @@ def _has_any_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   return torch.any(_wheel_contacts(env, sensor_name), dim=1)
 
 
-def normal_two_wheel_pivot_geometry(
+def normal_four_wheel_pivot_geometry(
   wheel_axles: torch.Tensor,
   wheel_positions: torch.Tensor,
-  support_is_front: torch.Tensor,
   *,
-  compact_xy_radius: float = 0.48,
-) -> tuple[torch.Tensor, torch.Tensor]:
-  """Measure compact all-wheel packing around a chosen tall support pair.
+  axle_line_radius: float = 0.10,
+  compact_axle_span: float = 0.42,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+  """Measure the compact four-wheel common-axle form for normal spin.
 
-  A requested normal spin begins at an ordinary four-wheel idle, but the
-  reference's fast pivot does *not* retain four wheel contacts.  It rises onto
-  either the front or rear lateral pair, keeps the other two wheels clear, and
-  folds all four wheel axes into the same compact turn envelope.  The policy is
-  free to choose the front or rear pair: ``support_is_front`` is selected from
-  the measured support quality, never added to the public command.
+  A non-zero ``normal`` rate is the AS2-W-style four-wheel pivot: the trunk
+  remains level, all four wheels remain on the floor, and leg motion brings
+  their cylinder axes onto one transverse line below the trunk.  The previous
+  normal-mode measurement instead chose a tall front/rear two-wheel support.
+  That made a visually plausible balancing pose, but it is a different trick:
+  it leaves two wheels high above the support pair and cannot deliver the
+  compact four-wheel spin requested here.
 
-  The score intentionally measures only wheel-axis agreement and horizontal
-  packing.  In particular, it permits the free pair to be vertically above the
-  support pair, which is essential for the tall pivot and cannot be represented
-  by the old "all centres on the floor line" condition.
+  This is deliberately a geometry *outcome*, not a joint target or a pose
+  trajectory.  It rewards three measurable properties: parallel wheel axes,
+  centres close to one common axle line, and a finite transverse envelope.
+  Contact and level-trunk requirements remain in the caller.
   """
   if wheel_axles.ndim != 3 or wheel_axles.shape[1:] != (4, 3):
     raise ValueError("normal pivot geometry expects [batch, 4, 3] axes.")
   if wheel_positions.shape != wheel_axles.shape:
     raise ValueError("wheel positions must match wheel axle tensor shape.")
-  if support_is_front.shape != (wheel_axles.shape[0],):
-    raise ValueError("support_is_front must have one entry per environment.")
-  if compact_xy_radius <= 0.0:
-    raise ValueError("compact_xy_radius must be positive.")
+  if axle_line_radius <= 0.0 or compact_axle_span <= 0.0:
+    raise ValueError("normal-pivot geometry scales must be positive.")
 
   axes = torch.nn.functional.normalize(wheel_axles, dim=2)
-  # Wheel-cylinder axes have an arbitrary sign in the imported model; use one
-  # support wheel as the representative direction and compare every other
-  # axle with an absolute dot product below.  Averaging two anti-parallel but
-  # perfectly co-axial wheel axes would otherwise create a zero vector.
-  front_axis = axes[:, 0]
-  rear_axis = axes[:, 2]
-  support_axis = torch.where(support_is_front.unsqueeze(1), front_axis, rear_axis)
+  # Wheel-cylinder axes have an arbitrary sign in the imported model, so use
+  # one wheel as a line direction and compare with absolute dot products.
+  # Averaging anti-parallel but co-axial cylinders would otherwise collapse.
+  reference_axis = axes[:, 0]
   all_axis_parallel = torch.mean(
-    torch.abs(torch.sum(axes * support_axis.unsqueeze(1), dim=2)), dim=1
+    torch.abs(torch.sum(axes * reference_axis.unsqueeze(1), dim=2)), dim=1
   )
-  front_centre = wheel_positions[:, :2, :2].mean(dim=1)
-  rear_centre = wheel_positions[:, 2:, :2].mean(dim=1)
-  support_centre = torch.where(
-    support_is_front.unsqueeze(1), front_centre, rear_centre
-  )
-  max_radius = torch.amax(
-    torch.linalg.vector_norm(wheel_positions[:, :, :2] - support_centre.unsqueeze(1), dim=2),
-    dim=1,
-  )
-  compact_xy = 1.0 / (1.0 + torch.square(max_radius / compact_xy_radius))
-  return all_axis_parallel, compact_xy
+  centre = wheel_positions.mean(dim=1, keepdim=True)
+  relative = wheel_positions - centre
+  along_axis = torch.sum(relative * reference_axis.unsqueeze(1), dim=2)
+  off_axis = relative - along_axis.unsqueeze(2) * reference_axis.unsqueeze(1)
+  max_off_axis = torch.amax(torch.linalg.vector_norm(off_axis, dim=2), dim=1)
+  common_axle_line = 1.0 / (1.0 + torch.square(max_off_axis / axle_line_radius))
+  axle_span = torch.amax(along_axis, dim=1) - torch.amin(along_axis, dim=1)
+  # The video calls for a compact envelope, not collapse of all four wheel
+  # centres into one colliding point.  Keep every physically usable span at
+  # full value and penalize only a clearly splayed axle.
+  span_excess = torch.clamp(axle_span - compact_axle_span, min=0.0)
+  compact_span = 1.0 / (1.0 + torch.square(span_excess / 0.12))
+  return all_axis_parallel, common_axle_line, compact_span
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +305,7 @@ def _stance_spin_components(
   torch.Tensor,
   torch.Tensor,
   torch.Tensor,
+  torch.Tensor,
 ]:
   """Measure a commanded five-mode world-down rotation."""
   if rate_std <= 0.0:
@@ -318,9 +317,9 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Every active mode tracks its signed world-down rate.  A nonzero normal
-  # command is an unlabeled tall front-or-rear two-wheel pivot; the named
-  # one-hots retain their particular support pair.
+  # Every active mode tracks its signed world-down rate.  ``normal`` is the
+  # level four-wheel common-axle form; the named one-hots retain two-wheel
+  # support semantics.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -382,65 +381,24 @@ def _stance_spin_components(
     dim=1,
   )[batch, mode]
 
-  # ``normal`` is deliberately a compact high-speed two-wheel spin, rather
-  # than a false four-contact mode.  AS2-W shows a lateral front *or* rear
-  # support axle, but does not bind that physical choice to spin direction.
-  # The public signed rate therefore controls only world-down rotation; PPO
-  # may retain either viable lateral support for both signs.
-  pair_masks = masks[1:3]
-  pair_desired = torch.sum(
-    contacts.unsqueeze(1) * pair_masks.unsqueeze(0), dim=2
-  ) / pair_masks.sum(dim=1).unsqueeze(0).clamp_min(1.0)
-  pair_extra_count = (1.0 - pair_masks).sum(dim=1).unsqueeze(0)
-  pair_extra = torch.sum(
-    contacts.unsqueeze(1) * (1.0 - pair_masks).unsqueeze(0), dim=2
-  ) / pair_extra_count.clamp_min(1.0)
-  pair_contact_score = pair_desired * (1.0 - 0.75 * pair_extra)
-  pair_alignment = torch.clamp(
-    0.5 * (1.0 + torch.sum(gravity.unsqueeze(1) * targets[1:3].unsqueeze(0), dim=2)),
-    min=0.0,
-    max=1.0,
-  )
+  # ``normal`` is the compact, level, four-wheel form.  The named front/rear/
+  # left/right one-hots retain their physically distinct two-wheel supports.
   wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
-  pair_support_height = torch.sum(
-    wheel_height.unsqueeze(1) * pair_masks.unsqueeze(0), dim=2
-  ) / pair_masks.sum(dim=1).unsqueeze(0).clamp_min(1.0)
-  pair_height_score = torch.clamp(
-    (asset.data.root_link_pos_w[:, 2].unsqueeze(1) - pair_support_height) / 0.45,
-    min=0.0,
-    max=1.0,
+  # In normal mode the original command target already represents the desired
+  # level trunk and all four wheel contacts.  Its remaining discovery problem
+  # is to reshape the wheel centres and axes into the common axle below.
+  normal_support_quality = alignment * contact_score
+  (
+    normal_all_axis_parallel,
+    normal_common_axle_line,
+    normal_compact_span,
+  ) = normal_four_wheel_pivot_geometry(
+    wheel_axles, wheel_positions
   )
-  # A shallow diagonal support was a stable local optimum at about 0.81
-  # alignment.  Squaring the same physical attitude outcome leaves a smooth
-  # discovery signal from reset but makes a visibly upright lateral axle
-  # materially more valuable than that tilted form.
-  pair_support_quality = torch.square(pair_alignment) * (
-    0.65 * pair_contact_score + 0.35 * pair_height_score
-  )
-  normal_support_is_front = pair_support_quality[:, 0] >= pair_support_quality[:, 1]
-  normal_support_quality = torch.where(
-    normal_support_is_front,
-    pair_support_quality[:, 0],
-    pair_support_quality[:, 1],
-  )
-  normal_support_mask = torch.where(
-    normal_support_is_front.unsqueeze(1),
-    pair_masks[0].unsqueeze(0),
-    pair_masks[1].unsqueeze(0),
-  )
-  normal_pair_coaxiality = torch.where(
-    normal_support_is_front,
-    front_rear_pair_coaxiality[:, 0],
-    front_rear_pair_coaxiality[:, 1],
-  )
-  normal_all_axis_parallel, normal_compact_xy = normal_two_wheel_pivot_geometry(
-    wheel_axles, wheel_positions, normal_support_is_front
-  )
-  support_masks = masks[mode]
-  support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
+  support_mask = masks[mode]
   coaxiality = torch.where(
     mode == 0,
-    normal_pair_coaxiality,
+    normal_all_axis_parallel * normal_common_axle_line,
     pair_coaxiality_for_mode,
   )
   fixed_height = (wheel_height * support_mask).sum(dim=1) / support_mask.sum(dim=1).clamp_min(1.0)
@@ -480,7 +438,8 @@ def _stance_spin_components(
     support_quality,
     coaxial_factor,
     normal_all_axis_parallel,
-    normal_compact_xy,
+    normal_common_axle_line,
+    normal_compact_span,
     support_mask,
     mode,
   )
@@ -507,19 +466,19 @@ class StanceSpinPivotResult:
     pivot_speed_limit: float,
     asset_cfg: SceneEntityCfg,
     upright_support_weight: float = 0.20,
-    normal_final_support_weight: float = 0.02,
-    normal_support_decay_start_steps: int = 38_400,
-    normal_support_decay_steps: int = 25_600,
+    normal_final_geometry_weight: float = 0.02,
+    normal_geometry_decay_start_steps: int = 38_400,
+    normal_geometry_decay_steps: int = 25_600,
     rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
     if not 0.0 <= upright_support_weight < 1.0:
       raise ValueError("upright_support_weight must be in [0, 1).")
-    if not 0.0 <= normal_final_support_weight < 1.0:
-      raise ValueError("normal_final_support_weight must be in [0, 1).")
-    if normal_support_decay_start_steps < 0 or normal_support_decay_steps <= 0:
-      raise ValueError("normal support decay steps must be non-negative/positive.")
+    if not 0.0 <= normal_final_geometry_weight < 1.0:
+      raise ValueError("normal_final_geometry_weight must be in [0, 1).")
+    if normal_geometry_decay_start_steps < 0 or normal_geometry_decay_steps <= 0:
+      raise ValueError("normal geometry decay steps must be non-negative/positive.")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
     (
@@ -530,7 +489,8 @@ class StanceSpinPivotResult:
       support_quality,
       coaxial_factor,
       normal_all_axis_parallel,
-      normal_compact_xy,
+      normal_common_axle_line,
+      normal_compact_span,
       support_mask,
       mode,
     ) = _stance_spin_components(
@@ -548,8 +508,8 @@ class StanceSpinPivotResult:
       wheel_velocity * support_mask.unsqueeze(2)
     ).sum(dim=1) / support_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
     centre_speed = torch.linalg.vector_norm(support_centre_velocity, dim=1)
-    # Normal selects its physically viable front or rear two-wheel centroid;
-    # named modes retain their requested support-pair centroid.
+    # Normal uses the all-wheel centroid; named modes retain their requested
+    # two-wheel support-pair centroid.
     # The old late, subtractive penalty permitted a high-rate front/rear form
     # to score while its support axle travelled around a broad floor circle.
     # A local pivot is an inseparable outcome: score rate *and* a stationary
@@ -596,35 +556,34 @@ class StanceSpinPivotResult:
     upright_result = support_quality * (
       discovery_weight + (1.0 - discovery_weight) * dynamic_quality
     )
-    # Fast normal pivots must become tall and two-wheel supported.  It is still
-    # useful to keep the four wheel *axes* parallel and their horizontal
-    # envelope compact, but requiring all four wheels on the floor selected a
-    # crouched crawling turn.  This is an outcome measurement only: it does
-    # not describe a joint pose, a phase, or a trajectory.
-    normal_geometry = normal_all_axis_parallel * normal_compact_xy
-    # A visible normal two-wheel stand is the necessary discovery bridge from
-    # reset, but it cannot remain a permanent 20%-return shortcut: then PPO
-    # can stand, drift across the floor, and spin in either direction while
-    # never paying the signed-rate or local-pivot part of this *same* outcome.
-    # Keep that bridge through the normal-only bootstrap, then decay it while
-    # the already discovered support is asked to satisfy the public rate.
+    # Normal is a level four-wheel pivot.  Its all-wheel support, common axle
+    # line, compact transverse span, local centroid, and signed rate are one
+    # physical outcome; no individual joint angle or temporal pose is named.
+    normal_geometry = (
+      normal_all_axis_parallel
+      * normal_common_axle_line
+      * normal_compact_span
+    )
+    # At reset, normal has level attitude and four contacts but not the common
+    # axle or spin rate.  Keep a short geometry bridge, then fade it so the
+    # same measured geometry must support a requested local rotation.
     normal_decay = torch.clamp(
       torch.tensor(
-        (env.common_step_counter - normal_support_decay_start_steps)
-        / normal_support_decay_steps,
+        (env.common_step_counter - normal_geometry_decay_start_steps)
+        / normal_geometry_decay_steps,
         dtype=support_quality.dtype,
         device=env.device,
       ),
       min=0.0,
       max=1.0,
     )
-    normal_support_weight = upright_support_weight + normal_decay * (
-      normal_final_support_weight - upright_support_weight
+    normal_geometry_weight = upright_support_weight + normal_decay * (
+      normal_final_geometry_weight - upright_support_weight
     )
     normal_result = (
       support_quality
       * normal_geometry
-      * (normal_support_weight + (1.0 - normal_support_weight)
+      * (normal_geometry_weight + (1.0 - normal_geometry_weight)
          * pivot_stillness * speed_quality)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
@@ -1075,6 +1034,96 @@ def aerial_event_failure(
     * failure
     / env.step_dt
   )
+
+
+class AerialWheelFirstEnvelope:
+  """Pay late-flight progress toward a wheel-lowest landing package.
+
+  A desired-axis integral alone admits a bad aerial local optimum: the base
+  completes most of a turn but a calf, hip, or trunk reaches the terrain
+  before the wheels.  This term never names a joint angle, an airborne clock,
+  or a reference pose.  After more than half a requested turn, it only asks
+  for the directly measurable physical precondition of a wheel-first landing:
+  every wheel centre lies below the lowest non-wheel link centre during a
+  legal, wheel-free flight.  The increasing turn fraction turns that outcome
+  into a bounded high-water event rather than a reward for holding a pose.
+  """
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg
+    self.peak_score = torch.zeros(env.num_envs, device=env.device)
+    self.previous_active = torch.zeros(
+      env.num_envs, dtype=torch.bool, device=env.device
+    )
+    self.body_ids: torch.Tensor | None = None
+
+  def reset(self, env_ids: torch.Tensor) -> None:
+    self.peak_score[env_ids] = 0.0
+    self.previous_active[env_ids] = False
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    sensor_name: str,
+    nonwheel_sensor_name: str,
+    body_names: tuple[str, ...],
+    target_angle: float,
+    minimum_turn_fraction: float = 0.55,
+    target_clearance: float = 0.10,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+  ) -> torch.Tensor:
+    if target_angle <= 0.0 or target_clearance <= 0.0:
+      raise ValueError("target_angle and target_clearance must be positive.")
+    if not 0.0 < minimum_turn_fraction < 1.0:
+      raise ValueError("minimum_turn_fraction must be in (0, 1).")
+    asset: Entity = env.scene[asset_cfg.name]
+    if self.body_ids is None:
+      self.body_ids, _ = asset.find_bodies(body_names, preserve_order=True)
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("wheel-first envelope needs four explicit wheel sites.")
+
+    command = _command(env, command_name)
+    active = torch.sum(command[:, :5], dim=1) > 0.5
+    reset = (~active) | (active & ~self.previous_active) | (env.episode_length_buf == 0)
+    self.peak_score[reset] = 0.0
+
+    command_term = env.command_manager.get_term(command_name)
+    progress = getattr(
+      command_term, "_rotation_progress", torch.zeros(env.num_envs, device=env.device)
+    )
+    was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
+    landing_started = getattr(command_term, "_landing_started", torch.zeros_like(active))
+    wheel_free = ~_has_any_contact(env, sensor_name)
+    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    turn_fraction = torch.clamp(progress / target_angle, min=0.0, max=1.0)
+    wheel_top = torch.amax(asset.data.site_pos_w[:, asset_cfg.site_ids, 2], dim=1)
+    lowest_nonwheel_link = torch.amin(
+      asset.data.body_link_pos_w[:, self.body_ids, 2], dim=1
+    )
+    wheel_clearance = lowest_nonwheel_link - wheel_top
+    wheel_lowest_score = torch.clamp(wheel_clearance / target_clearance, min=0.0, max=1.0)
+    candidate = (
+      active
+      & was_airborne
+      & (~landing_started)
+      & wheel_free
+      & legal
+      & (turn_fraction >= minimum_turn_fraction)
+    )
+    score = torch.where(
+      candidate,
+      wheel_lowest_score * turn_fraction,
+      torch.zeros_like(wheel_lowest_score),
+    )
+    gain = torch.clamp(score - self.peak_score, min=0.0)
+    self.peak_score = torch.where(
+      active,
+      torch.maximum(self.peak_score, score),
+      torch.zeros_like(self.peak_score),
+    )
+    self.previous_active = active
+    return gain / env.step_dt
 
 
 class AerialRotationCompletion:

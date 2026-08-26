@@ -35,6 +35,17 @@ from .common_env_cfg import (
   make_base_go2w_trick_cfg,
 )
 
+# Centres of the rigid links that must stay above the wheels in the final
+# wheel-first part of a legal aerial.  These names are a collision/clearance
+# envelope, not joint targets and not a reference pose.
+WHEEL_FIRST_ENVELOPE_BODIES = (
+  "base_link",
+  "FL_hip", "FL_thigh", "FL_calf",
+  "FR_hip", "FR_thigh", "FR_calf",
+  "RL_hip", "RL_thigh", "RL_calf",
+  "RR_hip", "RR_thigh", "RR_calf",
+)
+
 
 def unitree_go2w_aerial_rotation_flat_env_cfg(
   play: bool = False,
@@ -133,8 +144,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
 
   # A flip is a legal four-wheel launch, commanded-axis spin during that
   # launch, net commanded-axis angle, and a quiet normal landing.  There is
-  # deliberately no pose, timing, joint, clearance, or reference trajectory
-  # reward.  A partial touchdown is a failure shaped only by missing angle.
+  # deliberately no pose, timing, joint, or reference-trajectory reward.  A
+  # late-flight wheel-first envelope makes the limbs tuck/recover
+  # toward a real wheel landing without ever giving them a pose target.  A
+  # partial touchdown is a failure shaped only by missing angle.
   cfg.rewards = {
     "ballistic_launch": RewardTermCfg(
       func=trick_rewards.AerialBallisticLaunch,
@@ -163,6 +176,24 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
+      },
+    ),
+    "wheel_first_landing_envelope": RewardTermCfg(
+      func=trick_rewards.AerialWheelFirstEnvelope,
+      # Once rotation is materially under way, the wheels must be lower than
+      # every non-wheel link before any ground contact.  This gives the actor
+      # a physical reason to fold a flailing leg back into a compact recovery
+      # package, while leaving launch, angular acceleration, and braking free
+      # for PPO to discover.
+      weight=500.0,
+      params={
+        "command_name": "trick",
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "body_names": WHEEL_FIRST_ENVELOPE_BODIES,
+        "target_angle": math.tau,
+        "minimum_turn_fraction": 0.55,
+        "target_clearance": 0.10,
       },
     ),
     "landing_recovery": RewardTermCfg(
