@@ -293,6 +293,7 @@ def _stance_spin_components(
   gravity_targets: tuple[tuple[float, float, float], ...],
   contact_masks: tuple[tuple[float, float, float, float], ...],
   sensor_name: str,
+  normal_min_root_clearance: float,
   asset_cfg: SceneEntityCfg,
 ) -> tuple[
   Entity,
@@ -308,8 +309,8 @@ def _stance_spin_components(
   torch.Tensor,
 ]:
   """Measure a commanded five-mode world-down rotation."""
-  if rate_std <= 0.0:
-    raise ValueError("rate_std must be positive.")
+  if rate_std <= 0.0 or normal_min_root_clearance <= 0.0:
+    raise ValueError("rate_std and normal_min_root_clearance must be positive.")
   asset: Entity = env.scene[asset_cfg.name]
   if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
     raise ValueError("stance-spin measurement needs four wheel sites.")
@@ -387,7 +388,11 @@ def _stance_spin_components(
   # In normal mode the original command target already represents the desired
   # level trunk and all four wheel contacts.  Its remaining discovery problem
   # is to reshape the wheel centres and axes into the common axle below.
-  normal_support_quality = alignment * contact_score
+  normal_root_clearance = asset.data.root_link_pos_w[:, 2] - wheel_height.mean(dim=1)
+  normal_clearance_score = torch.clamp(
+    normal_root_clearance / normal_min_root_clearance, min=0.0, max=1.0
+  )
+  normal_support_quality = alignment * contact_score * normal_clearance_score
   (
     normal_all_axis_parallel,
     normal_common_axle_line,
@@ -464,6 +469,7 @@ class StanceSpinPivotResult:
     contact_masks: tuple[tuple[float, float, float, float], ...],
     sensor_name: str,
     pivot_speed_limit: float,
+    normal_min_root_clearance: float,
     asset_cfg: SceneEntityCfg,
     upright_support_weight: float = 0.20,
     normal_final_geometry_weight: float = 0.02,
@@ -471,8 +477,8 @@ class StanceSpinPivotResult:
     normal_geometry_decay_steps: int = 25_600,
     rate_progress_weight: float = 0.75,
   ) -> torch.Tensor:
-    if pivot_speed_limit <= 0.0:
-      raise ValueError("pivot_speed_limit must be positive.")
+    if pivot_speed_limit <= 0.0 or normal_min_root_clearance <= 0.0:
+      raise ValueError("pivot_speed_limit and normal_min_root_clearance must be positive.")
     if not 0.0 <= upright_support_weight < 1.0:
       raise ValueError("upright_support_weight must be in [0, 1).")
     if not 0.0 <= normal_final_geometry_weight < 1.0:
@@ -501,6 +507,7 @@ class StanceSpinPivotResult:
       gravity_targets,
       contact_masks,
       sensor_name,
+      normal_min_root_clearance,
       asset_cfg,
     )
     wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]

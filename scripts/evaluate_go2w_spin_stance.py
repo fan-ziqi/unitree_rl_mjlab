@@ -186,6 +186,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   normal_axis_parallel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_common_axle_line_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_compact_span_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  normal_root_clearance_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   down_rate_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -285,7 +286,14 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       )
       total_angular_speed = torch.linalg.vector_norm(robot.data.root_link_ang_vel_w, dim=1)
       rate_ok = torch.where(active_spin, rate_error < 0.75, total_angular_speed < 1.0)
-      pose_ok = target_alignment >= 0.97
+      normal_root_clearance = (
+        robot.data.root_link_pos_w[:, 2] - wheel_positions[:, :, 2].mean(dim=1)
+      )
+      pose_ok = torch.where(
+        modes == 0,
+        (target_alignment >= 0.97) & (normal_root_clearance >= 0.35),
+        target_alignment >= 0.97,
+      )
       pivot_ok = center_measured & (center_speed < 0.08)
       normal_layout_ok = (
         (normal_axis_parallel >= 0.90)
@@ -311,6 +319,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       )
       normal_compact_span_sum += (
         valid.float() * (modes == 0).float() * normal_compact_span
+      )
+      normal_root_clearance_sum += (
+        valid.float() * (modes == 0).float() * normal_root_clearance
       )
       rate_error_sum += valid.float() * rate_error
       down_rate_sum += valid.float() * down_rate
@@ -347,6 +358,9 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       ).mean().item(),
       "mean_normal_compact_span_score": (
         normal_compact_span_sum[mask] / denom
+      ).mean().item(),
+      "mean_normal_root_clearance_m": (
+        normal_root_clearance_sum[mask] / denom
       ).mean().item(),
       "steady_normal_four_wheel_support_rate": steady_normal_four_wheel_support[mask]
       .float()

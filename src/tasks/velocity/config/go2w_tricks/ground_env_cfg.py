@@ -384,6 +384,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # scale, not the acceptance threshold: the evaluator still requires
         # a visibly local support midpoint.
         "pivot_speed_limit": 0.12,
+        # The common axle must live below a recognizably level Go2W trunk.
+        # Without this measured root-to-wheel clearance, the new all-wheel
+        # line reward has a low crouching local optimum: it can pack wheels
+        # together but looks like a crawling chassis.  This names no leg
+        # angle—the policy remains free to find its own extended support.
+        "normal_min_root_clearance": 0.35,
         "upright_support_weight": 0.20,
         # The early common-axle geometry bridge is only for discovering the
         # four-wheel packing from its ordinary rectangular reset.  It fades
