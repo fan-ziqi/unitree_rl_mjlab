@@ -16,9 +16,8 @@ from mjlab.envs import mdp as envs_mdp
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.managers.termination_manager import TerminationTermCfg
 
-from src.tasks.velocity.mdp import terminations, trick_curriculums, trick_rewards
+from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
   StanceSpinCommandCfg,
@@ -315,9 +314,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   """Default four-wheel idle plus all five contact-mode commands.
 
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
-  Zero command is four-wheel default idle.  A nonzero normal rate requests the
-  video's two-wheel, front/rear-co-axial local pivot; front/rear one-hots
-  request their named two-wheel local pivots.  The
+  Zero command is four-wheel default idle.  A nonzero normal rate permits the
+  video's tall front/rear two-wheel local pivot; front/rear one-hots request
+  their named two-wheel local pivots.  The
   left/right one-hots are the physically distinct, static side supports: once
   side-on, their wheel axes are vertical, so their spin-rate input is ignored.
   All five modes still share exactly the same one-hot plus signed-rate command
@@ -326,17 +325,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
-  # The reference's normal pivot moves the wheel centres from a four-corner
-  # footprint onto one transverse line.  A modest extension beyond the shared
-  # ±0.55-rad residual makes that geometry reachable; the 0.90-rad trial
-  # instead taught wheel liftoff, so retain a ground-contact-safe 0.70-rad
-  # envelope.  This increases no torque limit and supplies no desired pose.
-  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
-  # Discovery needs the wheels to stay planted while legs find the common
-  # axle.  With an 80-rad/s residual range, the bounded exploratory policy
-  # drove the four-wheel footprint across the plane before it could improve
-  # its geometry.  This restores the model's proven 40-rad/s working range;
-  # it changes neither motor torque limit nor the later requested body rate.
+  # The video pivots from a tall two-wheel support.  This is enough residual
+  # hip workspace to lift the trunk over that pair, matching the already
+  # demonstrated stance task without prescribing a joint pose or trajectory.
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
+  # Keep wheel residual exploration moderate so a first-pass policy learns
+  # local support control instead of driving a floor circle.
   cfg.actions["joint_vel"].scale = 40.0
   cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
   cfg.commands = {
@@ -367,7 +361,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # Normal is a folded four-wheel common-axis pivot, not wheel-steering.
+      # Every nonzero dynamic command is a two-wheel local pivot; normal may
+      # select either front/rear pair while their one-hots remain explicit.
       weight=18.0,
       params={
         "command_name": "trick",
@@ -392,29 +387,15 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _support_wheels(),
       },
     ),
-    # Common-axis formation is a coordinated but smooth movement over many
-    # control frames.  The former temporal cost was comparable to the entire
-    # zero-action formation signal, so it selected immobility before PPO could
-    # measure any useful geometric improvement.  Retain a light regularizer
-    # without turning a visibly fluid pivot into a frozen default pose.
+    # The visual reference has coordinated limb motion, not a frozen linkage.
+    # Keep only a light generic temporal regularizer.
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  # Keep a hard continuous-contact validity check only for the final
-  # high-rate curriculum.  Earlier stages still gate the pivot outcome on
-  # four-wheel contact, but an instant reset at the first exploratory loss
-  # shortened every rollout to 0.24 s and prevented PPO from discovering a
-  # rolling continuous-contact formation at all.
-  cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
-    func=terminations.normal_spin_support_lost,
-    params={
-      "command_name": "trick",
-      "sensor_name": wheel_contact_cfg.name,
-      "speed_deadband": 0.20,
-      "grace_period_s": 1.5,
-      "enable_after_steps": 115_200,
-    },
-  )
+  # A tall pivot must change support pairs during its transition.  Wheel-only
+  # support quality is enforced in the reward; body/leg terrain contact stays
+  # terminal through the shared safety rule.
+  cfg.terminations.pop("normal_spin_support_lost", None)
   cfg.curriculum = {
     "spin_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_spin_command_stages,
@@ -423,11 +404,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # First discover the AS2W-defining four-wheel common-axis form.
-            # It is still the final fused policy and public command layout;
-            # the later stages merely add the other one-hots after there is a
-            # useful normal-pivot feature to share with them.
-            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            # The reference first exposes the real high-speed primitive:
+            # named tall front/rear two-wheel pivots, from ordinary reset.
+            "mode_probabilities": (0.0, 0.50, 0.50, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -435,10 +414,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Add held front/rear two-wheel supports after 600 normal-pivot
-            # iterations; all three retain the same fused actor and command.
+            # Add the automatic normal selection only after both physical
+            # support pairs have a useful shared representation.
             "step": 38_400,
-            "mode_probabilities": (0.60, 0.20, 0.20, 0.0, 0.0),
+            "mode_probabilities": (0.20, 0.40, 0.40, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,
@@ -449,7 +428,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Start slow dynamic front/rear pivots and direct changes once
             # each support has a static discovery window.
             "step": 64_000,
-            "mode_probabilities": (0.40, 0.30, 0.30, 0.0, 0.0),
+            "mode_probabilities": (0.20, 0.40, 0.40, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.25,
@@ -460,7 +439,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # All five one-hots are now present.  Preserve rate sign through
             # dynamic switches while the two side supports remain static.
             "step": 102_400,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            "mode_probabilities": (0.20, 0.30, 0.30, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -472,7 +451,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the previous 1,800-iteration run entered this final stage only
             # at its final update, so it never trained the requested skill.
             "step": 128_000,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            "mode_probabilities": (0.20, 0.30, 0.30, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
