@@ -1078,10 +1078,13 @@ class AerialWheelFirstEnvelope:
     target_angle: float,
     minimum_turn_fraction: float = 0.55,
     target_clearance: float = 0.10,
+    minimum_clearance_for_progress: float = -0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if target_angle <= 0.0 or target_clearance <= 0.0:
       raise ValueError("target_angle and target_clearance must be positive.")
+    if minimum_clearance_for_progress >= target_clearance:
+      raise ValueError("minimum_clearance_for_progress must be below target_clearance.")
     if not 0.0 < minimum_turn_fraction < 1.0:
       raise ValueError("minimum_turn_fraction must be in (0, 1).")
     asset: Entity = env.scene[asset_cfg.name]
@@ -1109,7 +1112,18 @@ class AerialWheelFirstEnvelope:
       asset.data.body_link_pos_w[:, self.body_ids, 2], dim=1
     )
     wheel_clearance = lowest_nonwheel_link - wheel_top
-    wheel_lowest_score = torch.clamp(wheel_clearance / target_clearance, min=0.0, max=1.0)
+    # A hard zero while one limb is still below the wheel plane makes this
+    # otherwise physical result undiscoverable: every bad landing package has
+    # exactly the same return.  Score the *same* wheel-first clearance over a
+    # finite safety margin instead.  It rises continuously from a visibly
+    # unsafe dangling-link state to the target wheel-lowest clearance, without
+    # introducing a leg pose, action, phase, or reference frame.
+    wheel_lowest_score = torch.clamp(
+      (wheel_clearance - minimum_clearance_for_progress)
+      / (target_clearance - minimum_clearance_for_progress),
+      min=0.0,
+      max=1.0,
+    )
     candidate = (
       active
       & was_airborne

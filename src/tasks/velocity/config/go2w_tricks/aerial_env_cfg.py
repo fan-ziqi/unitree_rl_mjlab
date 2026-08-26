@@ -201,6 +201,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "body_names": WHEEL_FIRST_ENVELOPE_BODIES,
         "target_angle": math.tau,
         "minimum_turn_fraction": 0.55,
+        # Keep the wheel-first result dense even when an exploratory leg is
+        # still below the wheel plane; the identical clearance score reaches
+        # one only when every non-wheel link is safely above it.
+        "minimum_clearance_for_progress": -0.30,
         "target_clearance": 0.10,
         "asset_cfg": _aerial_wheels(),
       },
