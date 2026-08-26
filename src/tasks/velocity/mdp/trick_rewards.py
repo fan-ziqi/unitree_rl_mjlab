@@ -57,131 +57,58 @@ def _has_any_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   return torch.any(_wheel_contacts(env, sensor_name), dim=1)
 
 
-def normal_four_wheel_axle_layout(
+def normal_two_wheel_pivot_geometry(
   wheel_axles: torch.Tensor,
   wheel_positions: torch.Tensor,
+  support_is_front: torch.Tensor,
   *,
-  line_scale: float = 0.07,
-  front_inside_margin: float = 0.03,
-  front_inside_scale: float = 0.04,
-  inner_pair_min_spacing: float = 0.08,
-  outer_pair_extra_spacing: float = 0.04,
-  front_pair_max_spacing: float = 0.28,
-  rear_pair_max_spacing: float = 0.50,
-) -> tuple[
-  torch.Tensor,
-  torch.Tensor,
-  torch.Tensor,
-  torch.Tensor,
-  torch.Tensor,
-]:
-  """Measure the reference video's four-wheel common-axis layout.
+  compact_xy_radius: float = 0.48,
+) -> tuple[torch.Tensor, torch.Tensor]:
+  """Measure compact all-wheel packing around a chosen tall support pair.
 
-  All four wheel axes must lie on one horizontal line beneath the body.  The
-  front pair is the inner pair on that line and the rear pair is outside it.
-  This is a physical wheel-layout measurement, not a joint-position target.
+  A requested normal spin begins at an ordinary four-wheel idle, but the
+  reference's fast pivot does *not* retain four wheel contacts.  It rises onto
+  either the front or rear lateral pair, keeps the other two wheels clear, and
+  folds all four wheel axes into the same compact turn envelope.  The policy is
+  free to choose the front or rear pair: ``support_is_front`` is selected from
+  the measured support quality, never added to the public command.
+
+  The score intentionally measures only wheel-axis agreement and horizontal
+  packing.  In particular, it permits the free pair to be vertically above the
+  support pair, which is essential for the tall pivot and cannot be represented
+  by the old "all centres on the floor line" condition.
   """
   if wheel_axles.ndim != 3 or wheel_axles.shape[1:] != (4, 3):
-    raise ValueError("four-wheel axle layout expects [batch, 4, 3] axes.")
+    raise ValueError("normal pivot geometry expects [batch, 4, 3] axes.")
   if wheel_positions.shape != wheel_axles.shape:
     raise ValueError("wheel positions must match wheel axle tensor shape.")
-  if (
-    line_scale <= 0.0
-    or front_inside_margin < 0.0
-    or front_inside_scale <= 0.0
-    or inner_pair_min_spacing <= 0.0
-    or outer_pair_extra_spacing <= 0.0
-    or front_pair_max_spacing <= inner_pair_min_spacing
-    or rear_pair_max_spacing <= front_pair_max_spacing
-  ):
-    raise ValueError("layout scales must be positive.")
+  if support_is_front.shape != (wheel_axles.shape[0],):
+    raise ValueError("support_is_front must have one entry per environment.")
+  if compact_xy_radius <= 0.0:
+    raise ValueError("compact_xy_radius must be positive.")
 
   axes = torch.nn.functional.normalize(wheel_axles, dim=2)
-  reference_axis = axes[:, :1]
-  aligned_axes = axes * torch.where(
-    torch.sum(axes * reference_axis, dim=2, keepdim=True) >= 0.0,
-    torch.ones_like(axes[:, :, :1]),
-    -torch.ones_like(axes[:, :, :1]),
+  # Wheel-cylinder axes have an arbitrary sign in the imported model; use one
+  # support wheel as the representative direction and compare every other
+  # axle with an absolute dot product below.  Averaging two anti-parallel but
+  # perfectly co-axial wheel axes would otherwise create a zero vector.
+  front_axis = axes[:, 0]
+  rear_axis = axes[:, 2]
+  support_axis = torch.where(support_is_front.unsqueeze(1), front_axis, rear_axis)
+  all_axis_parallel = torch.mean(
+    torch.abs(torch.sum(axes * support_axis.unsqueeze(1), dim=2)), dim=1
   )
-  common_axis = torch.nn.functional.normalize(aligned_axes.sum(dim=1), dim=1)
-  parallel_score = torch.mean(
-    torch.abs(torch.sum(axes * common_axis.unsqueeze(1), dim=2)), dim=1
+  front_centre = wheel_positions[:, :2, :2].mean(dim=1)
+  rear_centre = wheel_positions[:, 2:, :2].mean(dim=1)
+  support_centre = torch.where(
+    support_is_front.unsqueeze(1), front_centre, rear_centre
   )
-  horizontal_score = torch.linalg.vector_norm(common_axis[:, :2], dim=1)
-
-  relative_positions = wheel_positions - wheel_positions.mean(dim=1, keepdim=True)
-  axial_coordinate = torch.sum(
-    relative_positions * common_axis.unsqueeze(1), dim=2
+  max_radius = torch.amax(
+    torch.linalg.vector_norm(wheel_positions[:, :, :2] - support_centre.unsqueeze(1), dim=2),
+    dim=1,
   )
-  transverse_offset = relative_positions - axial_coordinate.unsqueeze(2) * common_axis.unsqueeze(1)
-  transverse_rms = torch.sqrt(torch.mean(torch.sum(torch.square(transverse_offset), dim=2), dim=1))
-  line_score = 1.0 / (1.0 + torch.square(transverse_rms / line_scale))
-
-  # The reference form is not satisfied by *one* good wheel from each pair:
-  # both front wheels must be inside both rear wheels on the shared axle.  An
-  # average pair radius allowed crossed/stepping arrangements to receive the
-  # same score as the nested four-wheel layout.  Compare the outermost front
-  # wheel to the innermost rear wheel instead; this is still only measured
-  # wheel geometry, never a prescribed leg-joint posture.
-  front_outer_radius = torch.amax(torch.abs(axial_coordinate[:, :2]), dim=1)
-  rear_inner_radius = torch.amin(torch.abs(axial_coordinate[:, 2:]), dim=1)
-  front_inside_delta = rear_inner_radius - front_outer_radius
-  # A zero-gap default rectangle must not be a half-credit answer.  The
-  # 5-cm margin is the visible "front inside, rear outside" separation used
-  # by the fixed evaluator, while the sigmoid keeps a dense approach signal.
-  front_inside_score = torch.sigmoid(
-    (front_inside_delta - front_inside_margin) / front_inside_scale
-  )
-  # The four wheels must be distinct but tightly packed beneath the body.  The
-  # former ratio-only outer bound let both pairs spread to the full leg width,
-  # which produced the visibly crawling normal-spin pose.  These are compact
-  # wheel-centre envelopes, not desired joint angles or a reference pose.
-  front_pair_spacing = torch.abs(axial_coordinate[:, 0] - axial_coordinate[:, 1])
-  rear_pair_spacing = torch.abs(axial_coordinate[:, 2] - axial_coordinate[:, 3])
-  inner_separation_score = torch.sigmoid(
-    (front_pair_spacing - inner_pair_min_spacing) / 0.02
-  )
-  outer_order_score = torch.sigmoid(
-    (rear_pair_spacing - front_pair_spacing - outer_pair_extra_spacing) / 0.03
-  )
-  front_compact_score = torch.sigmoid(
-    (front_pair_max_spacing - front_pair_spacing) / 0.04
-  )
-  rear_compact_score = torch.sigmoid(
-    (rear_pair_max_spacing - rear_pair_spacing) / 0.05
-  )
-  nested_spacing_score = (
-    front_inside_score
-    * inner_separation_score
-    * outer_order_score
-    * front_compact_score
-    * rear_compact_score
-  )
-  return (
-    parallel_score * horizontal_score * line_score,
-    nested_spacing_score,
-    front_inside_delta,
-    front_pair_spacing,
-    rear_pair_spacing,
-  )
-
-
-def normal_four_wheel_spacing_ok(
-  front_pair_spacing: torch.Tensor,
-  rear_pair_spacing: torch.Tensor,
-  *,
-  inner_pair_min_spacing: float = 0.08,
-  outer_pair_extra_spacing: float = 0.04,
-  front_pair_max_spacing: float = 0.28,
-  rear_pair_max_spacing: float = 0.50,
-) -> torch.Tensor:
-  """Check that normal-spin inner/outer pairs are distinct and compact."""
-  return (
-    (front_pair_spacing >= inner_pair_min_spacing)
-    & (front_pair_spacing <= front_pair_max_spacing)
-    & (rear_pair_spacing >= front_pair_spacing + outer_pair_extra_spacing)
-    & (rear_pair_spacing <= rear_pair_max_spacing)
-  )
+  compact_xy = 1.0 / (1.0 + torch.square(max_radius / compact_xy_radius))
+  return all_axis_parallel, compact_xy
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +306,7 @@ def _stance_spin_components(
   torch.Tensor,
   torch.Tensor,
   torch.Tensor,
+  torch.Tensor,
 ]:
   """Measure a commanded five-mode world-down rotation."""
   if rate_std <= 0.0:
@@ -390,9 +318,9 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Every active mode tracks its signed world-down rate.  Normal is the
-  # folded four-wheel common-axis pivot; the other four modes are named
-  # two-wheel pivots.
+  # Every active mode tracks its signed world-down rate.  A nonzero normal
+  # command is an unlabeled tall front-or-rear two-wheel pivot; the named
+  # one-hots retain their particular support pair.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -440,36 +368,72 @@ def _stance_spin_components(
       * torch.linalg.vector_norm(axle_a[:, :2], dim=1)
     )
 
+  front_rear_pair_coaxiality = torch.stack(
+    (pair_coaxiality(0, 1), pair_coaxiality(2, 3)), dim=1
+  )
   pair_coaxiality_for_mode = torch.stack(
     (
-      pair_coaxiality(0, 1),
-      pair_coaxiality(0, 1),
-      pair_coaxiality(2, 3),
+      front_rear_pair_coaxiality[:, 0],
+      front_rear_pair_coaxiality[:, 0],
+      front_rear_pair_coaxiality[:, 1],
       pair_coaxiality(0, 2),
       pair_coaxiality(1, 3),
     ),
     dim=1,
   )[batch, mode]
-  normal_coaxiality, front_inside_score, _, _, _ = normal_four_wheel_axle_layout(
-    wheel_axles, wheel_positions
-  )
-  support_masks = masks[mode]
-  normal_support_mask = torch.ones_like(support_masks)
-  support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
-  # Four-wheel contact must be a *graded* outcome during discovery.  A product
-  # is zero for one missing wheel and for three missing wheels alike, so it
-  # gave PPO no preference for repairing the low two-wheel crouch visible in
-  # normal-pivot rollouts.  The mean is still exactly one only when every
-  # wheel is grounded, but ranks 3/4 above 2/4 contact without prescribing a
-  # leg pose or a contact sequence.
-  normal_contact_score = torch.mean(contacts, dim=1)
-  contact_score = torch.where(mode == 0, normal_contact_score, contact_score)
-  coaxiality = torch.where(
-    mode == 0,
-    normal_coaxiality * front_inside_score,
-    pair_coaxiality_for_mode,
+
+  # ``normal`` is deliberately a generic high-speed spin, rather than a
+  # false four-contact mode.  Let the physical outcome choose the better of
+  # the front/rear lateral support pairs.  This does not create a hidden
+  # command: the actor sees only its normal one-hot and signed rate.
+  pair_masks = masks[1:3]
+  pair_desired = torch.sum(
+    contacts.unsqueeze(1) * pair_masks.unsqueeze(0), dim=2
+  ) / pair_masks.sum(dim=1).unsqueeze(0).clamp_min(1.0)
+  pair_extra_count = (1.0 - pair_masks).sum(dim=1).unsqueeze(0)
+  pair_extra = torch.sum(
+    contacts.unsqueeze(1) * (1.0 - pair_masks).unsqueeze(0), dim=2
+  ) / pair_extra_count.clamp_min(1.0)
+  pair_contact_score = pair_desired * (1.0 - 0.75 * pair_extra)
+  pair_alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(gravity.unsqueeze(1) * targets[1:3].unsqueeze(0), dim=2)),
+    min=0.0,
+    max=1.0,
   )
   wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+  pair_support_height = torch.sum(
+    wheel_height.unsqueeze(1) * pair_masks.unsqueeze(0), dim=2
+  ) / pair_masks.sum(dim=1).unsqueeze(0).clamp_min(1.0)
+  pair_height_score = torch.clamp(
+    (asset.data.root_link_pos_w[:, 2].unsqueeze(1) - pair_support_height) / 0.45,
+    min=0.0,
+    max=1.0,
+  )
+  pair_support_quality = pair_alignment * (
+    0.65 * pair_contact_score + 0.35 * pair_height_score
+  )
+  normal_support_is_front = pair_support_quality[:, 0] >= pair_support_quality[:, 1]
+  normal_support_quality = torch.amax(pair_support_quality, dim=1)
+  normal_support_mask = torch.where(
+    normal_support_is_front.unsqueeze(1),
+    pair_masks[0].unsqueeze(0),
+    pair_masks[1].unsqueeze(0),
+  )
+  normal_pair_coaxiality = torch.where(
+    normal_support_is_front,
+    front_rear_pair_coaxiality[:, 0],
+    front_rear_pair_coaxiality[:, 1],
+  )
+  normal_all_axis_parallel, normal_compact_xy = normal_two_wheel_pivot_geometry(
+    wheel_axles, wheel_positions, normal_support_is_front
+  )
+  support_masks = masks[mode]
+  support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
+  coaxiality = torch.where(
+    mode == 0,
+    normal_pair_coaxiality,
+    pair_coaxiality_for_mode,
+  )
   fixed_height = (wheel_height * support_mask).sum(dim=1) / support_mask.sum(dim=1).clamp_min(1.0)
   height_score = torch.clamp(
     (asset.data.root_link_pos_w[:, 2] - fixed_height) / 0.45,
@@ -480,21 +444,6 @@ def _stance_spin_components(
     mode == 0,
     coaxiality,
     0.15 + 0.85 * coaxiality,
-  )
-  # Normal's common-axis pivot is a level four-wheel form.  Its previous
-  # quadratic tolerance still made a visibly nose-up pivot worthwhile.
-  normal_alignment_score = torch.pow(alignment, 16.0)
-  alignment_score = torch.where(
-    mode == 0,
-    normal_alignment_score,
-    # Front/rear start in the ordinary four-wheel reset at alignment 0.5.
-    # The previous fourth power suppressed that already contact/height-gated
-    # discovery return to 6.25%, so a zero-rate support curriculum could not
-    # discover the very stance needed before asking for high z-rate.  Keep
-    # the same measured attitude/contact/clearance outcome but expose its
-    # linear physical progress; final validation still requires the strict
-    # two-wheel pose and local pivot.
-    alignment,
   )
   # A front/rear spin command begins from ordinary four-wheel idle.  Its
   # desired attitude is therefore only 0.5 aligned, its target pair has two
@@ -507,13 +456,12 @@ def _stance_spin_components(
   # beneath the required upright-attitude gate for front/rear.  This preserves
   # the unique full-quality endpoint (correct pair, attitude, and height),
   # gives the policy an outcome gradient for initiating the support change,
-  # and specifies neither a leg pose nor a transition trajectory.  Normal and
-  # side modes retain their existing stricter geometry products.
+  # and specifies neither a leg pose nor a transition trajectory.
   upright_support_progress = alignment * (0.65 * contact_score + 0.35 * height_score)
   support_quality = torch.where(
     mode != 0,
     upright_support_progress,
-    contact_score * alignment_score * height_score,
+    normal_support_quality,
   )
   return (
     asset,
@@ -522,9 +470,8 @@ def _stance_spin_components(
     rate_score,
     support_quality,
     coaxial_factor,
-    normal_coaxiality,
-    front_inside_score,
-    normal_contact_score,
+    normal_all_axis_parallel,
+    normal_compact_xy,
     support_mask,
     mode,
   )
@@ -566,9 +513,8 @@ class StanceSpinPivotResult:
       rate_score,
       support_quality,
       coaxial_factor,
-      normal_coaxiality,
-      front_inside_score,
-      normal_contact_score,
+      normal_all_axis_parallel,
+      normal_compact_xy,
       support_mask,
       mode,
     ) = _stance_spin_components(
@@ -586,9 +532,8 @@ class StanceSpinPivotResult:
       wheel_velocity * support_mask.unsqueeze(2)
     ).sum(dim=1) / support_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
     centre_speed = torch.linalg.vector_norm(support_centre_velocity, dim=1)
-    # For normal this is the centroid of all four folded wheels: individual
-    # wheels roll around it during a real in-place yaw spin.  Front/rear and
-    # side modes retain their physical two-wheel support centroid.
+    # Normal selects its physically viable front or rear two-wheel centroid;
+    # named modes retain their requested support-pair centroid.
     # The old late, subtractive penalty permitted a high-rate front/rear form
     # to score while its support axle travelled around a broad floor circle.
     # A local pivot is an inseparable outcome: score rate *and* a stationary
@@ -635,37 +580,17 @@ class StanceSpinPivotResult:
     upright_result = support_quality * (
       discovery_weight + (1.0 - discovery_weight) * dynamic_quality
     )
-    # The normal pivot has one simple causal order: first make the four wheel
-    # centres share an axle and put the front pair inside the rear pair, then
-    # keep that layout local while tracking yaw rate.  The previous geometric
-    # product made either unfinished quantity suppress the other to nearly
-    # zero, so PPO only found a travelling floor circle.  The geometry score
-    # is intentionally an outcome measurement, not a pose or reference
-    # action, and both ingredients must still approach one for the final
-    # maximum.
-    # Both layout facts must improve together.  An arithmetic mean let a
-    # policy collect a substantial return by improving only the easy nesting
-    # measurement while leaving the axle line visibly wrong, which is exactly
-    # the crouched, travelling gait seen in fixed-command rollouts.  The
-    # harmonic mean keeps a non-zero discovery signal from the ordinary
-    # four-wheel rectangle, unlike a raw product, but is governed by the
-    # worse physical measurement and has its unique maximum only when both
-    # the common axle and compact inner/outer ordering are present.
-    normal_geometry = 2.0 * normal_coaxiality * front_inside_score / (
-      normal_coaxiality + front_inside_score
-    ).clamp_min(1.0e-6)
-    normal_dynamic_quality = speed_quality
-    # The AS2W normal pivot is not allowed to improve by lifting a wheel.
-    # ``normal_contact_score`` therefore reaches one only with all four wheels
-    # grounded, while remaining graded enough to repair an exploratory partial
-    # contact formation.  ``normal_geometry`` is likewise a smooth measurable
-    # route from the default rectangle to one common nested axle.
-    # The static geometry fraction prevents rate tracking from being the only
-    # early signal; no pose, joint target, or action reference is introduced.
+    # Fast normal pivots must become tall and two-wheel supported.  It is still
+    # useful to keep the four wheel *axes* parallel and their horizontal
+    # envelope compact, but requiring all four wheels on the floor selected a
+    # crouched crawling turn.  This is an outcome measurement only: it does
+    # not describe a joint pose, a phase, or a trajectory.
+    normal_geometry = normal_all_axis_parallel * normal_compact_xy
     normal_result = (
-      normal_contact_score
+      support_quality
       * normal_geometry
-      * (0.25 + 0.75 * pivot_stillness * normal_dynamic_quality)
+      * (upright_support_weight + (1.0 - upright_support_weight)
+         * pivot_stillness * speed_quality)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 

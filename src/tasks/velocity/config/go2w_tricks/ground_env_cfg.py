@@ -326,11 +326,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
-  # The reference's normal pivot moves the wheel centres from a four-corner
-  # footprint onto one transverse line.  A modest extension beyond the shared
-  # ±0.55-rad residual makes that geometry reachable; the 0.90-rad trial
-  # instead taught wheel liftoff, so retain a ground-contact-safe 0.70-rad
-  # envelope.  This increases no torque limit and supplies no desired pose.
+  # A nonzero normal command must actively rise out of the four-wheel reset
+  # into a tall two-wheel pivot.  A modest extension beyond the shared
+  # ±0.55-rad residual makes that compact reshape reachable without adding a
+  # prescribed joint pose or increasing the model's torque limits.
   cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
   # Discovery needs the wheels to stay planted while legs find the common
   # axle.  With an 80-rad/s residual range, the bounded exploratory policy
@@ -355,10 +354,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   configure_default_idle_actions(
     cfg,
     command_name="trick",
-    # The sampler emits an all-zero vector whenever speed is absent, so this
-    # gate gives every zero-speed request the literal four-wheel default.
+    # Every zero-rate request, including a normal one-hot supplied by an
+    # external caller, uses the literal four-wheel default controller.
     idle_mode_index=None,
-    stationary_command_start_index=0,
+    stationary_command_start_index=5,
     command_deadband=0.20,
     idle_contact_sensor_name=wheel_contact_cfg.name,
   )
@@ -367,7 +366,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # Normal is a folded four-wheel common-axis pivot, not wheel-steering.
+      # Normal is a compact tall two-wheel pivot, not wheel-steering.
       weight=18.0,
       params={
         "command_name": "trick",
@@ -398,21 +397,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  # Keep a hard continuous-contact validity check only for the final
-  # high-rate curriculum.  Earlier stages still gate the pivot outcome on
-  # four-wheel contact, but an instant reset at the first exploratory loss
-  # shortened every rollout to 0.24 s and prevented PPO from discovering a
-  # rolling continuous-contact formation at all.
-  cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
-    func=terminations.normal_spin_support_lost,
-    params={
-      "command_name": "trick",
-      "sensor_name": wheel_contact_cfg.name,
-      "speed_deadband": 0.20,
-      "grace_period_s": 1.5,
-      "enable_after_steps": 115_200,
-    },
-  )
   cfg.curriculum = {
     "spin_commands": CurriculumTermCfg(
       func=trick_curriculums.stance_spin_command_stages,
@@ -421,11 +405,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # The single actor first rediscovers the previously viable normal
-            # four-wheel pivot.  Sampling every incompatible support from
-            # iteration zero erased this bootstrap rather than improving
-            # fusion.  It is still the same public five-way command and one
-            # policy once the other modes enter below.
+            # First discover a compact tall normal pivot from ordinary
+            # four-wheel reset.  Other named supports enter once this same
+            # actor can rise without using its body as a crutch.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -458,11 +440,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Keep a substantial normal replay share while the successful
-            # low-rate supports are accelerated.  The former 2--5 -> 5--10
-            # jump plus 50% switching immediately destroyed the verified
-            # four-wheel pivot, so make the next request overlap in speed and
-            # keep switches rare until each pair can survive on its own.
+            # Keep a substantial normal replay share while the low-rate tall
+            # supports are accelerated.  Make the next request overlap in
+            # speed and keep switches rare until each pair can survive on its
+            # own.
             "step": 140_800,
             "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,

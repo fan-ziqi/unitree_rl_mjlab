@@ -161,44 +161,6 @@ def command_support_lost(
   return (env.episode_length_buf >= grace_steps) & ~desired_present
 
 
-def normal_spin_support_lost(
-  env: ManagerBasedRlEnv,
-  command_name: str,
-  sensor_name: str,
-  speed_deadband: float = 0.20,
-  grace_period_s: float = 2.0,
-  enable_after_steps: int = 0,
-) -> torch.Tensor:
-  """Reject a normal spin that turns by lifting one or more wheels.
-
-  The normal one-hot is the video's folded four-wheel pivot, not a hopping
-  steering turn.  PPO is free to reorganize during the short initial grace
-  interval; after that all four wheels must remain grounded whenever the
-  spin-rate command is active.  This is only a physical contact-validity
-  condition and supplies neither a joint posture nor a motion reference.
-  """
-  if speed_deadband < 0.0 or grace_period_s < 0.0 or enable_after_steps < 0:
-    raise ValueError("normal-spin contact-termination parameters must be non-negative.")
-  if env.common_step_counter < enable_after_steps:
-    return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-  command = env.command_manager.get_command(command_name)
-  if command.shape[1] < 6:
-    raise ValueError("normal spin requires five one-hots and a rate channel.")
-  normal_spinning = (command[:, 0] > 0.5) & (
-    torch.abs(command[:, 5]) > speed_deadband
-  )
-  sensor: ContactSensor = env.scene[sensor_name]
-  found = sensor.data.found
-  assert found is not None
-  contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
-  grace_steps = round(grace_period_s / env.step_dt)
-  return (
-    normal_spinning
-    & (env.episode_length_buf >= grace_steps)
-    & ~torch.all(contacts, dim=1)
-  )
-
-
 class AerialPostLandingRelaunch:
   """Terminate an aerial event that bounces into a second flight.
 
