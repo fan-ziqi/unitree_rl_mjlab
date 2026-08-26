@@ -165,17 +165,15 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # sparse.  Use the measured attitude itself as the continuous route;
         # exact contacts, clearance, and non-wheel collision termination are
         # unchanged.  This is not a joint pose or transition trajectory.
-        # Both one-hots can retain a shallow slanted support at roughly 0.89
-        # orientation alignment.  A sixth power keeps the reset bridge but
-        # makes that visibly incomplete outcome materially worse than a true
-        # upright support, without introducing any joint-pose target.
-        "orientation_power": 6.0,
-        # Contact/clearance now stay a strict support result.  A separate
-        # instantaneous gravity-alignment velocity inside the same term gives
-        # PPO a physical route out of the four-wheel reset without paying a
-        # half-tilted static pose.
-        "orientation_progress_floor": 0.0,
-        "attitude_progress_weight": 0.20,
+        # Target contacts already exclude the four-wheel reset, so use a
+        # moderate orientation power for a useful partial-support gradient.
+        # The measured exact-contact and clearance outcome still gives only
+        # the genuinely inverted two-wheel stand the full return.
+        "orientation_power": 3.0,
+        # This is the existing reset-to-support bridge, now deliberately
+        # smaller than the held-support result so a zero-command balance wins
+        # over repeated high-speed attempts near the target.
+        "attitude_progress_weight": 0.08,
         "attitude_progress_rate_scale": 4.0,
         # The front/rear stances use identical outcome measurements, but the
         # front support discovers first and otherwise consumes the shared

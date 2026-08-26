@@ -124,7 +124,6 @@ def mode_support_score(
   extra_contact_discount: float = 0.75,
   minimum_root_clearance: float | tuple[float, ...] | None = None,
   orientation_power: float = 1.0,
-  orientation_progress_floor: float = 0.0,
   mode_weights: tuple[float, ...] | None = None,
   clearance_power: float = 1.0,
   stationary_command_index: int | None = None,
@@ -171,8 +170,6 @@ def mode_support_score(
     env, command_name
   ).shape[1]:
     raise ValueError("static_command_start_index is outside the command tensor.")
-  if not 0.0 <= orientation_progress_floor < 1.0:
-    raise ValueError("orientation_progress_floor must be in [0, 1).")
   if mode_weights is not None and (
     len(mode_weights) != num_modes or any(weight < 0.0 for weight in mode_weights)
   ):
@@ -248,18 +245,12 @@ def mode_support_score(
     static_command = torch.amax(
       torch.abs(command[:, static_command_start_index:]), dim=1
     ) <= command_deadband
-  # ``orientation`` can intentionally use a high power to suppress the
-  # ordinary four-wheel bypass.  It must not also decide when a physically
-  # recognizable support starts being asked to settle: with the previous
-  # power-eight configuration, ``orientation >= .85`` meant raw alignment
-  # above .98, so the policy could
-  # keep collecting the support result while rocking or translating through
-  # almost every usable two-wheel attempt.  Enter the same stillness outcome
-  # from the unpowered, measured gravity alignment instead.  The moderate
-  # contact/clearance gates leave room to finish rising but switch the return
-  # toward quiet balance before the transient is lost.
-  static_settling = static_command & (alignment >= 0.85) & (support >= 0.60) & (
-    clearance >= 0.60
+  # Enter the existing static-stillness result as soon as a recognizable
+  # partial support exists.  The old 0.85/0.60/0.60 gates were reached only
+  # after the m1200 policy had already flung itself past the target, so zero
+  # command rewarded angular momentum rather than a balance recovery.
+  static_settling = static_command & (alignment >= 0.70) & (support >= 0.35) & (
+    clearance >= 0.40
   )
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:
@@ -288,23 +279,22 @@ def mode_support_score(
   # a four-wheel reset (lift an uncommanded wheel first); clearance completes
   # that same bridge once the selected pair actually bears the robot.
   support_progress = support * (0.65 + 0.35 * clearance)
-  result_progress = orientation_progress_floor + (
-    1.0 - orientation_progress_floor
-  ) * support_progress
-  support_result = orientation * result_progress * stillness
+  support_result = orientation * support_progress * stillness
 
   # A static contact outcome alone is zero at the ordinary four-wheel reset,
   # even though the robot must first rotate toward the requested gravity
-  # direction before a wheel can leave the floor.  Reward only the *instant
-  # physical angular progress* toward that direction.  It vanishes when the
-  # robot holds a half-tilted pose, so unlike a persistent attitude score it
-  # cannot become the local optimum observed in the m600 audit.  This uses no
-  # phase, joint target, or reference trajectory.
+  # direction before a wheel can leave the floor.  Reward instant physical
+  # angular progress only while meaningfully *away* from that target.  The
+  # approach factor removes the previous incentive to keep accelerating at a
+  # nearly correct support, while keeping the same trajectory-free route out
+  # of the reset.
   gravity_rate = -torch.linalg.cross(asset.data.root_link_ang_vel_b, gravity)
   alignment_rate = torch.sum(gravity_rate * targets[mode], dim=1)
   attitude_progress = torch.clamp(
     alignment_rate / attitude_progress_rate_scale, min=0.0, max=1.0
   )
+  approach_fraction = torch.clamp(2.0 * (1.0 - alignment), min=0.0, max=1.0)
+  attitude_progress = attitude_progress * approach_fraction
   result = active.to(orientation.dtype) * (
     support_result + attitude_progress_weight * attitude_progress
   )
