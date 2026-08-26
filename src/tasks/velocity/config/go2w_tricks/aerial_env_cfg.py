@@ -178,8 +178,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
-        "target_upward_speed": 1.75,
-        "target_duration": 0.35,
+        # The m1000 failures reached only 0.19--0.27 m and roughly 0.4 s of
+        # flight: enough to crash through a turn but not to brake and recover
+        # a wheel package.  Ask for a longer measured ballistic result, not a
+        # takeoff pose or timing trace.
+        "target_upward_speed": 2.15,
+        "target_duration": 0.42,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -212,14 +216,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
         # The m600 short-hop replay does not leave enough time after 40% of a
         # turn for a dangling link to recover above the wheels.  Start paying
-        # this same wheel-lowest physical outcome at 30% so it can influence
-        # the rest of a genuinely long flight; it still contains no leg pose.
-        "minimum_turn_fraction": 0.30,
+        # the same wheel-lowest physical outcome once rotation is plainly
+        # underway, leaving PPO free to choose its own limb timing.
+        "minimum_turn_fraction": 0.10,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
         "minimum_clearance_for_progress": -0.30,
-        "target_clearance": 0.10,
+        "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
     ),
@@ -261,7 +265,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # times more profitable than a quiet landing.  Rotation is normalized
       # above; this matched terminal scale now makes a partial turn better
       # than zero, but worse than completing the same one event.
-      weight=-350.0,
+      weight=-500.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
@@ -277,7 +281,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # recovery.  The completion term remains the only way to erase this
         # base outcome cost.
         "early_non_timeout_base_cost": 0.0,
-        "final_non_timeout_base_cost": 0.50,
+        "final_non_timeout_base_cost": 1.0,
         # Let PPO first rediscover a legal launch/turn, then steadily make an
         # illegal partial touchdown lose to the quiet four-wheel endpoint.
         # These steps correspond to roughly iterations 400--800 at the
@@ -336,10 +340,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
   # emitted command is still one complete 2π event from the first sample.
-  # Each one-hot shares this one actor.  After the common launch and the two
-  # side-turn landings have been discovered, concentrate rollout evidence on
-  # the three still-unfinished conditional outcomes while retaining both
-  # solved directions as maintenance data.
+  # Each one-hot shares this one actor.  The m1000 audit showed easy yaw
+  # monopolizing the actor while every body-axis turn still crashed.  Give
+  # front/back/left/right shared ballistic discovery data first, then add yaw
+  # maintenance and finally restore the true five-way task distribution.
   cfg.curriculum = {
     "aerial_commands": CurriculumTermCfg(
       func=trick_curriculums.aerial_command_stages,
@@ -349,15 +353,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           {
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
           },
           {
-            # At m1000, fixed-command audits show left/right are already
-            # solved but front/back/yaw are not.  This is sampler allocation
-            # only: all five one-hots still enter exactly the same policy.
-            "step": 48_000,
+            # Keep a small yaw replay only after the four body-axis branches
+            # have had 800 updates.  This remains one policy and one command.
+            "step": 51_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.30, 0.24, 0.08, 0.08, 0.30),
+            "mode_probabilities": (0.23, 0.23, 0.23, 0.23, 0.08),
+          },
+          {
+            # The final phase is the actual uniform five-direction task.
+            "step": 89_600,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
           },
         ),
       },

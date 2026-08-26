@@ -384,8 +384,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg.rewards = {
     "commanded_spin_pivot": RewardTermCfg(
       func=trick_rewards.StanceSpinPivotResult,
-      # Normal is a compact level four-wheel pivot, not wheel-steering.
-      weight=18.0,
+      # Normal is a compact level four-wheel pivot, not wheel-steering.  At
+      # weight 18, the -50 collision boundary made leaving ordinary idle a
+      # bad exploration trade before PPO ever sampled a better geometry.
+      # This matches the practical scale of the proven support objective;
+      # no target or action authority changes.
+      weight=80.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -424,6 +428,41 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # dense measured-rate component merely makes acceleration toward it
         # discoverable without adding a pose or transition target.
         "rate_progress_weight": 0.50,
+        # The separate held-support term below is the sole zero-rate named
+        # outcome, so two incompatible products cannot compete for it.
+        "static_support_weight": 0.0,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_static_support": RewardTermCfg(
+      func=trick_rewards.mode_support_score,
+      # A named zero-rate one-hot is a static two-wheel outcome.  Reuse the
+      # direct contact/attitude/clearance result that gives the locomotion
+      # task a route out of four-wheel idle; it contains no leg pose or
+      # transition reference.
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "sensor_name": wheel_contact_cfg.name,
+        "num_modes": 5,
+        "extra_contact_discount": 1.0,
+        "minimum_root_clearance": (0.18, 0.35, 0.35, 0.30, 0.30),
+        "orientation_power": 1.0,
+        "clearance_power": 1.0,
+        # The rate channel alone distinguishes a held support from a pivot.
+        "stationary_command_index": 5,
+        "static_command_start_index": 5,
+        "command_deadband": 0.20,
+        "static_angular_velocity_scale": 0.80,
+        "static_linear_velocity_scale": 0.12,
+        "static_stillness_floor": 0.0,
+        # This measured attitude-rate bridge is active only away from the
+        # outcome, so it cannot reward a permanent fling.
+        "attitude_progress_weight": 0.12,
+        "attitude_progress_rate_scale": 4.0,
         "asset_cfg": _support_wheels(),
       },
     ),

@@ -495,6 +495,7 @@ class StanceSpinPivotResult:
     normal_geometry_decay_start_steps: int = 38_400,
     normal_geometry_decay_steps: int = 25_600,
     rate_progress_weight: float = 0.75,
+    static_support_weight: float = 1.0,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0 or normal_min_root_clearance <= 0.0:
       raise ValueError("pivot_speed_limit and normal_min_root_clearance must be positive.")
@@ -506,6 +507,8 @@ class StanceSpinPivotResult:
       raise ValueError("normal geometry decay steps must be non-negative/positive.")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
+    if not 0.0 <= static_support_weight <= 1.0:
+      raise ValueError("static_support_weight must be in [0, 1].")
     (
       asset,
       active,
@@ -636,7 +639,11 @@ class StanceSpinPivotResult:
     dynamic_or_upright_static = torch.where(
       moving,
       dynamic_result,
-      torch.where(upright_mode, upright_static_result, torch.zeros_like(dynamic_result)),
+      torch.where(
+        upright_mode,
+        static_support_weight * upright_static_result,
+        torch.zeros_like(dynamic_result),
+      ),
     )
     return active.to(rate_score.dtype) * dynamic_or_upright_static
 
