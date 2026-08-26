@@ -582,24 +582,23 @@ class StanceSpinPivotResult:
     # at the required 0.12-m/s local centre speed.
     dynamic_modes = mode <= 2  # normal/front/rear: real high-rate pivots.
     # ``rate_score`` is deliberately strict near the final requested speed,
-    # but has no gradient once the error exceeds ``std``.  That left the
-    # policy satisfied with the common-axis geometry while rotating at only
-    # about 1 rad/s for a 10--18 rad/s request.  The signed, normalized
-    # measured z-rate supplies the missing dense route to that same final
-    # target.  It is gated by the identical support/coaxial/local-pivot
-    # outcome, so spinning in the air, travelling on a floor circle, or
-    # reversing direction never earns it.  This is active continuously in
-    # both one-hot segments: a switch that brakes or reverses necessarily
-    # loses the reward rather than being treated as a fresh manoeuvre.
+    # but has no gradient once the error exceeds ``std``.  Pair it with a
+    # signed triangular progress measurement: it rises from zero to the
+    # requested rate, then falls again when the policy overshoots.  The old
+    # one-sided clamp stayed saturated above target and directly taught the
+    # visibly over-fast 4--5-rad/s pivot for a 0.75-rad/s command.
     command = _command(env, command_name)
     gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
     actual_down_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
     requested_rate = command[:, 5]
-    signed_rate_progress = torch.clamp(
-      actual_down_rate * torch.sign(requested_rate)
-      / torch.abs(requested_rate).clamp_min(speed_deadband),
-      min=0.0,
-      max=1.0,
+    signed_rate_ratio = (
+      actual_down_rate
+      * torch.sign(requested_rate)
+      / torch.abs(requested_rate).clamp_min(speed_deadband)
+    )
+    signed_rate_progress = (
+      torch.clamp(signed_rate_ratio, min=0.0, max=1.0)
+      * torch.clamp(2.0 - signed_rate_ratio, min=0.0, max=1.0)
     )
     def upright_pivot_result(
       candidate_support: torch.Tensor,
@@ -613,8 +612,11 @@ class StanceSpinPivotResult:
       candidate_stillness = 1.0 / (
         1.0 + torch.square(candidate_speed / pivot_speed_limit)
       )
-      dynamic_quality = candidate_coaxial_factor * candidate_stillness * (
-        rate_score + rate_progress_weight * signed_rate_progress
+      speed_quality = (1.0 - rate_progress_weight) * rate_score + (
+        rate_progress_weight * signed_rate_progress
+      )
+      dynamic_quality = (
+        candidate_coaxial_factor * candidate_stillness * speed_quality
       )
       return candidate_support * (
         upright_support_weight + (1.0 - upright_support_weight) * dynamic_quality
