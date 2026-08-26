@@ -372,9 +372,10 @@ def _stance_spin_components(
   contact_masks: tuple[tuple[float, float, float, float], ...],
   sensor_name: str,
   asset_cfg: SceneEntityCfg,
-  mode_override: torch.Tensor | None = None,
 ) -> tuple[
   Entity,
+  torch.Tensor,
+  torch.Tensor,
   torch.Tensor,
   torch.Tensor,
   torch.Tensor,
@@ -391,14 +392,9 @@ def _stance_spin_components(
 
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
-  if mode_override is not None:
-    if mode_override.shape != mode.shape:
-      raise ValueError("mode_override must have one mode index per environment.")
-    mode = mode_override
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Normal/front/rear track a world-down rate.  A nonzero normal command is
-  # evaluated against the best front/rear support later; front/rear select
-  # their named two-wheel pivot directly.
+  # Normal/front/rear track a world-down rate.  Normal is the video's folded
+  # four-wheel common-axis pivot; front/rear are their named two-wheel pivots.
   moving = active & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -456,9 +452,19 @@ def _stance_spin_components(
     ),
     dim=1,
   )[batch, mode]
+  normal_coaxiality, front_inside_score, _, _, _ = normal_four_wheel_axle_layout(
+    wheel_axles, wheel_positions
+  )
   support_masks = masks[mode]
-  support_mask = support_masks
-  coaxiality = pair_coaxiality_for_mode
+  normal_support_mask = torch.ones_like(support_masks)
+  support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
+  normal_contact_score = torch.prod(contacts, dim=1)
+  contact_score = torch.where(mode == 0, normal_contact_score, contact_score)
+  coaxiality = torch.where(
+    mode == 0,
+    normal_coaxiality * front_inside_score,
+    pair_coaxiality_for_mode,
+  )
   wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
   fixed_height = (wheel_height * support_mask).sum(dim=1) / support_mask.sum(dim=1).clamp_min(1.0)
   height_score = torch.clamp(
@@ -466,11 +472,20 @@ def _stance_spin_components(
     min=0.0,
     max=1.0,
   )
-  coaxial_factor = 0.15 + 0.85 * coaxiality
+  coaxial_factor = torch.where(
+    mode == 0,
+    coaxiality,
+    0.15 + 0.85 * coaxiality,
+  )
   side_alignment_score = torch.square(alignment) * (
     0.20 + 0.80 * torch.square(alignment)
   )
+  # Normal's common-axis pivot is a level four-wheel form.  Its previous
+  # quadratic tolerance still made a visibly nose-up pivot worthwhile.
+  normal_alignment_score = torch.pow(alignment, 16.0)
   alignment_score = torch.where(
+    mode == 0,
+    normal_alignment_score,
     # Front/rear start in the ordinary four-wheel reset at alignment 0.5.
     # The previous fourth power suppressed that already contact/height-gated
     # discovery return to 6.25%, so a zero-rate support curriculum could not
@@ -478,7 +493,7 @@ def _stance_spin_components(
     # the same measured attitude/contact/clearance outcome but expose its
     # linear physical progress; final validation still requires the strict
     # two-wheel pose and local pivot.
-    mode <= 2, alignment, side_alignment_score
+    torch.where(mode <= 2, alignment, side_alignment_score),
   )
   # A front/rear spin command begins from ordinary four-wheel idle.  Its
   # desired attitude is therefore only 0.5 aligned, its target pair has two
@@ -491,7 +506,8 @@ def _stance_spin_components(
   # beneath the required upright-attitude gate for front/rear.  This preserves
   # the unique full-quality endpoint (correct pair, attitude, and height),
   # gives the policy an outcome gradient for initiating the support change,
-  # and specifies neither a leg pose nor a transition trajectory.
+  # and specifies neither a leg pose nor a transition trajectory.  Normal and
+  # side modes retain their existing stricter geometry products.
   upright_support_progress = alignment * (0.65 * contact_score + 0.35 * height_score)
   support_quality = torch.where(
     (mode == 1) | (mode == 2),
@@ -505,6 +521,9 @@ def _stance_spin_components(
     rate_score,
     support_quality,
     coaxial_factor,
+    normal_coaxiality,
+    front_inside_score,
+    normal_contact_score,
     support_mask,
     mode,
   )
@@ -513,9 +532,8 @@ def _stance_spin_components(
 class StanceSpinPivotResult:
   """Reward one fused policy's dynamic pivots and static side supports.
 
-  A nonzero normal command may use either video-faithful tall front/rear
-  support; front/rear select their named horizontal axle.  Left/right are
-  static side supports.
+  Normal uses the folded four-wheel common-axis layout.  Front/rear use their
+  named horizontal support axle; left/right are static side supports.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -557,6 +575,9 @@ class StanceSpinPivotResult:
       rate_score,
       support_quality,
       coaxial_factor,
+      normal_coaxiality,
+      front_inside_score,
+      normal_contact_score,
       support_mask,
       mode,
     ) = _stance_spin_components(
@@ -574,19 +595,22 @@ class StanceSpinPivotResult:
       wheel_velocity * support_mask.unsqueeze(2)
     ).sum(dim=1) / support_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
     centre_speed = torch.linalg.vector_norm(support_centre_velocity, dim=1)
+    # For normal this is the centroid of all four folded wheels: individual
+    # wheels roll around it during a real in-place yaw spin.  Front/rear and
+    # side modes retain their physical two-wheel support centroid.
     # The old late, subtractive penalty permitted a high-rate front/rear form
     # to score while its support axle travelled around a broad floor circle.
     # A local pivot is an inseparable outcome: score rate *and* a stationary
     # support centre together.  The rational form is smooth from the reset,
     # but a 0.40-m/s travelling pair receives only 8% of the result available
     # at the required 0.12-m/s local centre speed.
+    pivot_stillness = 1.0 / (1.0 + torch.square(centre_speed / pivot_speed_limit))
     dynamic_modes = mode <= 2  # normal/front/rear: real high-rate pivots.
     # ``rate_score`` is deliberately strict near the final requested speed,
     # but has no gradient once the error exceeds ``std``.  Pair it with a
     # signed triangular progress measurement: it rises from zero to the
-    # requested rate, then falls again when the policy overshoots.  The old
-    # one-sided clamp stayed saturated above target and directly taught the
-    # visibly over-fast 4--5-rad/s pivot for a 0.75-rad/s command.
+    # requested rate and falls again after overshoot.  This preserves a dense
+    # acceleration signal without rewarding a faster-than-commanded pivot.
     command = _command(env, command_name)
     gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
     actual_down_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
@@ -600,27 +624,12 @@ class StanceSpinPivotResult:
       torch.clamp(signed_rate_ratio, min=0.0, max=1.0)
       * torch.clamp(2.0 - signed_rate_ratio, min=0.0, max=1.0)
     )
-    def upright_pivot_result(
-      candidate_support: torch.Tensor,
-      candidate_coaxial_factor: torch.Tensor,
-      candidate_mask: torch.Tensor,
-    ) -> torch.Tensor:
-      candidate_velocity = (
-        wheel_velocity * candidate_mask.unsqueeze(2)
-      ).sum(dim=1) / candidate_mask.sum(dim=1, keepdim=True).clamp_min(1.0)
-      candidate_speed = torch.linalg.vector_norm(candidate_velocity, dim=1)
-      candidate_stillness = 1.0 / (
-        1.0 + torch.square(candidate_speed / pivot_speed_limit)
-      )
-      speed_quality = (1.0 - rate_progress_weight) * rate_score + (
-        rate_progress_weight * signed_rate_progress
-      )
-      dynamic_quality = (
-        candidate_coaxial_factor * candidate_stillness * speed_quality
-      )
-      return candidate_support * (
-        upright_support_weight + (1.0 - upright_support_weight) * dynamic_quality
-      )
+    speed_quality = (1.0 - rate_progress_weight) * rate_score + (
+      rate_progress_weight * signed_rate_progress
+    )
+    dynamic_quality = coaxial_factor * pivot_stillness * (
+      speed_quality
+    )
     # Front/rear starts at the ordinary four-wheel reset with near-zero
     # commanded-rate score.  Multiplying that zero by every support factor
     # gives PPO no path to discover the physically reachable two-wheel form.
@@ -628,33 +637,45 @@ class StanceSpinPivotResult:
     # remaining value still requires the co-axial, commanded-rate,
     # stationary-centre pivot.
     upright_mode = (mode == 1) | (mode == 2)
-    upright_result = upright_pivot_result(
-      support_quality, coaxial_factor, support_mask
+    discovery_weight = torch.where(
+      upright_mode,
+      torch.full_like(support_quality, upright_support_weight),
+      torch.zeros_like(support_quality),
     )
-    # The high-speed AS2W pivot visibly uses one tall front or rear wheel
-    # pair, never four wheels forced onto one ground line.  ``normal`` keeps
-    # the compact public one-hot interface while permitting either measured
-    # pair; the explicit front/rear one-hots below remain distinguishable.
-    normal_result = torch.zeros_like(upright_result)
-    if bool(torch.any(mode == 0)):
-      front_mode = torch.full_like(mode, 1)
-      rear_mode = torch.full_like(mode, 2)
-      front_components = _stance_spin_components(
-        env, command_name, speed_deadband, std, gravity_targets, contact_masks,
-        sensor_name, asset_cfg, mode_override=front_mode,
-      )
-      rear_components = _stance_spin_components(
-        env, command_name, speed_deadband, std, gravity_targets, contact_masks,
-        sensor_name, asset_cfg, mode_override=rear_mode,
-      )
-      normal_result = torch.maximum(
-        upright_pivot_result(
-          front_components[4], front_components[5], front_components[6]
-        ),
-        upright_pivot_result(
-          rear_components[4], rear_components[5], rear_components[6]
-        ),
-      )
+    upright_result = support_quality * (
+      discovery_weight + (1.0 - discovery_weight) * dynamic_quality
+    )
+    # The normal pivot has one simple causal order: first make the four wheel
+    # centres share an axle and put the front pair inside the rear pair, then
+    # keep that layout local while tracking yaw rate.  The previous geometric
+    # product made either unfinished quantity suppress the other to nearly
+    # zero, so PPO only found a travelling floor circle.  The geometry score
+    # is intentionally an outcome measurement, not a pose or reference
+    # action, and both ingredients must still approach one for the final
+    # maximum.
+    # Both layout facts must improve together.  An arithmetic mean let a
+    # policy collect a substantial return by improving only the easy nesting
+    # measurement while leaving the axle line visibly wrong, which is exactly
+    # the crouched, travelling gait seen in fixed-command rollouts.  The
+    # harmonic mean keeps a non-zero discovery signal from the ordinary
+    # four-wheel rectangle, unlike a raw product, but is governed by the
+    # worse physical measurement and has its unique maximum only when both
+    # the common axle and compact inner/outer ordering are present.
+    normal_geometry = 2.0 * normal_coaxiality * front_inside_score / (
+      normal_coaxiality + front_inside_score
+    ).clamp_min(1.0e-6)
+    normal_dynamic_quality = speed_quality
+    # The AS2W normal pivot is not allowed to improve by lifting a wheel.
+    # The actual four-wheel contact product is therefore a hard factor from
+    # the first rollout, while ``normal_geometry`` itself remains a smooth
+    # measurable route from the default rectangle to one common nested axle.
+    # The static geometry fraction prevents rate tracking from being the only
+    # early signal; no pose, joint target, or action reference is introduced.
+    normal_result = (
+      normal_contact_score
+      * normal_geometry
+      * (0.25 + 0.75 * pivot_stillness * normal_dynamic_quality)
+    )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 
     # Side support is the remaining two requested one-hots, not a failed
