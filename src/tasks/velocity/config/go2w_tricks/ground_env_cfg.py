@@ -382,7 +382,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # gradient before either direction could spin.  This is a discovery
         # scale, not the acceptance threshold: the evaluator still requires
         # a visibly local support midpoint.
-        "pivot_speed_limit": 0.18,
+        "pivot_speed_limit": 0.12,
         "upright_support_weight": 0.20,
         # A two-wheel stand is an essential early discovery bridge, but after
         # the normal-only bootstrap its fixed return would let PPO ignore the

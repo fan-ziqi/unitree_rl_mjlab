@@ -410,7 +410,11 @@ def _stance_spin_components(
     min=0.0,
     max=1.0,
   )
-  pair_support_quality = pair_alignment * (
+  # A shallow diagonal support was a stable local optimum at about 0.81
+  # alignment.  Squaring the same physical attitude outcome leaves a smooth
+  # discovery signal from reset but makes a visibly upright lateral axle
+  # materially more valuable than that tilted form.
+  pair_support_quality = torch.square(pair_alignment) * (
     0.65 * pair_contact_score + 0.35 * pair_height_score
   )
   normal_support_is_front = pair_support_quality[:, 0] >= pair_support_quality[:, 1]
