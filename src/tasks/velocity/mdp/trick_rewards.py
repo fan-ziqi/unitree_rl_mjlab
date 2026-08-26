@@ -62,12 +62,12 @@ def normal_four_wheel_axle_layout(
   wheel_positions: torch.Tensor,
   *,
   line_scale: float = 0.07,
-  front_inside_margin: float = 0.05,
-  front_inside_scale: float = 0.06,
-  inner_pair_min_spacing: float = 0.10,
-  outer_pair_extra_spacing: float = 0.10,
-  outer_pair_max_ratio: float = 1.75,
-  outer_pair_max_bias: float = 0.04,
+  front_inside_margin: float = 0.03,
+  front_inside_scale: float = 0.04,
+  inner_pair_min_spacing: float = 0.08,
+  outer_pair_extra_spacing: float = 0.04,
+  front_pair_max_spacing: float = 0.28,
+  rear_pair_max_spacing: float = 0.50,
 ) -> tuple[
   torch.Tensor,
   torch.Tensor,
@@ -91,8 +91,8 @@ def normal_four_wheel_axle_layout(
     or front_inside_scale <= 0.0
     or inner_pair_min_spacing <= 0.0
     or outer_pair_extra_spacing <= 0.0
-    or outer_pair_max_ratio <= 1.0
-    or outer_pair_max_bias < 0.0
+    or front_pair_max_spacing <= inner_pair_min_spacing
+    or rear_pair_max_spacing <= front_pair_max_spacing
   ):
     raise ValueError("layout scales must be positive.")
 
@@ -132,31 +132,30 @@ def normal_four_wheel_axle_layout(
   front_inside_score = torch.sigmoid(
     (front_inside_delta - front_inside_margin) / front_inside_scale
   )
-  # A nesting-only score admits the failure seen in the recording: the two
-  # inner wheels collapse together while the outer pair spreads excessively.
-  # The reference has four distinct centres ordered along one axle.  These
-  # are measured wheel-centre spacings, never desired joint angles.
+  # The four wheels must be distinct but tightly packed beneath the body.  The
+  # former ratio-only outer bound let both pairs spread to the full leg width,
+  # which produced the visibly crawling normal-spin pose.  These are compact
+  # wheel-centre envelopes, not desired joint angles or a reference pose.
   front_pair_spacing = torch.abs(axial_coordinate[:, 0] - axial_coordinate[:, 1])
   rear_pair_spacing = torch.abs(axial_coordinate[:, 2] - axial_coordinate[:, 3])
   inner_separation_score = torch.sigmoid(
-    (front_pair_spacing - inner_pair_min_spacing) / 0.025
+    (front_pair_spacing - inner_pair_min_spacing) / 0.02
   )
   outer_order_score = torch.sigmoid(
-    (rear_pair_spacing - front_pair_spacing - outer_pair_extra_spacing) / 0.04
+    (rear_pair_spacing - front_pair_spacing - outer_pair_extra_spacing) / 0.03
   )
-  outer_bound_score = torch.sigmoid(
-    (
-      outer_pair_max_ratio * front_pair_spacing
-      + outer_pair_max_bias
-      - rear_pair_spacing
-    )
-    / 0.06
+  front_compact_score = torch.sigmoid(
+    (front_pair_max_spacing - front_pair_spacing) / 0.04
+  )
+  rear_compact_score = torch.sigmoid(
+    (rear_pair_max_spacing - rear_pair_spacing) / 0.05
   )
   nested_spacing_score = (
     front_inside_score
     * inner_separation_score
     * outer_order_score
-    * outer_bound_score
+    * front_compact_score
+    * rear_compact_score
   )
   return (
     parallel_score * horizontal_score * line_score,
@@ -171,19 +170,17 @@ def normal_four_wheel_spacing_ok(
   front_pair_spacing: torch.Tensor,
   rear_pair_spacing: torch.Tensor,
   *,
-  inner_pair_min_spacing: float = 0.10,
-  outer_pair_extra_spacing: float = 0.10,
-  outer_pair_max_ratio: float = 1.75,
-  outer_pair_max_bias: float = 0.04,
+  inner_pair_min_spacing: float = 0.08,
+  outer_pair_extra_spacing: float = 0.04,
+  front_pair_max_spacing: float = 0.28,
+  rear_pair_max_spacing: float = 0.50,
 ) -> torch.Tensor:
   """Check that normal-spin inner/outer pairs are distinct and compact."""
   return (
     (front_pair_spacing >= inner_pair_min_spacing)
+    & (front_pair_spacing <= front_pair_max_spacing)
     & (rear_pair_spacing >= front_pair_spacing + outer_pair_extra_spacing)
-    & (
-      rear_pair_spacing
-      <= outer_pair_max_ratio * front_pair_spacing + outer_pair_max_bias
-    )
+    & (rear_pair_spacing <= rear_pair_max_spacing)
   )
 
 
