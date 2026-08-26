@@ -459,7 +459,13 @@ def _stance_spin_components(
   support_masks = masks[mode]
   normal_support_mask = torch.ones_like(support_masks)
   support_mask = torch.where((mode == 0).unsqueeze(1), normal_support_mask, support_masks)
-  normal_contact_score = torch.prod(contacts, dim=1)
+  # Four-wheel contact must be a *graded* outcome during discovery.  A product
+  # is zero for one missing wheel and for three missing wheels alike, so it
+  # gave PPO no preference for repairing the low two-wheel crouch visible in
+  # normal-pivot rollouts.  The mean is still exactly one only when every
+  # wheel is grounded, but ranks 3/4 above 2/4 contact without prescribing a
+  # leg pose or a contact sequence.
+  normal_contact_score = torch.mean(contacts, dim=1)
   contact_score = torch.where(mode == 0, normal_contact_score, contact_score)
   coaxiality = torch.where(
     mode == 0,
@@ -653,9 +659,10 @@ class StanceSpinPivotResult:
     ).clamp_min(1.0e-6)
     normal_dynamic_quality = speed_quality
     # The AS2W normal pivot is not allowed to improve by lifting a wheel.
-    # The actual four-wheel contact product is therefore a hard factor from
-    # the first rollout, while ``normal_geometry`` itself remains a smooth
-    # measurable route from the default rectangle to one common nested axle.
+    # ``normal_contact_score`` therefore reaches one only with all four wheels
+    # grounded, while remaining graded enough to repair an exploratory partial
+    # contact formation.  ``normal_geometry`` is likewise a smooth measurable
+    # route from the default rectangle to one common nested axle.
     # The static geometry fraction prevents rate tracking from being the only
     # early signal; no pose, joint target, or action reference is introduced.
     normal_result = (
