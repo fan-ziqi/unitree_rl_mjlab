@@ -445,23 +445,26 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Start slow dynamic front/rear pivots and direct changes once
-            # each support has a static discovery window.
-            "step": 64_000,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            # Keep the same low-rate, no-switch distribution for a full
+            # 1,000 iterations of two-wheel discovery.  Raising rate and
+            # reducing normal to 30% here caused immediate forgetting before
+            # any named support was stable.
+            "step": 102_400,
+            "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.25,
+            "direct_switch_probability": 0.10,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # All five modes retain the rate through direct dynamic switches.
-            "step": 102_400,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            # Keep a substantial normal replay share while the successful
+            # low-rate supports are accelerated and cross-mode switches grow.
+            "step": 128_000,
+            "mode_probabilities": (0.35, 0.25, 0.25, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.60,
+            "direct_switch_probability": 0.50,
             "spin_rate_range": (5.0, 10.0),
             "resampling_time_range": (6.0, 6.0),
           },
@@ -469,7 +472,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Keep a full 600-iteration budget at the reference-rate range;
             # the previous 1,800-iteration run entered this final stage only
             # at its final update, so it never trained the requested skill.
-            "step": 128_000,
+            "step": 153_600,
             "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
