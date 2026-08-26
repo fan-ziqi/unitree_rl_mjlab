@@ -557,7 +557,6 @@ class StanceSpinPivotResult:
     side_support_weight: float = 0.25,
     side_pivot_speed_limit: float = 0.35,
     rate_progress_weight: float = 0.75,
-    normal_wheel_lift_cost: float = 0.25,
   ) -> torch.Tensor:
     if pivot_speed_limit <= 0.0:
       raise ValueError("pivot_speed_limit must be positive.")
@@ -569,8 +568,6 @@ class StanceSpinPivotResult:
       raise ValueError("side_pivot_speed_limit must be positive.")
     if not 0.0 <= rate_progress_weight <= 1.0:
       raise ValueError("rate_progress_weight must be in [0, 1].")
-    if normal_wheel_lift_cost < 0.0:
-      raise ValueError("normal_wheel_lift_cost must be non-negative.")
     (
       asset,
       active,
@@ -668,18 +665,15 @@ class StanceSpinPivotResult:
     ).clamp_min(1.0e-6)
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
     # The AS2W normal pivot is not allowed to improve by lifting a wheel.
-    # A zero contact gate alone only withholds reward during an airborne frame:
-    # it still lets a hopping gait collect the geometry/rate return whenever it
-    # happens to touch down.  Charge every missing-contact frame inside this
-    # same physical outcome, so repeated wheel lift is worse than preserving
-    # the default contact while discovering the geometry.  Unlike an immediate
-    # terminal reset, the policy still receives a full rollout in which to
-    # discover a continuous-contact path from the default rectangle.
+    # The actual four-wheel contact product is therefore a hard factor from
+    # the first rollout, while ``normal_geometry`` itself remains a smooth
+    # measurable route from the default rectangle to one common nested axle.
+    # The static geometry fraction prevents rate tracking from being the only
+    # early signal; no pose, joint target, or action reference is introduced.
     normal_result = (
       normal_contact_score
       * normal_geometry
       * (0.25 + 0.75 * pivot_stillness * normal_dynamic_quality)
-      - normal_wheel_lift_cost * (1.0 - normal_contact_score)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 

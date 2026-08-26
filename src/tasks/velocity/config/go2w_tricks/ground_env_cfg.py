@@ -389,11 +389,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # dense measured-rate component merely makes acceleration toward it
         # discoverable without adding a pose or transition target.
         "rate_progress_weight": 0.50,
-        # Normal pivoting must be a four-wheel ground motion.  This is a
-        # per-frame physical cost for dropping any wheel, applied inside the
-        # same outcome score; it prevents an intermittent-contact circle from
-        # being rewarded without hard-resetting every early PPO exploration.
-        "normal_wheel_lift_cost": 0.25,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -406,10 +401,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   # Keep a hard continuous-contact validity check only for the final
-  # high-rate curriculum.  Earlier stages use the direct per-frame lift cost
-  # above: instant reset at the first exploratory contact loss shortened
-  # every rollout to 0.24 s and prevented PPO from discovering a rolling
-  # continuous-contact formation at all.
+  # high-rate curriculum.  Earlier stages still gate the pivot outcome on
+  # four-wheel contact, but an instant reset at the first exploratory loss
+  # shortened every rollout to 0.24 s and prevented PPO from discovering a
+  # rolling continuous-contact formation at all.
   cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
     func=terminations.normal_spin_support_lost,
     params={
