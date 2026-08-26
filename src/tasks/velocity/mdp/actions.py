@@ -92,6 +92,11 @@ class DefaultIdleGatedJointPositionActionCfg(JointPositionActionCfg):
   command_deadband: float = 0.05
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
+  # When an explicit normal-mode one-hot is also an idle request, retain the
+  # literal all-zero command as idle too.  Spin uses this to distinguish
+  # normal@0 (four-wheel default) from front/rear/left/right@0 (a requested
+  # static two-wheel support that must retain policy authority).
+  zero_mode_vector_is_idle: bool = False
   # A moving four-wheel command uses wheels for x/yaw control.  When this is
   # set, its legs retain the literal model-default position once normal
   # four-wheel support is established; a transition from another stance is
@@ -116,6 +121,7 @@ class DefaultIdleGatedJointVelocityActionCfg(JointVelocityActionCfg):
   command_deadband: float = 0.05
   idle_contact_sensor_name: str = ""
   idle_gravity_alignment: float = 0.98
+  zero_mode_vector_is_idle: bool = False
   hold_default_position_mode_index: int | None = None
 
   def build(self, env: ManagerBasedRlEnv) -> DefaultIdleGatedJointVelocityAction:
@@ -152,10 +158,8 @@ class _DefaultIdleGate:
   def _default_idle_mask(self) -> torch.Tensor:
     command = self._idle_command.command
     if self.cfg.idle_mode_index is None:
-      # Aerial uses index zero, so this remains its all-zero event test.
-      # Spin instead starts at its final rate channel: any public one-hot with
-      # zero spin rate is the requested ordinary four-wheel idle, while a
-      # nonzero rate immediately releases policy authority for the pivot.
+      # Aerial's public event command has no stance one-hot, so a zero event
+      # vector is its default idle state.
       if not 0 <= self.cfg.stationary_command_start_index <= command.shape[1]:
         raise ValueError("stationary_command_start_index is outside the command vector.")
       return torch.linalg.vector_norm(
@@ -168,7 +172,17 @@ class _DefaultIdleGate:
     stationary = torch.linalg.vector_norm(
       command[:, self.cfg.stationary_command_start_index :], dim=1
     ) <= self.cfg.command_deadband
-    return (command[:, self.cfg.idle_mode_index] > 0.5) & stationary
+    selected_idle = command[:, self.cfg.idle_mode_index] > 0.5
+    if self.cfg.zero_mode_vector_is_idle:
+      # The stance prefix is separate from the stationary public channels.
+      # No-one-hot is a literal untriggered command; do not accidentally
+      # classify a named static one-hot as idle merely because its rate is
+      # zero.
+      no_mode_selected = torch.linalg.vector_norm(
+        command[:, : self.cfg.stationary_command_start_index], dim=1
+      ) <= self.cfg.command_deadband
+      selected_idle |= no_mode_selected
+    return selected_idle & stationary
 
   def _physical_idle_mask(self) -> torch.Tensor:
     """Require upright four-wheel support before freezing an idle action.

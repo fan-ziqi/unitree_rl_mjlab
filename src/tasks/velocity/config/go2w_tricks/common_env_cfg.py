@@ -137,6 +137,7 @@ def configure_default_idle_actions(
   idle_contact_sensor_name: str,
   hold_default_position_mode_index: int | None = None,
   hold_default_position_requires_physical_idle: bool = True,
+  zero_mode_vector_is_idle: bool = False,
 ) -> None:
   """Make a public idle command the model's literal default controller.
 
@@ -160,6 +161,7 @@ def configure_default_idle_actions(
     "stationary_command_start_index": stationary_command_start_index,
     "command_deadband": command_deadband,
     "idle_contact_sensor_name": idle_contact_sensor_name,
+    "zero_mode_vector_is_idle": zero_mode_vector_is_idle,
   }
   cfg.actions["joint_pos"] = DefaultIdleGatedJointPositionActionCfg(
     entity_name=joint_pos.entity_name,

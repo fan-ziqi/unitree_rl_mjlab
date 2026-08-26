@@ -370,12 +370,14 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   configure_default_idle_actions(
     cfg,
     command_name="trick",
-    # Every zero-rate request, including a normal one-hot supplied by an
-    # external caller, uses the literal four-wheel default controller.
-    idle_mode_index=None,
+    # The literal all-zero command and normal@zero-rate are default four-wheel
+    # idle.  In contrast, a named one-hot at zero rate is the required static
+    # two-wheel support, so it must release policy action authority.
+    idle_mode_index=0,
     stationary_command_start_index=5,
     command_deadband=0.20,
     idle_contact_sensor_name=wheel_contact_cfg.name,
+    zero_mode_vector_is_idle=True,
   )
   _use_history(cfg, "trick")
 
