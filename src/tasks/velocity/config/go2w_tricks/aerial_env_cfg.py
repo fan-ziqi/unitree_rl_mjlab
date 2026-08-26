@@ -14,6 +14,7 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg, JointVelocityActionCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 
 from src.assets.robots.unitree_go2w.go2w_constants import (
@@ -45,6 +46,13 @@ WHEEL_FIRST_ENVELOPE_BODIES = (
   "RL_hip", "RL_thigh", "RL_calf",
   "RR_hip", "RR_thigh", "RR_calf",
 )
+
+
+def _aerial_wheels() -> SceneEntityCfg:
+  """Return an independently resolvable selector for the four wheel sites."""
+  return SceneEntityCfg(
+    "robot", site_names=("FL", "FR", "RL", "RR"), preserve_order=True
+  )
 
 
 def unitree_go2w_aerial_rotation_flat_env_cfg(
@@ -194,6 +202,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
         "minimum_turn_fraction": 0.55,
         "target_clearance": 0.10,
+        "asset_cfg": _aerial_wheels(),
       },
     ),
     "landing_recovery": RewardTermCfg(
