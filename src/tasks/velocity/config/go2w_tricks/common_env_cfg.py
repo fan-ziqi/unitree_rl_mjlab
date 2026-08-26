@@ -142,7 +142,10 @@ def configure_default_idle_actions(
 
   The gate is a command-interface invariant: default pose plus zero wheel
   speed when no skill is requested *and the robot is already upright on all
-  four wheels*.  A normal command following a two-wheel or aerial skill first
+  four wheels*.  ``stationary_command_start_index`` selects which public
+  command channels determine that zero request: aerial uses its whole event
+  vector; spin uses only its rate channel, so a zero-rate one-hot is also
+  ordinary idle.  A normal command following a two-wheel or aerial skill first
   leaves PPO action authority to perform a controlled return; after touchdown
   the literal default controller engages.  It supplies no two-wheel or aerial
   posture to PPO.

@@ -152,9 +152,15 @@ class _DefaultIdleGate:
   def _default_idle_mask(self) -> torch.Tensor:
     command = self._idle_command.command
     if self.cfg.idle_mode_index is None:
-      # Aerial uses an all-zero event command as idle.  Its one-hot events
-      # have norm one, so the same scalar deadband remains unambiguous.
-      return torch.linalg.vector_norm(command, dim=1) <= self.cfg.command_deadband
+      # Aerial uses index zero, so this remains its all-zero event test.
+      # Spin instead starts at its final rate channel: any public one-hot with
+      # zero spin rate is the requested ordinary four-wheel idle, while a
+      # nonzero rate immediately releases policy authority for the pivot.
+      if not 0 <= self.cfg.stationary_command_start_index <= command.shape[1]:
+        raise ValueError("stationary_command_start_index is outside the command vector.")
+      return torch.linalg.vector_norm(
+        command[:, self.cfg.stationary_command_start_index :], dim=1
+      ) <= self.cfg.command_deadband
     if not 0 <= self.cfg.idle_mode_index < command.shape[1]:
       raise ValueError("idle_mode_index is outside the command vector.")
     if not 0 <= self.cfg.stationary_command_start_index <= command.shape[1]:
