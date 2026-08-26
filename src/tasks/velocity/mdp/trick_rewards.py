@@ -693,6 +693,7 @@ def stance_locomotion_linear_velocity_exp(
   lateral_weight: float = 2.0,
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
   gravity_power: float = 0.0,
+  mode_weights: tuple[float, ...] | None = None,
   contact_masks: tuple[tuple[float, float, float, float], ...] | None = None,
   sensor_name: str | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -729,6 +730,11 @@ def stance_locomotion_linear_velocity_exp(
   if contact_masks is not None:
     assert sensor_name is not None
     result = result * _locomotion_support_match(env, mode, contact_masks, sensor_name)
+  if mode_weights is not None:
+    if len(mode_weights) != command.shape[1] - 2 or any(weight < 0.0 for weight in mode_weights):
+      raise ValueError("mode_weights must be non-negative and match locomotion modes.")
+    weights = torch.tensor(mode_weights, dtype=result.dtype, device=env.device)
+    result = result * weights[mode]
   return result
 
 

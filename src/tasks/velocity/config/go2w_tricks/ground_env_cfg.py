@@ -169,7 +169,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # orientation alignment.  A sixth power keeps the reset bridge but
         # makes that visibly incomplete outcome materially worse than a true
         # upright support, without introducing any joint-pose target.
-        "orientation_power": 6.0,
+        "orientation_power": 8.0,
         # From normal four-wheel reset the desired front/rear attitude is
         # only half aligned, while the target wheel pair and tall clearance
         # cannot improve until the body has first begun to tip.  Reserve part
@@ -182,7 +182,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # actor's PPO advantage.  Weight the harder rear *same outcome* so
         # its one-hot receives comparable policy pressure without a separate
         # network, a pose target, or a reference transition.
-        "mode_weights": (0.0, 1.0, 1.75),
+        "mode_weights": (0.0, 1.0, 2.5),
         "clearance_power": 1.0,
         # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
         # audit found that without this existing outcome's stillness factor,
@@ -224,6 +224,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # negligible at the reset attitude yet leaves a strong command signal
         # once the measured two-wheel orientation is genuinely established.
         "gravity_power": 8.0,
+        "mode_weights": (3.0, 1.0, 1.0),
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
       },
@@ -242,7 +243,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # turning.  Front/rear retain the previous effective scale until
         # their two-wheel form is established, preventing a normal-pose yaw
         # response from displacing the requested inverted support.
-        "mode_weights": (1.0, 1.0, 1.0),
+        "mode_weights": (2.5, 1.0, 1.0),
         # Apply the same mode-validity gate to yaw, otherwise rear mode can
         # collect yaw return while visibly remaining a normal wheeled robot.
         "gravity_power": 8.0,
@@ -272,10 +273,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Once rear has had a dedicated discovery window, give front
-            # enough maintenance evidence while still favoring rear support.
+            # Continue rear-biased static discovery until the hard direction
+            # has a genuinely vertical two-wheel form.
             "step": 25_600,
-            "mode_probabilities": (0.0, 0.55, 0.45),
+            "mode_probabilities": (0.0, 0.35, 0.65),
             "mode_idle_probabilities": (0.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
@@ -285,7 +286,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # Do not introduce rolling until both two-wheel supports have
             # been trained as stationary outcomes for 2,000 PPO iterations.
             "step": 120_000,
-            "mode_probabilities": (0.34, 0.33, 0.33),
+            "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
@@ -296,7 +297,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # x/yaw tracking and direct stance changes after both static
             # supports have been repeatedly observed.
             "step": 153_600,
-            "mode_probabilities": (0.34, 0.33, 0.33),
+            "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
