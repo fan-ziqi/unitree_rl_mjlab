@@ -32,7 +32,7 @@ visual observations, not invented labels for policy training.
 | about 30.2–31.1 s, frames 0311–0355 | First aerial shot: a genuine launch, wheel-free inverted flight, visible limb reshaping, then wheel-first recovery. | It is valid evidence for the aerial task's launch/flight/landing structure, but the camera does not let us label a body-frame sign from pixels alone. |
 | about 32.2–32.9 s, frames 0411–0445 | Second aerial shot with the same physical structure, from another camera/terrain view. | Keep front/back as distinct signed commands in simulation, but validate their signs from simulator state as well as video. |
 | about 33.5–34.2 s, frames 0476–0510 | Third rapid aerial shot, again with all wheels clear and no body-supported landing. | Do not reward a ground scrape, a body bounce, or a wheel graze as a flip. |
-| 36.0–40.0 s, frames 0601–0800 | A second two-wheel dynamic sequence has substantial coordinated limb motion and alternates between a compact normal form and tall two-wheel forms.  It is visually unlike a frozen four-bar linkage or bicycle-like translation.  The clip ends mid-maneuver. | The normal-plus-rate branch may discover dynamic two-wheel motion and contact changes, but reward neither a particular contact-switch order nor a hidden reference pose.  Acceptance needs full video, support-centre drift, and contact audit; do not infer a precise world path or new side-pair geometry from this cut alone. |
+| 36.0–40.0 s, frames 0601–0800 | A second two-wheel dynamic sequence has substantial coordinated limb motion and alternates between a compact normal form and tall two-wheel forms.  It is visually unlike a frozen four-bar linkage or bicycle-like translation.  The clip ends mid-maneuver. | The normal-plus-rate branch may discover dynamic two-wheel motion and contact changes, but reward neither a particular contact-switch order nor a hidden reference pose.  Acceptance needs full video, support-centre drift, and contact audit; do not infer a precise world path or fixed side-pair geometry from this cut alone. |
 
 Across both tasks, the key visual distinction is **coordinated moving legs in a
 compact envelope**, not either extreme: neither a rigid cylinder nor wide,
@@ -50,8 +50,9 @@ For each checkpoint under review:
 4. Do not call a mode learned if a population mean, reward, or isolated seed passes while the video has mode collapse, body support, bicycle-like translation, or a rigid-leg bounce.
 
 Current command design remains compact: one five-way one-hot plus spin-rate.
-Normal/front/rear interpret a nonzero signed rate as the dynamic pivot request;
-left/right deliberately ignore that channel and mean a quiet same-side support,
-because the clip provides no contrary evidence.  Gravity targets, contacts,
-and support-centre checks are task-side outcome criteria; they are not extra
-actor observations or a reference trajectory.
+Every non-idle mode interprets a nonzero signed rate as a dynamic pivot request.
+The video does not resolve an exact side-pair geometry, so the environment asks
+only for the named measured support, a local support centre, and the commanded
+world-down rate; it does not inject a joint pose, phase, or reference path.
+Gravity targets, contacts, and support-centre checks are task-side outcome
+criteria; they are not extra actor observations or a reference trajectory.
