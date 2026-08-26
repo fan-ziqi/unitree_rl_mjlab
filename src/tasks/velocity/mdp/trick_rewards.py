@@ -1117,20 +1117,23 @@ def aerial_event_failure(
 class AerialRotationCompletion:
   """Reward the one legal, quiet four-wheel outcome of an aerial event.
 
-  Launch and desired-axis rotation have direct dense terms.  This term
-  intentionally has no in-air braking phase, target joint pose, or angular
-  rate schedule: it pays only after a complete legal turn returns the whole
-  base frame to its launch orientation and settles on the wheels.
+  Launch and desired-axis rotation have direct dense terms.  The only dense
+  part here is the whole-body orientation return in the final part of that
+  same legal flight.  It resolves the real ambiguity of a 2π *axis integral*:
+  the body can still have accumulated unwanted off-axis rotation.  There is
+  no braking clock, angular-rate target, joint pose, or reference trajectory.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
     self.settle_time = torch.zeros(env.num_envs, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    self.peak_orientation_return = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
+    self.peak_orientation_return[env_ids] = 0.0
 
   def __call__(
     self,
@@ -1188,6 +1191,34 @@ class AerialRotationCompletion:
     linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
     angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
 
+    # Reward a legal late-flight return of the *whole* base frame, rather than
+    # prescribing how any leg must brake.  The fourth power keeps the trivial
+    # launch orientation from being rewarded and leaves the direct desired-axis
+    # progress term responsible for the first part of the maneuver.  A
+    # high-water increment makes this a bounded event signal, not a reward for
+    # holding a particular airborne pose.
+    flight_candidate = (
+      active
+      & was_airborne
+      & (~landing_started)
+      & (~torch.any(contacts, dim=1))
+      & legal
+      & (progress <= target_angle + max_overrotation)
+    )
+    turn_fraction = torch.clamp(progress / target_angle, min=0.0, max=1.0)
+    orientation_return = torch.pow(turn_fraction, 4) * orientation_similarity
+    orientation_return = torch.where(
+      flight_candidate, orientation_return, torch.zeros_like(orientation_return)
+    )
+    orientation_gain = torch.clamp(
+      orientation_return - self.peak_orientation_return, min=0.0
+    )
+    self.peak_orientation_return = torch.where(
+      active,
+      torch.maximum(self.peak_orientation_return, orientation_return),
+      torch.zeros_like(self.peak_orientation_return),
+    )
+
     stable = (
       post_landing_idle
       & was_airborne
@@ -1208,4 +1239,4 @@ class AerialRotationCompletion:
     )
     new_completion = completed & (~self.awarded)
     self.awarded |= completed
-    return new_completion.to(angular_speed.dtype) / env.step_dt
+    return (orientation_gain + new_completion.to(orientation_gain.dtype)) / env.step_dt

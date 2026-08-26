@@ -166,11 +166,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     ),
     "landing_recovery": RewardTermCfg(
       func=trick_rewards.AerialRotationCompletion,
-      # This is endpoint-only.  The former arbitrary in-air brake curve
-      # competed with the one-turn objective and selected crashes.  PPO is
-      # free to discover its own braking action, but receives this result only
-      # when it returns to the launch frame and settles on four wheels.
-      weight=1_000.0,
+      # A final whole-body orientation-return signal distinguishes a clean 2π
+      # turn from one that has the right commanded-axis integral but unwanted
+      # off-axis tumble.  It contains no joint, timing, or rate reference;
+      # the strict four-wheel endpoint is still paid by the same term.
+      weight=600.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
