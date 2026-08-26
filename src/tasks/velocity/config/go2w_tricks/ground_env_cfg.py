@@ -400,23 +400,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.005),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  # The reference's final normal pivot keeps every wheel in continuous
-  # contact, but folding there from default four-wheel idle may transiently
-  # unload one wheel.  Applying this hard validity check from reset killed
-  # precisely those formation attempts before the co-axial/local-centre
-  # reward could distinguish them from a travelling floor circle.  The pivot
-  # reward itself now makes four-wheel contact dominant while retaining a
-  # smooth discovery signal; keep this hard terminal guard for the final
-  # high-rate stage so early layout exploration is not cut off mid-formation.
+  # The reference pivot never uses a wheel lift to build its geometry.  A
+  # per-step reward gate alone still allowed a policy to earn reward on the
+  # intermittent-contact frames of a hopping floor circle.  Treat loss of
+  # any normal-mode wheel after the short control settling window as invalid
+  # from the first rollout: formation must be discovered through continuous
+  # rolling/sliding contact, not through ballistic exploration.
   cfg.terminations["normal_spin_support_lost"] = TerminationTermCfg(
     func=terminations.normal_spin_support_lost,
     params={
       "command_name": "trick",
       "sensor_name": wheel_contact_cfg.name,
       "speed_deadband": 0.20,
-      "grace_period_s": 1.5,
-      # Match the final high-rate curriculum stage below.
-      "enable_after_steps": 115_200,
+      "grace_period_s": 0.25,
+      "enable_after_steps": 0,
     },
   )
   cfg.curriculum = {

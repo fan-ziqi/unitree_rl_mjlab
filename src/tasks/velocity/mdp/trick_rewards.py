@@ -652,12 +652,17 @@ class StanceSpinPivotResult:
     # geometry score is intentionally an outcome measurement, not a pose or
     # reference action, and both ingredients must still approach one for the
     # final maximum.
-    # Keep the two physical layout measurements equally visible to PPO while
-    # four-wheel contact remains non-negotiable below.  Their product made
-    # the default rectangular footprint numerically reward-free, leaving only
-    # high-amplitude random contact exploration; this bounded mean supplies a
-    # continuous route to the same endpoint where both values are one.
-    normal_geometry = 0.5 * (normal_coaxiality + front_inside_score)
+    # Both layout facts must improve together.  An arithmetic mean let a
+    # policy collect a substantial return by improving only the easy nesting
+    # measurement while leaving the axle line visibly wrong, which is exactly
+    # the crouched, travelling gait seen in fixed-command rollouts.  The
+    # harmonic mean keeps a non-zero discovery signal from the ordinary
+    # four-wheel rectangle, unlike a raw product, but is governed by the
+    # worse physical measurement and has its unique maximum only when both
+    # the common axle and compact inner/outer ordering are present.
+    normal_geometry = 2.0 * normal_coaxiality * front_inside_score / (
+      normal_coaxiality + front_inside_score
+    ).clamp_min(1.0e-6)
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
     # The AS2W normal pivot is not allowed to improve by lifting a wheel.
     # The actual four-wheel contact product is therefore a hard factor from
