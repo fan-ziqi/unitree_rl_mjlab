@@ -189,6 +189,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   normal_compact_xy_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_tall_clearance_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  down_rate_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   nonwheel_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   steady_count = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -350,6 +351,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         valid.float() * (modes == 0).float() * normal_tall_clearance
       )
       rate_error_sum += valid.float() * rate_error
+      down_rate_sum += valid.float() * down_rate
       support_center_speed_sum += valid.float() * center_speed
       nonwheel_sum += valid.float() * nonwheel.float()
       if (step + 1) * base_env.step_dt >= cfg.settle_s:
@@ -389,6 +391,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       .mean()
       .item(),
       "mean_spin_rate_abs_error": (rate_error_sum[mask] / denom).mean().item(),
+      "mean_world_down_spin_rate": (down_rate_sum[mask] / denom).mean().item(),
       "mean_support_center_speed_m_s": (support_center_speed_sum[mask] / denom)
       .mean()
       .item(),
