@@ -16,9 +16,8 @@ from mjlab.envs import mdp as envs_mdp
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.managers.termination_manager import TerminationTermCfg
 
-from src.tasks.velocity.mdp import terminations, trick_curriculums, trick_rewards
+from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
   StanceSpinCommandCfg,
@@ -379,16 +378,20 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
-        "pivot_speed_limit": 0.06,
+        # The previous 0.06 m/s gate suppressed nearly all signed-rate
+        # gradient before either direction could spin.  This is a discovery
+        # scale, not the acceptance threshold: the evaluator still requires
+        # a visibly local support midpoint.
+        "pivot_speed_limit": 0.18,
         "upright_support_weight": 0.20,
         # A two-wheel stand is an essential early discovery bridge, but after
         # the normal-only bootstrap its fixed return would let PPO ignore the
         # signed rate and local-pivot outcomes.  Fade only that bridge while
         # retaining the same contact, clearance, compactness, rate, and
         # support-centre measurements.
-        "normal_final_support_weight": 0.02,
-        "normal_support_decay_start_steps": 38_400,
-        "normal_support_decay_steps": 25_600,
+        "normal_final_support_weight": 0.08,
+        "normal_support_decay_start_steps": 76_800,
+        "normal_support_decay_steps": 38_400,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
@@ -426,7 +429,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Introduce all four two-wheel pivots only after the normal
             # common-axis behaviour exists in this same actor.
-            "step": 38_400,
+            "step": 76_800,
             "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -439,7 +442,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # 1,000 iterations of two-wheel discovery.  Raising rate and
             # reducing normal to 30% here caused immediate forgetting before
             # any named support was stable.
-            "step": 102_400,
+            "step": 128_000,
             "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -452,7 +455,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # supports are accelerated.  Make the next request overlap in
             # speed and keep switches rare until each pair can survive on its
             # own.
-            "step": 140_800,
+            "step": 160_000,
             "mode_probabilities": (0.45, 0.20, 0.20, 0.075, 0.075),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -464,7 +467,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Use a second overlapping speed step for the initial fused
             # policy.  Reference-rate 10--15 rad/s remains a subsequent
             # zero-start long run after all five supports are validated.
-            "step": 166_400,
+            "step": 179_200,
             "mode_probabilities": (0.40, 0.22, 0.22, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,

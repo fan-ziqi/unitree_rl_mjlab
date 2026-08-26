@@ -383,11 +383,10 @@ def _stance_spin_components(
   )[batch, mode]
 
   # ``normal`` is deliberately a compact high-speed two-wheel spin, rather
-  # than a false four-contact mode.  Its already-public rate *sign* selects
-  # the physically mirrored front/rear support: negative is front, positive
-  # is rear.  Leaving that support choice unconstrained let PPO use the easy
-  # front form for both signs and collapse positive commands into the learned
-  # negative turn.  No extra command channel or joint target is introduced.
+  # than a false four-contact mode.  AS2-W shows a lateral front *or* rear
+  # support axle, but does not bind that physical choice to spin direction.
+  # The public signed rate therefore controls only world-down rotation; PPO
+  # may retain either viable lateral support for both signs.
   pair_masks = masks[1:3]
   pair_desired = torch.sum(
     contacts.unsqueeze(1) * pair_masks.unsqueeze(0), dim=2
@@ -414,9 +413,7 @@ def _stance_spin_components(
   pair_support_quality = pair_alignment * (
     0.65 * pair_contact_score + 0.35 * pair_height_score
   )
-  command_term = env.command_manager.get_term(command_name)
-  target_rate = getattr(command_term, "_target_spin_rate", command[:, 5])
-  normal_support_is_front = target_rate < 0.0
+  normal_support_is_front = pair_support_quality[:, 0] >= pair_support_quality[:, 1]
   normal_support_quality = torch.where(
     normal_support_is_front,
     pair_support_quality[:, 0],

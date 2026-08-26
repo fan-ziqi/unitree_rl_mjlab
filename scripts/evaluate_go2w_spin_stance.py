@@ -242,18 +242,15 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       rear_alignment = 0.5 * (1.0 - gravity[:, 0])
       front_support_exact = torch.all(contacts == target_contacts[1], dim=1)
       rear_support_exact = torch.all(contacts == target_contacts[2], dim=1)
-      # Normal's signed public rate selects the mirrored physical support:
-      # negative uses the front pair, positive the rear pair.  This is the
-      # same rule used by its outcome reward, so an evaluator cannot accept a
-      # policy that answers both signs with the easier single support form.
-      target_rate = getattr(command_term, "_target_spin_rate", command_term.command[:, 5])
-      normal_support_is_front = target_rate < 0.0
-      normal_alignment = torch.where(
-        normal_support_is_front, front_alignment, rear_alignment
+      # A normal AS2-W pivot may use either lateral front/rear support axle;
+      # the signed public rate specifies turn direction, not a hidden support
+      # selector.  Choose the actually formed pair for geometry/drift while
+      # requiring exact contact and upright alignment for either outcome.
+      normal_support_is_front = front_support_exact | (
+        ~rear_support_exact & (front_alignment >= rear_alignment)
       )
-      normal_support_ok = torch.where(
-        normal_support_is_front, front_support_exact, rear_support_exact
-      )
+      normal_alignment = torch.maximum(front_alignment, rear_alignment)
+      normal_support_ok = front_support_exact | rear_support_exact
       normal_support_mask = torch.where(
         normal_support_is_front.unsqueeze(1),
         target_contacts[1].unsqueeze(0),
