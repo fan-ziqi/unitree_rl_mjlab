@@ -652,12 +652,12 @@ class StanceSpinPivotResult:
     # geometry score is intentionally an outcome measurement, not a pose or
     # reference action, and both ingredients must still approach one for the
     # final maximum.
-    # Both measurements are indispensable: averaging allowed a high
-    # front-inside score to mask a visibly rectangular, non-coaxial footprint.
-    # The contact bridge above keeps this product discoverable while the legs
-    # form it; the product makes a common axle, rather than wheel ordering
-    # alone, the only high-value normal geometry.
-    normal_geometry = normal_coaxiality * front_inside_score
+    # Keep the two physical layout measurements equally visible to PPO while
+    # four-wheel contact remains non-negotiable below.  Their product made
+    # the default rectangular footprint numerically reward-free, leaving only
+    # high-amplitude random contact exploration; this bounded mean supplies a
+    # continuous route to the same endpoint where both values are one.
+    normal_geometry = 0.5 * (normal_coaxiality + front_inside_score)
     normal_dynamic_quality = rate_score + rate_progress_weight * signed_rate_progress
     # The AS2W normal pivot is not allowed to improve by lifting a wheel.
     # The actual four-wheel contact product is therefore a hard factor from
