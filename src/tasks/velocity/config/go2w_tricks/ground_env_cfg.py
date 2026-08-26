@@ -265,27 +265,35 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Start rear-biased discovery in the same fused actor.
-            "mode_probabilities": (0.0, 0.25, 0.75),
-            "mode_idle_probabilities": (0.0, 1.0, 1.0),
+            # Start rear-biased static discovery in the same fused actor,
+            # while retaining a small default-normal replay share.  The
+            # all-zero normal idle is still supplied by the action gate;
+            # this one-hot share merely keeps its observation branch present
+            # before normal x/yaw commands enter.
+            "mode_probabilities": (0.10, 0.25, 0.65),
+            "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Continue rear-biased static discovery until the hard direction
-            # has a genuinely vertical two-wheel form.
+            # Continue rear-biased static discovery through update 750.  A
+            # 64-step rollout would otherwise postpone velocity commands to
+            # update 1,875, leaving too little of a 3,000-update run to learn
+            # the required fused walking and direct stance switches.
             "step": 25_600,
-            "mode_probabilities": (0.0, 0.35, 0.65),
-            "mode_idle_probabilities": (0.0, 1.0, 1.0),
+            "mode_probabilities": (0.10, 0.35, 0.55),
+            "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Do not introduce rolling until both two-wheel supports have
-            # been trained as stationary outcomes for 2,000 PPO iterations.
-            "step": 120_000,
+            # Introduce conservative x/yaw requests after 750 updates of
+            # static support discovery.  The command still switches directly
+            # between all three modes; the reduced range only lets the same
+            # policy discover rolling without overwriting the new supports.
+            "step": 48_000,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.10, 0.10),
@@ -293,10 +301,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # The final stage keeps enough rollout budget for the requested
-            # x/yaw tracking and direct stance changes after both static
-            # supports have been repeatedly observed.
-            "step": 153_600,
+            # Reach the requested command range at update 1,200, leaving
+            # about 1,800 full-range updates for stable normal/front/rear
+            # walking and A -> B transitions in the zero-start run.
+            "step": 76_800,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "lin_vel_x_range": (-0.20, 0.20),
