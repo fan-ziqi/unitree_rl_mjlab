@@ -175,7 +175,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # take-off pose or a prescribed timing trace.
       # Discovery needs a clear signal for a genuine upward launch, but it
       # must not outweigh the final physical outcome of the event.
-      weight=600.0,
+      # Keep the event-return scale numerically small.  The previous
+      # hundreds-scale rewards drove the critic value loss into the 1e5 range
+      # while leaving the relative crash return positive.
+      weight=6.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -195,7 +198,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # without a separate rate target that a one-frame spike could game, and
       # it is deliberately bounded so a partial crash cannot numerically
       # dominate the landing result.
-      weight=600.0,
+      weight=6.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -210,7 +213,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # package, while leaving launch, angular acceleration, and braking free
       # for PPO to discover.
       # This is useful recovery evidence, not a substitute for a landing.
-      weight=300.0,
+      weight=3.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -241,7 +244,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # strong enough to compete with launch/turn progress, while the larger
       # one-off completion multiplier below still makes a quiet four-wheel
       # result the best event outcome.
-      weight=1600.0,
+      weight=16.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -275,7 +278,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # remains stricter than the old prototype, but a legal late-flight
       # recovery can now improve its return before the first perfect landing
       # is sampled.
-      weight=-800.0,
+      # At the final curriculum stage an illegal contact must erase the
+      # dense takeoff/turn discovery return.  Otherwise a nearly-complete
+      # high-speed trunk strike remains more profitable than attempting the
+      # rare quiet wheel landing.  This is still an outcome-only cost: it
+      # names neither a joint configuration nor a flight trajectory.
+      weight=-30.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
