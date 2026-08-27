@@ -471,8 +471,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 5,
         "extra_contact_discount": 1.0,
-        "minimum_root_clearance": (0.18, 0.35, 0.35, 0.30, 0.30),
-        "orientation_power": 1.0,
+        # A low slant has both commanded wheels but is not the requested
+        # stand.  Use the same measured attitude pressure as the successful
+        # front/rear stance task, and require a visibly extended trunk above
+        # its named support pair.  These are outcome geometry, never a joint
+        # target.
+        "minimum_root_clearance": (0.18, 0.45, 0.45, 0.35, 0.35),
+        "orientation_power": 3.0,
         "clearance_power": 1.0,
         # The rate channel alone distinguishes a held support from a pivot.
         "stationary_command_index": 5,
@@ -484,12 +489,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # Named spin supports traverse the same low-slant intermediate form;
         # do not freeze their angular motion until the physical result is
         # close to the requested two-wheel geometry.
-        "static_settling_alignment_threshold": 0.90,
-        "static_settling_support_threshold": 0.80,
+        "static_settling_alignment_threshold": 0.80,
+        "static_settling_support_threshold": 0.75,
         "static_settling_clearance_threshold": 0.75,
         # This measured attitude-rate bridge is active only away from the
         # outcome, so it cannot reward a permanent fling.
-        "attitude_progress_weight": 0.16,
+        "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
         "asset_cfg": _support_wheels(),
       },
@@ -540,13 +545,24 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Do not add any non-zero rate until every one-hot has received a
-            # full 800-update static discovery block.  Then retain half the
-            # holds while the remaining samples introduce only a low signed
-            # rate; this avoids replacing an unfound support with a rolling
-            # four-wheel escape.
-            "step": 89_600,
+            # f144 m1200 reached named contacts but remained a low travelling
+            # slant, so it is not yet safe to add spin-rate pressure.  Keep
+            # the same one actor in pure static support discovery until each
+            # mode has a substantially longer chance to meet its measured
+            # attitude/clearance result.
+            "step": 102_400,
             "mode_probabilities": (0.15, 0.27, 0.27, 0.155, 0.155),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 1.0,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 1.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # After the extended static block, retain half held supports while
+            # the others learn only a small signed rate in the same support.
+            "step": 121_600,
+            "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.50,
             "direct_switch_probability": 0.0,
@@ -556,7 +572,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Only after named supports have static and low-rate evidence do
             # we introduce sparse direct one-hot changes and moderate speed.
-            "step": 115_200,
+            "step": 140_800,
             "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
@@ -566,7 +582,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             # Restore all-dynamic samples while keeping switches common.
-            "step": 140_800,
+            "step": 160_000,
             "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -576,10 +592,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             # The final portion is the visibly fast, continuous AS2-W-style
-            # pivot distribution.  It still receives 400 full-rate updates
-            # in a 3,000-update run, after all supports have first been
-            # learned at static and low-rate difficulty.
-            "step": 166_400,
+            # pivot distribution after the measured support geometry is no
+            # longer a low travelling slant.
+            "step": 172_800,
             "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
