@@ -126,6 +126,9 @@ def mode_support_score(
   orientation_power: float = 1.0,
   mode_weights: tuple[float, ...] | None = None,
   clearance_power: float = 1.0,
+  soft_support_height: float | None = None,
+  soft_support_height_std: float = 0.06,
+  soft_support_pair_height_std: float = 0.06,
   stationary_command_index: int | None = None,
   static_command_start_index: int | None = None,
   command_deadband: float = 0.0,
@@ -154,6 +157,12 @@ def mode_support_score(
     raise ValueError("extra_contact_discount must be in [0, 1].")
   if orientation_power <= 0.0 or clearance_power <= 0.0:
     raise ValueError("orientation_power and clearance_power must be positive.")
+  if soft_support_height is not None and (
+    soft_support_height < 0.0
+    or soft_support_height_std <= 0.0
+    or soft_support_pair_height_std <= 0.0
+  ):
+    raise ValueError("soft support height and scales must be non-negative/positive.")
   if minimum_root_clearance is not None:
     clearance_values = (
       (minimum_root_clearance,)
@@ -217,7 +226,37 @@ def mode_support_score(
   desired = (contacts * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
   non_target = 1.0 - target
   extra = (contacts * non_target).sum(dim=1) / non_target.sum(dim=1).clamp_min(1.0)
-  support = desired * (1.0 - extra_contact_discount * extra)
+  no_extra_support = 1.0 - extra_contact_discount * extra
+  support = desired * no_extra_support
+  if soft_support_height is not None:
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("soft support grounding needs four wheel sites.")
+    # Contact bits give no gradient for bringing a second selected wheel down:
+    # a nearly-grounded tyre and a floating tyre are both simply ``False``.
+    # Once the opposite pair has lifted, score only the physical endpoint of
+    # the commanded pair--both wheel centres at the terrain height and level
+    # with one another.  The non-target-contact factor keeps the ordinary
+    # four-wheel reset at zero, so this is not a hidden stance target.
+    target_wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+    target_height_error = (target_wheel_height - soft_support_height) * target
+    height_score = torch.exp(
+      -torch.sum(torch.square(target_height_error), dim=1)
+      / target.sum(dim=1).clamp_min(1.0)
+      / soft_support_height_std**2
+    )
+    # A two-wheel support is laterally stable only when its two selected wheel
+    # centres share a ground plane.  This measures that endpoint directly and
+    # still leaves all leg geometry to the policy.
+    target_height_spread = torch.amax(
+      torch.where(target > 0.5, target_wheel_height, -torch.inf), dim=1
+    ) - torch.amin(torch.where(target > 0.5, target_wheel_height, torch.inf), dim=1)
+    pair_level_score = torch.exp(
+      -torch.square(target_height_spread / soft_support_pair_height_std)
+    )
+    soft_support = height_score * pair_level_score * no_extra_support
+    # Preserve contact as the final criterion but make a physically grounded
+    # wheel pair an informative bridge as it approaches that criterion.
+    support = 0.5 * support + 0.5 * soft_support
 
   clearance = torch.ones_like(orientation)
   if minimum_root_clearance is not None:

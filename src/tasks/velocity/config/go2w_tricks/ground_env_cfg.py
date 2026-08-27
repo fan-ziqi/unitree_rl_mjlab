@@ -162,6 +162,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # fraction, otherwise the policy can improve the attitude score while
         # retaining the low ordinary gait that the task explicitly rejects.
         "extra_contact_discount": 1.0,
+        # Once the opposite pair has cleared, give the selected two wheels a
+        # continuous grounding/levelness route before both contact bits can
+        # simultaneously become true.  This is a wheel-centre endpoint, not
+        # a leg pose or a transition reference.
+        "soft_support_height": 0.11,
+        "soft_support_height_std": 0.07,
+        "soft_support_pair_height_std": 0.06,
         # Normal four-wheel idle has the natural low clearance of the Go2W
         # default.  A front/rear two-wheel command instead must visibly lift
         # the trunk above its transverse support axle; without this existing
@@ -546,6 +553,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 5,
         "extra_contact_discount": 1.0,
+        "soft_support_height": 0.11,
+        "soft_support_height_std": 0.07,
+        "soft_support_pair_height_std": 0.06,
         # A low slant has both commanded wheels but is not the requested
         # stand.  Use the same measured attitude pressure as the successful
         # front/rear stance task, and require a visibly extended trunk above
