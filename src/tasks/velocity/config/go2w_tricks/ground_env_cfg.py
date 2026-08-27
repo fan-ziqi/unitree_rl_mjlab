@@ -681,8 +681,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # First discover a compact, level four-wheel common axle from the
             # ordinary reset.  At 48 control steps/update, this lasts 600
             # updates—not 1,200.  The policy still needs a normal discovery
-            # period, but a 3,000-update run must spend most of its time on
-            # the required five-command fused behaviour.
+            # period, while the long fused run below leaves enough evidence
+            # for every named support and the later command transitions.
             "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -704,7 +704,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 43_200,
+            # A 300-update front-only interval left the public front one-hot
+            # indistinguishable from the normal pivot.  Hold it for 600 PPO
+            # updates before moving on; this is curriculum time, not a
+            # separate policy or target posture.
+            "step": 57_600,
             "mode_probabilities": (0.10, 0.15, 0.75, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
@@ -713,7 +717,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 57_600,
+            "step": 86_400,
             "mode_probabilities": (0.10, 0.10, 0.15, 0.60, 0.05),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
@@ -722,7 +726,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 76_800,
+            "step": 105_600,
             "mode_probabilities": (0.10, 0.10, 0.15, 0.05, 0.60),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
@@ -733,7 +737,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Rehearse all static one-hots together before movement.  Side
             # modes remain static even after the later rate curriculum.
-            "step": 96_000,
+            "step": 124_800,
             "mode_probabilities": (0.10, 0.25, 0.25, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
@@ -745,7 +749,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Only now introduce low-rate normal/front/rear pivots.  A small
             # direct-switch share teaches the requested continuous one-hot
             # command without erasing the static supports.
-            "step": 105_600,
+            "step": 144_000,
             "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
@@ -754,7 +758,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            "step": 120_000,
+            "step": 163_200,
             "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
@@ -765,7 +769,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # The final block is the visibly fast normal/front/rear pivot;
             # left/right continue to represent held side supports.
-            "step": 129_600,
+            "step": 182_400,
             "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
