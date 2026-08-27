@@ -377,11 +377,24 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # At update 800, train direct normal <-> front/rear changes while all
-            # requested velocities remain zero.  The deployment sequence
-            # requires this physical transition; previously the static sampler
-            # held one one-hot for a whole episode and never trained it.
+            # m700 reaches front and rear only briefly; direct command changes
+            # here turn that transient into a rolling escape.  Extend pure
+            # static discovery in the same actor, with a modest rear bias,
+            # before asking it to transition or move.
             "step": 38_400,
+            "mode_probabilities": (0.10, 0.25, 0.65),
+            "mode_idle_probabilities": (1.0, 1.0, 1.0),
+            "direct_switch_probability": 0.0,
+            "lin_vel_x_range": (0.0, 0.0),
+            "yaw_rate_range": (0.0, 0.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Once both supports have an additional static block, introduce
+            # the required normal <-> front/rear one-hot transition while
+            # retaining zero x/yaw.  This preserves one fused policy and
+            # trains the real public switch before wheel locomotion.
+            "step": 57_600,
             "mode_probabilities": (0.30, 0.30, 0.40),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.25,
@@ -390,14 +403,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Retain static command-to-command practice while conservative
-            # x/yaw requests start, rather than making the first direct
-            # transition a rolling escape.
-            # Begin conservative x/yaw command replay at update 1,200.  The
-            # previous 128,000-control-step boundary accidentally delayed it
-            # until update 2,667, leaving almost no locomotion samples in a
-            # 3,000-update run.
-            "step": 57_600,
+            # Start conservative x/yaw replay only after static supports and
+            # their direct transitions have had 1,600 updates of evidence.
+            "step": 76_800,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.35,
@@ -406,10 +414,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Reach the requested command range at update 1,800, retaining
-            # 1,200 full-range updates after the extended static discovery and
-            # conservative rolling stage.
-            "step": 86_400,
+            # Reach the requested command range after a distinct low-range
+            # stage, leaving 800 updates for the fused final behaviour.
+            "step": 105_600,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.50,
@@ -432,11 +439,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   The public layout stays ``[normal, front, rear, left, right, spin_rate]``.
   Zero command is four-wheel default idle.  A nonzero normal rate requests the
   video's compact, level, four-wheel common-axle local pivot.  Front/rear
-  one-hots request their named pivots; left/right one-hots are the physically
-  distinct side two-wheel pivots.  All active one-hots retain the signed
-  spin-rate input.
-  All five modes still share exactly the same one-hot plus signed-rate command
-  interface and one policy.
+  one-hots request their named pivots; left/right one-hots are physically
+  distinct held side supports and ignore spin rate.  All five modes still
+  share exactly the same one-hot-plus-rate command interface and one policy.
   """
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
@@ -695,16 +700,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Introduce every named two-wheel support once the normal bridge
-            # has had 600 updates.  This must be a *pure* held-support block:
-            # the m800 audit with normal still occupying half the samples and
-            # a 25% moving minority showed every named one-hot being ignored
-            # in favour of ordinary four-wheel idle.  Train the four actual
-            # support outcomes densely before asking the same actor to spin
-            # or switch them.  The command remains the identical six-vector;
-            # only its sampled difficulty changes here.
+            # The m1600 audit proved that a uniform static block learned
+            # front while starving rear and both side supports.  Keep one
+            # fused actor, but give each physical support an explicit
+            # discovery interval before it must share dynamic pivot pressure.
             "step": 28_800,
-            "mode_probabilities": (0.10, 0.30, 0.30, 0.15, 0.15),
+            "mode_probabilities": (0.10, 0.80, 0.10, 0.0, 0.0),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,
@@ -712,13 +713,26 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # f144 m1200 reached named contacts but remained a low travelling
-            # slant, so it is not yet safe to add spin-rate pressure.  Keep
-            # the same one actor in pure static support discovery until each
-            # mode has a substantially longer chance to meet its measured
-            # attitude/clearance result.
+            "step": 43_200,
+            "mode_probabilities": (0.10, 0.15, 0.75, 0.0, 0.0),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 1.0,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 1.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            "step": 57_600,
+            "mode_probabilities": (0.10, 0.10, 0.15, 0.60, 0.05),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 1.0,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 1.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
             "step": 76_800,
-            "mode_probabilities": (0.15, 0.27, 0.27, 0.155, 0.155),
+            "mode_probabilities": (0.10, 0.10, 0.15, 0.05, 0.60),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,
@@ -726,43 +740,42 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # After the extended static block, retain half held supports while
-            # the others learn only a small signed rate in the same support.
-            "step": 91_200,
-            "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
+            # Rehearse all static one-hots together before movement.  Side
+            # modes remain static even after the later rate curriculum.
+            "step": 96_000,
+            "mode_probabilities": (0.10, 0.25, 0.25, 0.20, 0.20),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.50,
+            "upright_static_probability": 1.0,
             "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 1.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Only now introduce low-rate normal/front/rear pivots.  A small
+            # direct-switch share teaches the requested continuous one-hot
+            # command without erasing the static supports.
+            "step": 105_600,
+            "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.30,
+            "direct_switch_probability": 0.05,
             "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Only after named supports have static and low-rate evidence do
-            # we introduce sparse direct one-hot changes and moderate speed.
-            "step": 105_600,
-            "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
+            "step": 120_000,
+            "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
-            "direct_switch_probability": 0.10,
+            "direct_switch_probability": 0.15,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Restore all-dynamic samples while keeping switches common.
-            "step": 120_000,
-            "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.25,
-            "spin_rate_range": (4.0, 8.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # The final portion is the visibly fast, continuous AS2-W-style
-            # pivot distribution after the measured support geometry is no
-            # longer a low travelling slant.
+            # The final block is the visibly fast normal/front/rear pivot;
+            # left/right continue to represent held side supports.
             "step": 129_600,
-            "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.30,

@@ -540,10 +540,11 @@ def _stance_spin_components(
   command = _command(env, command_name)
   mode = torch.argmax(command[:, :5], dim=1)
   active = torch.sum(command[:, :5], dim=1) > 0.5
-  # Every active mode tracks its signed world-down rate.  ``normal`` is the
-  # level four-wheel common-axle form; the named one-hots retain two-wheel
-  # support semantics.
-  moving = active & (torch.abs(command[:, 5]) > speed_deadband)
+  # Normal and pitch-pair supports track signed world-down rate.  The
+  # left/right pair is a static side support in the reference manoeuvre, so
+  # its public rate slot is deliberately ignored rather than creating an
+  # unphysical side-pivot objective.
+  moving = active & (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
   rate_score = torch.clamp(

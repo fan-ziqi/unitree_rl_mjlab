@@ -30,9 +30,10 @@ class StanceSpinCommand(CommandTerm):
   rate requests a local world-down rotation in one of the five contact modes.
   ``normal`` with zero rate is ordinary four-wheel idle; with a nonzero rate
   it requests the compact, level four-wheel common-axle pivot.  Its sign
-  controls only world-down rotation direction.  Each named front/rear/left/
-  right two-wheel mode carries that same signed rotation request.  The stance
-  itself—and the leg reshaping needed to make a local pivot possible—is
+  controls only world-down rotation direction.  Front/rear two-wheel modes
+  retain that signed rotation request; left/right are static side supports and
+  explicitly ignore it.  The stance itself—and the leg reshaping needed to
+  make a local pivot possible—is
   discovered by the policy rather than encoded in the command.
   No command carries a pose, phase, or limb target.
   """
@@ -124,8 +125,8 @@ class StanceSpinCommand(CommandTerm):
     # old sampler could create ``normal@+r -> front@0`` midway through one
     # event, which asks the actor to brake exactly because the one-hot
     # changes.  Static holds apply to every named support (front/rear/left/
-    # right), while every *different* dynamic pair below retains one signed
-    # rate through its direct switch.
+    # right), while front/rear and normal can retain one signed rate through a
+    # direct switch.  Side supports stay static by task definition.
     static_named_hold = torch.zeros(count, dtype=torch.bool, device=self.device)
     if self.cfg.upright_static_probability > 0.0:
       first_named = non_idle & (modes != 0)
@@ -162,6 +163,18 @@ class StanceSpinCommand(CommandTerm):
       static_dynamic = static_named_hold[dynamic]
       self._scheduled_spin_rate[dynamic_ids[static_dynamic]] = 0.0
       self._next_scheduled_spin_rate[dynamic_ids[static_dynamic]] = 0.0
+
+    if len(active_ids) > 0:
+      # The reference manoeuvre has no side-support pivot.  Keep the public
+      # six-vector unchanged, but emit a literal zero rate whenever its
+      # selected one-hot is left/right.  This is command semantics, not a
+      # posture target: PPO remains free to find the two-wheel support.
+      scheduled_modes = torch.argmax(self._scheduled_command[active_ids, :5], dim=1)
+      next_scheduled_modes = torch.argmax(
+        self._next_scheduled_command[active_ids, :5], dim=1
+      )
+      self._scheduled_spin_rate[active_ids[scheduled_modes >= 3]] = 0.0
+      self._next_scheduled_spin_rate[active_ids[next_scheduled_modes >= 3]] = 0.0
 
     # A physical reset is already the literal four-wheel idle.  Do not insert
     # an uncommanded idle interval before an externally valid one-hot: it
