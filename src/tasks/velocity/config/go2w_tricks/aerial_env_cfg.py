@@ -278,11 +278,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       params={
         "command_name": "trick",
         "target_angle": math.tau,
-        # A full angle-loss penalty at iteration zero made a tentative legal
-        # lift much less valuable than simply failing without a jump.  Let
-        # PPO first discover measurable launch/turn evidence, then restore
-        # the exact same one-turn requirement before landing pressure ramps.
-        "early_missing_angle_cost": 0.10,
+        # Keep the early *absolute* loss equal to the prior discovery run:
+        # the stronger final terminal weight must not make a tentative legal
+        # lift worse than doing nothing before PPO has seen airborne evidence.
+        # The scalar curriculum then restores the strict one-turn requirement.
+        "early_missing_angle_cost": 0.02,
         "final_missing_angle_cost": 1.0,
         # A nearly-complete turn that lands its trunk or a leg is still a
         # failure.  Angle-only cost accidentally made that failure free as
