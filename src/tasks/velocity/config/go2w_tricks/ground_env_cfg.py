@@ -169,6 +169,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "soft_support_height": 0.11,
         "soft_support_height_std": 0.07,
         "soft_support_pair_height_std": 0.06,
+        # Fixed-command audits found the front support pair folded to a
+        # 0.16-m hip-to-wheel span despite the correct contacts.  Require the
+        # same measured support geometry as the extended rear branch, without
+        # prescribing any joint configuration.
+        "support_leg_length_target": 0.28,
         # Normal four-wheel idle has the natural low clearance of the Go2W
         # default.  A front/rear two-wheel command instead must visibly lift
         # the trunk above its transverse support axle; without this existing

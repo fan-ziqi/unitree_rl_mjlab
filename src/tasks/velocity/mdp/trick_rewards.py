@@ -129,6 +129,8 @@ def mode_support_score(
   soft_support_height: float | None = None,
   soft_support_height_std: float = 0.06,
   soft_support_pair_height_std: float = 0.06,
+  support_leg_length_target: float | None = None,
+  support_body_names: tuple[str, ...] = ("FL_hip", "FR_hip", "RL_hip", "RR_hip"),
   stationary_command_index: int | None = None,
   static_command_start_index: int | None = None,
   command_deadband: float = 0.0,
@@ -163,6 +165,8 @@ def mode_support_score(
     or soft_support_pair_height_std <= 0.0
   ):
     raise ValueError("soft support height and scales must be non-negative/positive.")
+  if support_leg_length_target is not None and support_leg_length_target <= 0.0:
+    raise ValueError("support_leg_length_target must be positive when provided.")
   if minimum_root_clearance is not None:
     clearance_values = (
       (minimum_root_clearance,)
@@ -333,6 +337,26 @@ def mode_support_score(
   # a four-wheel reset (lift an uncommanded wheel first); clearance completes
   # that same bridge once the selected pair actually bears the robot.
   support_progress = support * (0.65 + 0.35 * clearance)
+  if support_leg_length_target is not None:
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("support-leg geometry needs four explicit wheel sites.")
+    hip_ids, _ = asset.find_bodies(support_body_names, preserve_order=True)
+    if len(hip_ids) != 4:
+      raise ValueError("support_body_names must resolve one hip body per wheel.")
+    # A two-wheel contact can be held with a folded knee even while the base
+    # looks partially raised.  This is the actual hip-to-wheel span of the
+    # selected support legs, not a joint-angle or reference-pose target.
+    leg_length = torch.linalg.vector_norm(
+      asset.data.body_link_pos_w[:, hip_ids] - asset.data.site_pos_w[:, asset_cfg.site_ids],
+      dim=-1,
+    )
+    target_leg_length = (leg_length * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
+    leg_extension = torch.clamp(
+      target_leg_length / support_leg_length_target, min=0.0, max=1.0
+    )
+    # Preserve a continuous contact/attitude route from reset, then rank a
+    # genuinely load-bearing extended support above the folded local optimum.
+    support_progress = support_progress * (0.5 + 0.5 * leg_extension)
   support_result = orientation * support_progress * stillness
 
   # A static contact outcome alone is zero at the ordinary four-wheel reset,
