@@ -89,6 +89,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
+      direct_switch_probability=0.0,
       # Rear is the harder support, but keep enough front samples for both
       # one-hots to share a single static-discovery policy.
       mode_probabilities=(0.0, 0.25, 0.75),
@@ -281,6 +282,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # before normal x/yaw commands enter.
             "mode_probabilities": (0.10, 0.25, 0.65),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
+            "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
@@ -295,20 +297,33 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "step": 25_600,
             "mode_probabilities": (0.10, 0.35, 0.55),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
+            "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
             "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # m1200 now has quiet, exact wheel pairs but front/rear remain
-            # visibly short of their target attitudes.  Keep the same fused
-            # actor in pure static discovery through update 2,000 rather than
-            # turning an incomplete support into a rolling escape.  The
-            # command interface is unchanged; only sampling difficulty waits
-            # for the physical prerequisite.
+            # Once each static one-hot has independently discovered its wheel
+            # pair, train direct normal <-> front/rear changes while all
+            # requested velocities remain zero.  The deployment sequence
+            # requires this physical transition; previously the static sampler
+            # held one one-hot for a whole episode and never trained it.
+            "step": 76_800,
+            "mode_probabilities": (0.30, 0.30, 0.40),
+            "mode_idle_probabilities": (1.0, 1.0, 1.0),
+            "direct_switch_probability": 0.25,
+            "lin_vel_x_range": (0.0, 0.0),
+            "yaw_rate_range": (0.0, 0.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Retain static command-to-command practice while conservative
+            # x/yaw requests start, rather than making the first direct
+            # transition a rolling escape.
             "step": 128_000,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
+            "direct_switch_probability": 0.35,
             "lin_vel_x_range": (-0.10, 0.10),
             "yaw_rate_range": (-0.15, 0.15),
             "resampling_time_range": (6.0, 6.0),
@@ -320,6 +335,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "step": 153_600,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
+            "direct_switch_probability": 0.50,
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (6.0, 6.0),

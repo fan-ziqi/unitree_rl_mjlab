@@ -312,6 +312,8 @@ class StanceLocomotionCommand(CommandTerm):
     self._validate_range("yaw_rate_range", cfg.yaw_rate_range)
     if cfg.transition_active_time <= 0.0:
       raise ValueError("locomotion transition duration must be positive.")
+    if not 0.0 <= cfg.direct_switch_probability <= 1.0:
+      raise ValueError("direct_switch_probability must be in [0, 1].")
 
     self.command_buf = torch.zeros(self.num_envs, 5, device=self.device)
     self._scheduled_command = torch.zeros_like(self.command_buf)
@@ -402,6 +404,8 @@ class StanceLocomotionCommand(CommandTerm):
     no_alternative = next_probabilities.sum(dim=1) == 0.0
     next_probabilities[no_alternative] = self._mode_probabilities
     next_modes = torch.multinomial(next_probabilities, 1).squeeze(1)
+    switch = torch.rand(count, device=self.device) < self.cfg.direct_switch_probability
+    next_modes = torch.where(switch, next_modes, modes)
     sampled = torch.zeros(count, 5, device=self.device)
     sampled[torch.arange(count, device=self.device), modes] = 1.0
     # The fused actor needs normal rolling examples from its first update, but
@@ -434,20 +438,9 @@ class StanceLocomotionCommand(CommandTerm):
     next_sampled = sampled.clone()
     next_sampled[:, :3] = 0.0
     next_sampled[torch.arange(count, device=self.device), next_modes] = 1.0
-    # The zero-x/zero-yaw first curriculum is support discovery, not yet a
-    # transition task.  Forcing an untrained actor from a front static stand
-    # directly into a rear static stand halfway through that first episode
-    # made each sample require two distinct upright balances before either
-    # could be reinforced.  Hold the same public one-hot for this deliberately
-    # stationary segment.  As soon as the curriculum introduces a nonzero
-    # x/yaw range, retain the direct A -> B schedule below so the final fused
-    # policy still learns command-to-command switches.
-    static_support_discovery = (
-      self.cfg.lin_vel_x_range == (0.0, 0.0)
-      and self.cfg.yaw_rate_range == (0.0, 0.0)
-    )
-    if static_support_discovery:
-      next_sampled = sampled.clone()
+    # Early static support discovery sets the probability above to zero.  A
+    # later static curriculum stage raises it and trains normal <-> front/rear
+    # changes before x/yaw locomotion starts, without adding a hidden target.
     # The reset state is physically normal four-wheel idle, so training can
     # issue its first public one-hot immediately.  This matches a controller
     # that switches directly from normal driving to a front/rear stance.
@@ -492,6 +485,7 @@ class StanceLocomotionCommand(CommandTerm):
     mode_probabilities: tuple[float, float, float] | None = None,
     idle_probability: float | None = None,
     mode_idle_probabilities: tuple[float, float, float] | None = None,
+    direct_switch_probability: float | None = None,
     lin_vel_x_range: tuple[float, float] | None = None,
     yaw_rate_range: tuple[float, float] | None = None,
     resampling_time_range: tuple[float, float] | None = None,
@@ -518,6 +512,10 @@ class StanceLocomotionCommand(CommandTerm):
       self._mode_idle_probabilities = self._make_mode_idle_probabilities(
         mode_idle_probabilities
       )
+    if direct_switch_probability is not None:
+      if not 0.0 <= direct_switch_probability <= 1.0:
+        raise ValueError("direct_switch_probability must be in [0, 1].")
+      self.cfg.direct_switch_probability = direct_switch_probability
     if lin_vel_x_range is not None:
       self._validate_range("lin_vel_x_range", lin_vel_x_range)
       self.cfg.lin_vel_x_range = lin_vel_x_range
@@ -545,6 +543,7 @@ class StanceLocomotionCommandCfg(CommandTermCfg):
   yaw_rate_range: tuple[float, float] = (-0.4, 0.4)
   command_deadband: float = 0.05
   transition_active_time: float = 4.2
+  direct_switch_probability: float = 1.0
 
   def build(self, env) -> StanceLocomotionCommand:
     return StanceLocomotionCommand(self, env)

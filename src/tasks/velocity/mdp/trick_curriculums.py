@@ -72,6 +72,7 @@ def stance_locomotion_command_stages(
     mode_probabilities=stage.get("mode_probabilities"),
     idle_probability=stage.get("idle_probability"),
     mode_idle_probabilities=stage.get("mode_idle_probabilities"),
+    direct_switch_probability=stage.get("direct_switch_probability"),
     lin_vel_x_range=stage.get("lin_vel_x_range"),
     yaw_rate_range=stage.get("yaw_rate_range"),
     resampling_time_range=stage.get("resampling_time_range"),
@@ -80,6 +81,9 @@ def stance_locomotion_command_stages(
     "stance_locomotion_x_max": torch.tensor(command.cfg.lin_vel_x_range[1]),
     "stance_locomotion_yaw_max": torch.tensor(command.cfg.yaw_rate_range[1]),
     "stance_locomotion_idle_probability": torch.tensor(command.cfg.idle_probability),
+    "stance_locomotion_direct_switch_probability": torch.tensor(
+      command.cfg.direct_switch_probability
+    ),
     "stance_locomotion_command_time": torch.tensor(
       command.cfg.resampling_time_range[1]
     ),
