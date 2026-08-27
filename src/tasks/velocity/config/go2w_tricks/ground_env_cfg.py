@@ -198,12 +198,16 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # static one-hots must rank a truly quiet wheel balance above that
         # high-speed transient; this does not apply to requested x/yaw motion.
         "static_stillness_floor": 0.0,
-        # Exact wheel-pair contact appears before the trunk reaches a true
-        # front/rear upright.  The m2000 replay showed that the generic gate
-        # freezes this low slant; brake only near the measured final result.
-        "static_settling_alignment_threshold": 0.90,
-        "static_settling_support_threshold": 0.80,
-        "static_settling_clearance_threshold": 0.75,
+        # Begin favouring a quiet support as soon as a substantial physical
+        # rise is present.  The former near-final gate let PPO collect
+        # repeated high-speed approach reward while rocking through a low
+        # two-wheel slant, so front could rise but never settle and rear
+        # could retain contact without its target attitude.  The reset and
+        # first wheel-lift remain outside this gate; no get-up trajectory or
+        # joint pose is prescribed.
+        "static_settling_alignment_threshold": 0.65,
+        "static_settling_support_threshold": 0.40,
+        "static_settling_clearance_threshold": 0.35,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -486,12 +490,15 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "static_angular_velocity_scale": 0.80,
         "static_linear_velocity_scale": 0.12,
         "static_stillness_floor": 0.0,
-        # Named spin supports traverse the same low-slant intermediate form;
-        # do not freeze their angular motion until the physical result is
-        # close to the requested two-wheel geometry.
-        "static_settling_alignment_threshold": 0.80,
-        "static_settling_support_threshold": 0.75,
-        "static_settling_clearance_threshold": 0.75,
+        # A zero-rate named one-hot must begin preferring low angular speed
+        # once it has a meaningful partial support.  Waiting for the former
+        # near-final thresholds let the policy spin/rock through the contact
+        # bridge forever, because the existing stillness result was never
+        # activated.  This leaves the reset and initial lift unconstrained;
+        # it only changes the outcome ranking after partial physical rise.
+        "static_settling_alignment_threshold": 0.60,
+        "static_settling_support_threshold": 0.40,
+        "static_settling_clearance_threshold": 0.35,
         # This measured attitude-rate bridge is active only away from the
         # outcome, so it cannot reward a permanent fling.
         "attitude_progress_weight": 0.12,
