@@ -1035,6 +1035,9 @@ def aerial_event_failure(
   final_non_timeout_base_cost: float = 0.0,
   base_cost_ramp_start_steps: int = 0,
   base_cost_ramp_steps: int = 1,
+  terminal_angular_speed_scale: float | None = None,
+  minimum_motion_failure_fraction: float = 1.0,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Apply one terminal cost proportional to the missing requested turn.
 
@@ -1053,6 +1056,8 @@ def aerial_event_failure(
     or not 0.0 <= final_non_timeout_base_cost <= 1.0
     or base_cost_ramp_start_steps < 0
     or base_cost_ramp_steps <= 0
+    or terminal_angular_speed_scale is not None and terminal_angular_speed_scale <= 0.0
+    or not 0.0 < minimum_motion_failure_fraction <= 1.0
   ):
     raise ValueError("aerial failure parameters are outside their valid ranges.")
   command_term = env.command_manager.get_term(command_name)
@@ -1083,6 +1088,24 @@ def aerial_event_failure(
   non_timeout_base_cost = early_non_timeout_base_cost + base_ramp * (
     final_non_timeout_base_cost - early_non_timeout_base_cost
   )
+  # A nearly complete spin that strikes the ground at high angular speed was
+  # previously indistinguishable from a near-quiet invalid landing: both paid
+  # the same terminal base cost once their desired-axis angle approached 2π.
+  # That leaves no terminal outcome gradient for braking.  Scale that *same*
+  # failure cost by the measured root angular speed.  The lowest-speed case
+  # remains a nonzero failure, while a rapid trunk/leg crash is maximally bad.
+  # This is an endpoint measurement only--not a commanded rate, pose, or
+  # phase reference.
+  if terminal_angular_speed_scale is not None:
+    asset: Entity = env.scene[asset_cfg.name]
+    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    motion_fraction = 1.0 - torch.exp(
+      -torch.square(angular_speed / terminal_angular_speed_scale)
+    )
+    non_timeout_base_cost = non_timeout_base_cost * (
+      minimum_motion_failure_fraction
+      + (1.0 - minimum_motion_failure_fraction) * motion_fraction
+    )
   # At reset, a full missing-angle cost makes every exploratory launch much
   # worse than standing still: its terminal loss arrives before PPO has seen
   # enough legal flight to assign credit to takeoff.  Ramp only this scalar

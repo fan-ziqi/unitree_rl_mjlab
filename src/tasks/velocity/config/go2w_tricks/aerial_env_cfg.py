@@ -290,6 +290,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # base outcome cost.
         "early_non_timeout_base_cost": 0.0,
         "final_non_timeout_base_cost": 1.0,
+        # At the desired 2π angle, distinguish a rapid body/leg impact from
+        # an otherwise quiet invalid touchdown.  This supplies a continuous
+        # terminal braking preference using only the measured root speed; it
+        # is not a reference angular-rate command or a motion trajectory.
+        "terminal_angular_speed_scale": 8.0,
+        "minimum_motion_failure_fraction": 0.25,
         # Let PPO first rediscover a legal launch/turn, then steadily make an
         # illegal partial touchdown lose to the quiet four-wheel endpoint.
         # These steps correspond to roughly iterations 400--800 at the
