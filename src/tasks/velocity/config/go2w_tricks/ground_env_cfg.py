@@ -118,6 +118,23 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   _use_history(cfg, "trick")
 
   cfg.rewards = {
+    "commanded_support_attitude": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment_rise,
+      # At four-wheel reset, the target two-wheel gravity alignment is 0.5.
+      # This term is exactly zero there and rises only as the base rotates in
+      # the requested direction.  It supplies a persistent pose-result route
+      # to the later contact/clearance outcome, without a leg target or a
+      # prescribed get-up motion.
+      weight=30.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "num_modes": 3,
+        "power": 1.5,
+        "asset_cfg": SceneEntityCfg("robot"),
+      },
+    ),
     # This single dense score is deliberately additive: it supplies a useful
     # direction from four wheels toward the requested support without making
     # contact an all-or-nothing gate on the attitude signal.
@@ -545,6 +562,22 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
         "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_static_attitude": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment_rise,
+      # Named two-wheel pivots need a state-level route from ordinary four
+      # wheels to their commanded gravity direction before their exact
+      # wheel-pair/height score can become non-zero.  Normal is deliberately
+      # excluded: it remains a level four-wheel common-axle problem.
+      weight=30.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "num_modes": 5,
+        "power": 1.5,
+        "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
     "named_pitch_support_height": RewardTermCfg(

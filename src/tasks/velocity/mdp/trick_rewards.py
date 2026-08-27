@@ -388,6 +388,43 @@ def mode_root_height_exp(
   )
 
 
+def mode_gravity_alignment_rise(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  modes: tuple[int, ...],
+  gravity_targets: tuple[tuple[float, float, float], ...],
+  num_modes: int = 5,
+  power: float = 1.0,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward only progress beyond ordinary upright toward a commanded attitude.
+
+  The normal four-wheel reset has a target-alignment score of exactly 0.5 for
+  any front/rear/side two-wheel attitude.  Contact-quality rewards must be
+  zero there—otherwise they accept the reset as a support—but a pure angular
+  *rate* bridge can be collected by rocking without retaining useful pose
+  progress.  This bounded state result is zero at the normal reset and one at
+  the requested gravity direction.  It specifies neither a leg pose nor a
+  transition timing, and leaves contact/height terms to decide how the robot
+  physically realizes the attitude.
+  """
+  if power <= 0.0:
+    raise ValueError("power must be positive.")
+  if len(gravity_targets) != num_modes:
+    raise ValueError("gravity_targets must cover every command mode.")
+  asset: Entity = env.scene[asset_cfg.name]
+  active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
+  alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), min=0.0, max=1.0
+  )
+  # Map normal reset (alignment=.5) to zero rather than paying it as a
+  # partial stand; any progress in the wrong direction also remains zero.
+  rise = torch.clamp(2.0 * alignment - 1.0, min=0.0, max=1.0)
+  return active.to(rise.dtype) * torch.pow(rise, power)
+
+
 def _stance_spin_components(
   env: ManagerBasedRlEnv,
   command_name: str,
