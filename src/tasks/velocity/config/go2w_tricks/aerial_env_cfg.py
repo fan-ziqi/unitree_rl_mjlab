@@ -236,10 +236,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # turn from one that has the right commanded-axis integral but unwanted
       # off-axis tumble.  It contains no joint, timing, or rate reference;
       # the strict four-wheel endpoint is still paid by the same term.
-      # The completion bonus below is intentionally much larger than the
-      # late-flight preview: a body/leg crash after almost one turn must not
-      # be as profitable as actually returning to quiet four-wheel support.
-      weight=800.0,
+      # The late-flight recovery measurement is the only dense signal for
+      # braking and returning the wheel package before touchdown.  It must be
+      # strong enough to compete with launch/turn progress, while the larger
+      # one-off completion multiplier below still makes a quiet four-wheel
+      # result the best event outcome.
+      weight=1600.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -258,7 +260,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
         "late_flight_brake_angular_speed_std": 14.0,
-        "completion_bonus": 4.0,
+        "completion_bonus": 3.0,
         "post_idle_settle_time": 0.30,
       },
     ),
@@ -268,21 +270,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # zero-turn fall during PPO discovery.
     "event_failure": RewardTermCfg(
       func=trick_rewards.aerial_event_failure,
-      # Aerial m1000 confirmed that the previous -500 terminal cost was far
-      # below the summed launch/turn/preview rewards.  At the end of the
-      # same discovery curriculum, an illegal touchdown now loses to both a
-      # quiet completion and to staying in the legal flight/recovery path.
-      # The early scalar ramp remains, so it does not suppress first launch
-      # discovery from an untrained policy.
-      weight=-2500.0,
+      # Aerial f147 showed that -2500 made this sparse terminal cost dominate
+      # every available recovery gradient and explode the critic loss.  This
+      # remains stricter than the old prototype, but a legal late-flight
+      # recovery can now improve its return before the first perfect landing
+      # is sampled.
+      weight=-800.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
-        # Keep the early *absolute* loss equal to the prior discovery run:
-        # the stronger final terminal weight must not make a tentative legal
-        # lift worse than doing nothing before PPO has seen airborne evidence.
-        # The scalar curriculum then restores the strict one-turn requirement.
-        "early_missing_angle_cost": 0.02,
+        # Preserve the original early absolute loss while the final terminal
+        # scale is stronger, so a tentative legal lift remains discoverable.
+        "early_missing_angle_cost": 0.0625,
         "final_missing_angle_cost": 1.0,
         # A nearly-complete turn that lands its trunk or a leg is still a
         # failure.  Angle-only cost accidentally made that failure free as
