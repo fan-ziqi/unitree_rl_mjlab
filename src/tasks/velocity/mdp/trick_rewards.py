@@ -1313,17 +1313,17 @@ def aerial_event_failure(
   )
 
 
-class AerialWheelFirstEnvelope:
-  """Pay late-flight progress toward a wheel-lowest landing package.
+class AerialTuckThenWheelLanding:
+  """Shape the visible compact-flight-to-wheel-landing geometry.
 
-  A desired-axis integral alone admits a bad aerial local optimum: the base
-  completes most of a turn but a calf, hip, or trunk reaches the terrain
-  before the wheels.  This term never names a joint angle, an airborne clock,
-  or a reference pose.  After more than half a requested turn, it only asks
-  for the directly measurable physical precondition of a wheel-first landing:
-  every wheel centre lies below the lowest non-wheel link centre during a
-  legal, wheel-free flight.  The increasing turn fraction turns that outcome
-  into a bounded high-water event rather than a reward for holding a pose.
+  The failed policies spread their legs throughout a flip: their mean wheel
+  distance from the trunk grows from the nominal 0.36 m to 0.54--0.61 m, then
+  a non-wheel link strikes first.  The demonstrated maneuver does the
+  opposite: compact wheels/legs while accumulating the turn, then extend a
+  wheel-first envelope only near the landing.  Both are measured geometry
+  outcomes.  This supplies neither a joint target nor a time-indexed
+  reference trajectory; the switch is made only by the turn the policy has
+  physically accumulated itself.
   """
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
@@ -1346,17 +1346,30 @@ class AerialWheelFirstEnvelope:
     nonwheel_sensor_name: str,
     body_names: tuple[str, ...],
     target_angle: float,
-    minimum_turn_fraction: float = 0.55,
+    tuck_start_turn_fraction: float = 0.08,
+    tuck_ramp_end_turn_fraction: float = 0.20,
+    tuck_end_turn_fraction: float = 0.62,
+    tuck_target_wheel_root_distance: float = 0.30,
+    tuck_max_wheel_root_distance: float = 0.40,
+    landing_start_turn_fraction: float = 0.62,
     target_clearance: float = 0.10,
     minimum_clearance_for_progress: float = -0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
-    if target_angle <= 0.0 or target_clearance <= 0.0:
-      raise ValueError("target_angle and target_clearance must be positive.")
+    if (
+      target_angle <= 0.0
+      or target_clearance <= 0.0
+      or tuck_target_wheel_root_distance <= 0.0
+      or tuck_max_wheel_root_distance <= tuck_target_wheel_root_distance
+    ):
+      raise ValueError("Aerial geometry distances and target_angle must be positive.")
     if minimum_clearance_for_progress >= target_clearance:
       raise ValueError("minimum_clearance_for_progress must be below target_clearance.")
-    if not 0.0 < minimum_turn_fraction < 1.0:
-      raise ValueError("minimum_turn_fraction must be in (0, 1).")
+    if not (
+      0.0 <= tuck_start_turn_fraction < tuck_ramp_end_turn_fraction
+      <= tuck_end_turn_fraction <= landing_start_turn_fraction < 1.0
+    ):
+      raise ValueError("Aerial tuck/landing turn fractions must be ordered in [0, 1).")
     asset: Entity = env.scene[asset_cfg.name]
     if self.body_ids is None:
       self.body_ids, _ = asset.find_bodies(body_names, preserve_order=True)
@@ -1382,12 +1395,23 @@ class AerialWheelFirstEnvelope:
       asset.data.body_link_pos_w[:, self.body_ids, 2], dim=1
     )
     wheel_clearance = lowest_nonwheel_link - wheel_top
+    # Tuck is a body-centred geometric result: it does not select an individual
+    # hip, knee, or calf angle.  The nominal reset averages 0.364 m; a failed
+    # aerial spreads to roughly 0.55 m.  Reaching 0.30 m therefore describes
+    # a visibly compact wheel/leg package without encoding its configuration.
+    wheel_root_distance = torch.linalg.vector_norm(
+      asset.data.site_pos_w[:, asset_cfg.site_ids] - asset.data.root_link_pos_w[:, None],
+      dim=-1,
+    ).mean(dim=1)
+    tuck_score = torch.clamp(
+      (tuck_max_wheel_root_distance - wheel_root_distance)
+      / (tuck_max_wheel_root_distance - tuck_target_wheel_root_distance),
+      min=0.0,
+      max=1.0,
+    )
     # A hard zero while one limb is still below the wheel plane makes this
-    # otherwise physical result undiscoverable: every bad landing package has
-    # exactly the same return.  Score the *same* wheel-first clearance over a
-    # finite safety margin instead.  It rises continuously from a visibly
-    # unsafe dangling-link state to the target wheel-lowest clearance, without
-    # introducing a leg pose, action, phase, or reference frame.
+    # otherwise physical result undiscoverable.  Score the same wheel-first
+    # clearance over a finite safety margin instead.
     wheel_lowest_score = torch.clamp(
       (wheel_clearance - minimum_clearance_for_progress)
       / (target_clearance - minimum_clearance_for_progress),
@@ -1400,12 +1424,35 @@ class AerialWheelFirstEnvelope:
       & (~landing_started)
       & wheel_free
       & legal
-      & (turn_fraction >= minimum_turn_fraction)
     )
+    tuck_entry = torch.clamp(
+      (turn_fraction - tuck_start_turn_fraction)
+      / (tuck_ramp_end_turn_fraction - tuck_start_turn_fraction),
+      min=0.0,
+      max=1.0,
+    )
+    tuck_exit = torch.clamp(
+      (tuck_end_turn_fraction - turn_fraction)
+      / (tuck_end_turn_fraction - tuck_ramp_end_turn_fraction),
+      min=0.0,
+      max=1.0,
+    )
+    tuck_phase = tuck_entry * tuck_exit
+    landing_phase = torch.clamp(
+      (turn_fraction - landing_start_turn_fraction)
+      / (1.0 - landing_start_turn_fraction),
+      min=0.0,
+      max=1.0,
+    )
+    # The two terms are consecutive outcomes of one airborne maneuver: tuck
+    # while rotation is built, then wheel-lowest only in the final approach.
+    # A peak-gain reward gives PPO credit for discovering either improvement
+    # without paying it indefinitely as a stationary configuration.
+    shape_score = tuck_phase * tuck_score + landing_phase * wheel_lowest_score
     score = torch.where(
       candidate,
-      wheel_lowest_score * turn_fraction,
-      torch.zeros_like(wheel_lowest_score),
+      shape_score,
+      torch.zeros_like(shape_score),
     )
     gain = torch.clamp(score - self.peak_score, min=0.0)
     self.peak_score = torch.where(

@@ -205,13 +205,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
       },
     ),
-    "wheel_first_landing_envelope": RewardTermCfg(
-      func=trick_rewards.AerialWheelFirstEnvelope,
-      # Once rotation is materially under way, the wheels must be lower than
-      # every non-wheel link before any ground contact.  This gives the actor
-      # a physical reason to fold a flailing leg back into a compact recovery
-      # package, while leaving launch, angular acceleration, and braking free
-      # for PPO to discover.
+    "tuck_then_wheel_landing": RewardTermCfg(
+      func=trick_rewards.AerialTuckThenWheelLanding,
+      # The video has a compact airborne package followed by a wheel-first
+      # landing package.  The earlier reward requested wheel-lowest geometry
+      # from 10% of the turn onward, which encouraged the opposite: legs
+      # extended and flailing during the whole flip.  This single geometric
+      # outcome rewards compact wheels/legs through the middle of the actual
+      # accumulated turn, then wheel-lowest clearance only near landing.
       # The m2500 audit has exposed the actual remaining failure mode: front
       # can make almost one turn, but the trunk reaches the floor first, and
       # the other three body-axis commands never discover their own compact
@@ -227,11 +228,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "body_names": WHEEL_FIRST_ENVELOPE_BODIES,
         "target_angle": math.tau,
-        # The m600 short-hop replay does not leave enough time after 40% of a
-        # turn for a dangling link to recover above the wheels.  Start paying
-        # the same wheel-lowest physical outcome once rotation is plainly
-        # underway, leaving PPO free to choose its own limb timing.
-        "minimum_turn_fraction": 0.10,
+        # These are actual accumulated-turn fractions, not a clock or a
+        # reference pose.  The policy itself determines when it reaches them.
+        "tuck_start_turn_fraction": 0.08,
+        "tuck_ramp_end_turn_fraction": 0.20,
+        "tuck_end_turn_fraction": 0.62,
+        "tuck_target_wheel_root_distance": 0.30,
+        "tuck_max_wheel_root_distance": 0.40,
+        "landing_start_turn_fraction": 0.62,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
