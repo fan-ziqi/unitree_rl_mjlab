@@ -398,7 +398,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   # into a compact common axle while all wheels remain grounded.  A modest
   # extension beyond the shared ±0.55-rad residual makes that geometry
   # reachable without adding a prescribed joint pose or torque authority.
-  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
+  # A two-wheel stand has to move through the same physical hip workspace as
+  # the front/rear stance-locomotion task.  Its 0.90-rad residual remains
+  # inside the model's +/-1.05-rad abduction range; the compact-pivot outcome
+  # below, not a smaller unexplained action envelope, is what prevents a
+  # splayed final form.
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
   # Discovery needs the wheels to stay planted while legs find the common
   # axle.  With an 80-rad/s residual range, the bounded exploratory policy
   # drove the four-wheel footprint across the plane before it could improve
@@ -522,13 +527,49 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # bridge forever, because the existing stillness result was never
         # activated.  This leaves the reset and initial lift unconstrained;
         # it only changes the outcome ranking after partial physical rise.
-        "static_settling_alignment_threshold": 0.60,
-        "static_settling_support_threshold": 0.40,
-        "static_settling_clearance_threshold": 0.35,
+        # f160 m1800 reaches about 0.58 attitude alignment with commanded
+        # contacts, then keeps rocking because the prior 0.60/0.40/0.35 gate
+        # never activates its measured stillness result.  Begin damping at a
+        # genuine partial two-wheel support, as in stance locomotion; the
+        # full contact/attitude/height outcome remains the only maximum.
+        "static_settling_alignment_threshold": 0.50,
+        "static_settling_support_threshold": 0.20,
+        "static_settling_clearance_threshold": 0.20,
         # This measured attitude-rate bridge is active only away from the
         # outcome, so it cannot reward a permanent fling.
         "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_pitch_support_height": RewardTermCfg(
+      func=trick_rewards.mode_root_height_exp,
+      # A selected front or rear wheel pair can touch while the trunk remains
+      # in the observed low slant.  The working Go2W upright task establishes
+      # this measured 0.561-m base height as the extended pitch-pair outcome.
+      # It is a whole-body endpoint, not a leg target or a get-up trajectory.
+      weight=15.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "num_modes": 5,
+        "target_height": 0.561,
+        "scale": 5.0,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_roll_support_height": RewardTermCfg(
+      func=trick_rewards.mode_root_height_exp,
+      # A left/right pair places the short base dimension vertically, so its
+      # physically extended wheel-pair height is lower than the pitch pair.
+      # Reward the state result only; PPO still selects all joint geometry.
+      weight=12.0,
+      params={
+        "command_name": "trick",
+        "modes": (3, 4),
+        "num_modes": 5,
+        "target_height": 0.45,
+        "scale": 5.0,
         "asset_cfg": _support_wheels(),
       },
     ),
