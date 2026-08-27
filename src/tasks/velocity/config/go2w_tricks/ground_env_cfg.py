@@ -686,103 +686,37 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # First discover a compact, level four-wheel common axle from the
-            # ordinary reset.  At 48 control steps/update, this lasts 600
-            # updates—not 1,200.  The policy still needs a normal discovery
-            # period, while the long fused run below leaves enough evidence
-            # for every named support and the later command transitions.
-            "mode_probabilities": (1.0, 0.0, 0.0, 0.0, 0.0),
+            # Learn a genuine rotating pivot from the outset.  Isolating
+            # normal at 0.5--1 rad/s for hundreds of iterations produced a
+            # policy that had never experienced the requested fast command.
+            "mode_probabilities": (0.70, 0.15, 0.15, 0.0, 0.0),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
+            "upright_static_probability": 0.20,
             "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 1.0),
+            "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # The m1600 audit proved that a uniform static block learned
-            # front while starving rear and both side supports.  Keep one
-            # fused actor, but give each physical support an explicit
-            # discovery interval before it must share dynamic pivot pressure.
+            # Add both static side supports and a higher-rate fused pivot
+            # after one short discovery block, rather than serially spending
+            # thousands of updates on five independently staged forms.
             "step": 28_800,
-            "mode_probabilities": (0.10, 0.80, 0.10, 0.0, 0.0),
+            "mode_probabilities": (0.40, 0.25, 0.25, 0.05, 0.05),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 1.0,
-            "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 1.0),
+            "upright_static_probability": 0.15,
+            "direct_switch_probability": 0.10,
+            "spin_rate_range": (7.0, 11.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # A 300-update front-only interval left the public front one-hot
-            # indistinguishable from the normal pivot.  Hold it for 600 PPO
-            # updates before moving on; this is curriculum time, not a
-            # separate policy or target posture.
+            # Spend the majority of the run on the actual delivery setting:
+            # fast normal/front/rear pivoting plus continuous one-hot changes.
             "step": 57_600,
-            "mode_probabilities": (0.10, 0.15, 0.75, 0.0, 0.0),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 1.0,
-            "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 1.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            "step": 86_400,
-            "mode_probabilities": (0.10, 0.10, 0.15, 0.60, 0.05),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 1.0,
-            "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 1.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            "step": 105_600,
-            "mode_probabilities": (0.10, 0.10, 0.15, 0.05, 0.60),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 1.0,
-            "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 1.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Rehearse all static one-hots together before movement.  Side
-            # modes remain static even after the later rate curriculum.
-            "step": 124_800,
-            "mode_probabilities": (0.10, 0.25, 0.25, 0.20, 0.20),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 1.0,
-            "direct_switch_probability": 0.0,
-            "spin_rate_range": (0.5, 1.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Only now introduce low-rate normal/front/rear pivots.  A small
-            # direct-switch share teaches the requested continuous one-hot
-            # command without erasing the static supports.
-            "step": 144_000,
-            "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
-            "direct_switch_probability": 0.05,
-            "spin_rate_range": (0.5, 2.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            "step": 163_200,
-            "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
+            "mode_probabilities": (0.36, 0.27, 0.27, 0.05, 0.05),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
-            "direct_switch_probability": 0.15,
-            "spin_rate_range": (2.0, 5.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # The final block is the visibly fast normal/front/rear pivot;
-            # left/right continue to represent held side supports.
-            "step": 182_400,
-            "mode_probabilities": (0.20, 0.32, 0.32, 0.08, 0.08),
-            "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.30,
-            "spin_rate_range": (8.0, 12.0),
+            "spin_rate_range": (10.0, 15.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
