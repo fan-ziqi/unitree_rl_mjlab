@@ -132,16 +132,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "num_modes": 3,
         "power": 1.5,
-        # A static front/rear command needs a held support, not the short
-        # high-attitude pass produced by rocking through the target.  Apply
-        # stillness only after leaving the ordinary four-wheel alignment, so
-        # PPO remains free to discover its own rise and leg motion.
-        "static_command_start_index": 3,
-        "command_deadband": 0.04,
-        "static_alignment_threshold": 0.55,
-        "static_angular_velocity_scale": 0.70,
-        "static_linear_velocity_scale": 0.18,
-        "static_stillness_floor": 0.0,
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
@@ -215,7 +205,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # actor's PPO advantage.  Weight the harder rear *same outcome* so
         # its one-hot receives comparable policy pressure without a separate
         # network, a pose target, or a reference transition.
-        "mode_weights": (0.0, 1.0, 2.5),
+        "mode_weights": (0.0, 1.0, 4.0),
         "clearance_power": 1.0,
         # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
         # audit found that without this existing outcome's stillness factor,
@@ -362,7 +352,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # all-zero normal idle is still supplied by the action gate;
             # this one-hot share merely keeps its observation branch present
             # before normal x/yaw commands enter.
-            "mode_probabilities": (0.10, 0.25, 0.65),
+            "mode_probabilities": (0.10, 0.15, 0.75),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -379,7 +369,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # ``common_step_counter`` counts 48 control steps per PPO
             # update for this task.
             "step": 19_200,
-            "mode_probabilities": (0.10, 0.35, 0.55),
+            "mode_probabilities": (0.10, 0.20, 0.70),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -615,16 +605,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "num_modes": 5,
         "power": 1.5,
-        # A zero-rate named one-hot is a held two-wheel stance.  Once it has
-        # materially left four-wheel idle, rank the same commanded attitude
-        # by physical stillness so an actor cannot keep rocking through it.
-        # Nonzero-rate pivot commands bypass this gate entirely.
-        "static_command_start_index": 5,
-        "command_deadband": 0.20,
-        "static_alignment_threshold": 0.55,
-        "static_angular_velocity_scale": 0.80,
-        "static_linear_velocity_scale": 0.12,
-        "static_stillness_floor": 0.0,
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
