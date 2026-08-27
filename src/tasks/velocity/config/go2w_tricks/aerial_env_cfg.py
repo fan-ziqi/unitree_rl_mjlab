@@ -244,7 +244,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # strong enough to compete with launch/turn progress, while the larger
       # one-off completion multiplier below still makes a quiet four-wheel
       # result the best event outcome.
-      weight=16.0,
+      # A high dense root-orientation return made a fast near-2π body strike
+      # profitable even after its terminal failure was made negative.  Keep
+      # this as a small late-flight diagnostic, but reserve the meaningful
+      # landing return for the actual quiet four-wheel completion below.
+      weight=4.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -263,7 +267,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
         "late_flight_brake_angular_speed_std": 14.0,
-        "completion_bonus": 3.0,
+        # Preserve the former 48-point one-off completion outcome while
+        # removing the crash-friendly dense recovery scale above.
+        "completion_bonus": 12.0,
         "post_idle_settle_time": 0.30,
       },
     ),
