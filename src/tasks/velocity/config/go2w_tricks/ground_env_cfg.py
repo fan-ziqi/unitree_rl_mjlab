@@ -194,11 +194,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # sparse.  Use the measured attitude itself as the continuous route;
         # exact contacts, clearance, and non-wheel collision termination are
         # unchanged.  This is not a joint pose or transition trajectory.
-        # Target contacts already exclude the four-wheel reset, so use a
-        # moderate orientation power for a useful partial-support gradient.
+        # Target contacts already exclude the four-wheel reset.  A cubic
+        # attitude gate plateaued at the observed half-stand; retain the
+        # strict measured endpoint but provide a stronger continuous route.
         # The measured exact-contact and clearance outcome still gives only
         # the genuinely inverted two-wheel stand the full return.
-        "orientation_power": 3.0,
+        "orientation_power": 2.0,
         # This is the existing reset-to-support bridge, now deliberately
         # smaller than the held-support result so a zero-command balance wins
         # over repeated high-speed attempts near the target.
