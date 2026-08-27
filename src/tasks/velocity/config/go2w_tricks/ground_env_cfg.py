@@ -254,6 +254,24 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
+    "commanded_non_support_wheel_clearance": RewardTermCfg(
+      func=trick_rewards.mode_non_support_wheel_clearance,
+      # A front/rear command cannot become a genuine two-wheel stance while
+      # its opposite wheel pair remains near the terrain.  This is a single
+      # endpoint clearance measurement, not a target leg pose or get-up
+      # trajectory.  It provides the missing continuous bridge from the
+      # observed low four-wheel fold to the contact/attitude outcome above.
+      weight=18.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        "target_height": 0.42,
+        "minimum_height": 0.10,
+        "num_modes": 3,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
     "track_x_and_zero_lateral": RewardTermCfg(
       func=trick_rewards.stance_locomotion_linear_velocity_exp,
       # Support discovery is the prerequisite for useful public x control.
@@ -598,6 +616,23 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "orientation_power": 2.0,
         "extra_contact_discount": 1.0,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_non_support_wheel_clearance": RewardTermCfg(
+      func=trick_rewards.mode_non_support_wheel_clearance,
+      # The named static two-wheel commands face the same sparse contact
+      # barrier as the locomotion supports.  Share the exact wheel-clearance
+      # outcome so all one-hots retain one actor and one physical objective,
+      # with no leg pose, reference frame, or transition schedule added.
+      weight=18.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "target_height": 0.40,
+        "minimum_height": 0.10,
+        "num_modes": 5,
         "asset_cfg": _support_wheels(),
       },
     ),

@@ -388,6 +388,49 @@ def mode_root_height_exp(
   )
 
 
+def mode_non_support_wheel_clearance(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  modes: tuple[int, ...],
+  contact_masks: tuple[tuple[float, float, float, float], ...],
+  target_height: float,
+  minimum_height: float = 0.10,
+  num_modes: int = 5,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward lifting the *uncommanded* wheel pair, without a limb target.
+
+  A two-wheel command has a simple physical endpoint: its opposite pair of
+  wheel centres must be clear of the plane.  Contact bits alone provide no
+  useful gradient until a tyre has already separated, which permits a low
+  folded four-wheel crouch to persist even when a gravity-direction reward is
+  improving.  This measures only the average height of the non-support wheels
+  and is zero at their ordinary ground-level reset.  It neither selects joint
+  angles nor prescribes the route by which the robot raises them.
+  """
+  if target_height <= minimum_height or minimum_height < 0.0:
+    raise ValueError("target_height must exceed non-negative minimum_height.")
+  if len(contact_masks) != num_modes:
+    raise ValueError("contact_masks must cover every command mode.")
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+    raise ValueError("non-support wheel clearance needs four wheel sites.")
+
+  asset: Entity = env.scene[asset_cfg.name]
+  active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  masks = torch.tensor(contact_masks, dtype=asset.data.site_pos_w.dtype, device=env.device)
+  non_support = 1.0 - masks[mode]
+  non_support_count = non_support.sum(dim=1)
+  wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+  mean_non_support_height = (wheel_height * non_support).sum(dim=1) / non_support_count.clamp_min(1.0)
+  clearance = torch.clamp(
+    (mean_non_support_height - minimum_height) / (target_height - minimum_height),
+    min=0.0,
+    max=1.0,
+  )
+  # Callers exclude normal mode because it has no non-support wheel pair.
+  return active.to(clearance.dtype) * clearance
+
+
 def mode_gravity_alignment_rise(
   env: ManagerBasedRlEnv,
   command_name: str,
