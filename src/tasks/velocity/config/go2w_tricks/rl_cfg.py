@@ -144,12 +144,19 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # retain the finite 1.5 action bound but use 0.80 early exploration so
     # PPO can discover the physically measured launch without a joint target.
     init_std=0.80,
-    # f159's m2500 audit is unequivocal mode collapse: only front approaches
-    # a turn while left/right remain small hops.  This modest increase keeps
-    # the shared actor exploring command-conditioned alternatives through the
-    # delayed landing-validity curriculum; it does not alter observations,
-    # actions, or the one-policy requirement.
-    entropy_coef=0.004,
+    # f162 established that the extra wheel-first outcome is useful, but its
+    # unconstrained scalar Gaussian expanded to std=2.52 by m1479 although
+    # actions are clipped at 1.5.  That made most joints saturate and selected
+    # the observed rigid/flailing crash.  Keep command-conditioned exploration
+    # but bound its physical spread; deterministic deployment remains the
+    # actor mean and no command/observation changes are introduced.
+    distribution_class=(
+      "src.tasks.velocity.mdp.trick_distributions:"
+      "BoundedHeteroscedasticGaussianDistribution"
+    ),
+    std_type="log",
+    distribution_params={"min_std": 0.15, "max_std": 0.90},
+    entropy_coef=0.003,
     # The large batch already produces a low-variance PPO gradient.  A
     # smaller actor step prevents a rare successful mode from overwriting
     # still-exploring command branches between checkpoints.
