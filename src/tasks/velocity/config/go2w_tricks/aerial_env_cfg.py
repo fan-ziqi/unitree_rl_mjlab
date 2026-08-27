@@ -348,10 +348,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     )
   # This is sampling curriculum, not a reference-motion curriculum.  Every
   # emitted command is still one complete 2π event from the first sample.
-  # Each one-hot shares this one actor.  The m1000 audit showed easy yaw
-  # monopolizing the actor while every body-axis turn still crashed.  Give
-  # front/back/left/right shared ballistic discovery data first, then add yaw
-  # maintenance and finally restore the true five-way task distribution.
+  # Each one-hot shares this one actor.  Yaw is mechanically easier than the
+  # body-axis flips, so retain a small yaw fraction during early discovery
+  # instead of letting it dominate the shared policy.  Crucially, this is
+  # never zero: an all-zero early yaw branch made a five-way checkpoint
+  # incapable of responding to its yaw command.  ``common_step_counter`` is
+  # measured in policy control steps (48 per PPO update for this task), not
+  # PPO iterations.
   cfg.curriculum = {
     "aerial_commands": CurriculumTermCfg(
       func=trick_curriculums.aerial_command_stages,
@@ -361,18 +364,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           {
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
+            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
           {
-            # Keep a small yaw replay only after the four body-axis branches
-            # have had 800 updates.  This remains one policy and one command.
-            "step": 51_200,
+            # After 400 updates, raise yaw replay while the four body-axis
+            # branches still receive most launch-discovery data.
+            "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.23, 0.23, 0.23, 0.23, 0.08),
+            "mode_probabilities": (0.22, 0.22, 0.22, 0.22, 0.12),
           },
           {
-            # The final phase is the actual uniform five-direction task.
-            "step": 89_600,
+            # At 800 updates, train the actual uniform five-direction task.
+            "step": 38_400,
             "idle_probability": 0.0,
             "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
           },
