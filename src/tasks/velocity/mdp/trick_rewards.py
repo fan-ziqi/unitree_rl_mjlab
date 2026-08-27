@@ -319,6 +319,31 @@ def mode_support_score(
   return result
 
 
+def mode_root_height_exp(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  modes: tuple[int, ...],
+  target_height: float,
+  scale: float,
+  num_modes: int = 5,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward the final trunk height for selected support-command outcomes.
+
+  This is deliberately a whole-body result, not a leg configuration or a
+  get-up phase.  A two-wheel command needs the trunk to rise well above the
+  ordinary four-wheel reset; contact/attitude terms alone otherwise retain a
+  profitable low slant.  Modes outside ``modes`` receive zero so normal idle
+  remains the model-default four-wheel height.
+  """
+  if target_height <= 0.0 or scale <= 0.0:
+    raise ValueError("target_height and scale must be positive.")
+  asset: Entity = env.scene[asset_cfg.name]
+  active, _ = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  height_error = torch.abs(asset.data.root_link_pos_w[:, 2] - target_height)
+  return active.to(height_error.dtype) * torch.exp(-scale * height_error)
+
+
 def _stance_spin_components(
   env: ManagerBasedRlEnv,
   command_name: str,

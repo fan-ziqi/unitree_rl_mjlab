@@ -205,10 +205,31 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # could retain contact without its target attitude.  The reset and
         # first wheel-lift remain outside this gate; no get-up trajectory or
         # joint pose is prescribed.
-        "static_settling_alignment_threshold": 0.65,
-        "static_settling_support_threshold": 0.40,
-        "static_settling_clearance_threshold": 0.35,
+        # The m1200 fixed audit reaches roughly 0.59 target alignment and
+        # 0.35 support before turning into a fast rolling escape.  Start
+        # preferring low speed at that genuine partial-support state; reset
+        # still has zero support, so this does not freeze initial discovery.
+        "static_settling_alignment_threshold": 0.50,
+        "static_settling_support_threshold": 0.20,
+        "static_settling_clearance_threshold": 0.20,
         "asset_cfg": _support_wheels(),
+      },
+    ),
+    "commanded_support_height": RewardTermCfg(
+      func=trick_rewards.mode_root_height_exp,
+      # The working Go2W upright task needs an explicit final trunk-height
+      # result to reject a low wheel-supported slant.  Apply the same
+      # whole-body outcome only to front/rear modes; normal idle intentionally
+      # remains at the default four-wheel height.  This names no joint pose or
+      # transition trajectory.
+      weight=15.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "num_modes": 3,
+        "target_height": 0.561,
+        "scale": 5.0,
+        "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
     "track_x_and_zero_lateral": RewardTermCfg(
