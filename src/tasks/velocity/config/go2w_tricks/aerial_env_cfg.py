@@ -259,10 +259,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # profitable even after its terminal failure was made negative.  Keep
       # this as a small late-flight diagnostic, but reserve the meaningful
       # landing return for the actual quiet four-wheel completion below.
-      # Keep a small whole-body return diagnostic, but put the dense recovery
-      # emphasis on wheel-first clearance above rather than paying a nearly
-      # upright high-speed trunk strike.
-      weight=2.0,
+      # f188 reaches a quiet four-wheel touchdown for every mode, but the
+      # front/right branches retain a 0.23--0.28 whole-body orientation error
+      # at that touchdown.  Their only missing physical outcome is therefore
+      # the late return of the full base frame, not more launch or turn rate.
+      # Give that existing dense measurement comparable scale to the launch
+      # and turn terms.  The one-off completion product remains 48 below.
+      weight=6.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -281,9 +284,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
         "late_flight_brake_angular_speed_std": 14.0,
-        # Preserve the former 48-point one-off completion outcome while the
-        # dense orientation diagnostic is reduced from 4 to 2.
-        "completion_bonus": 24.0,
+        # Preserve the 48-point one-off completion outcome while increasing
+        # only the dense full-frame return above (6 * 8 = 48).
+        "completion_bonus": 8.0,
         "post_idle_settle_time": 0.30,
       },
     ),
