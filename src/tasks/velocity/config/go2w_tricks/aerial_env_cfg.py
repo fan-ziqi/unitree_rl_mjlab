@@ -173,7 +173,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # leaving no reward distinction between that crash and a real aerial.
       # These remain measured vertical impulse and wheel-free time, not a
       # take-off pose or a prescribed timing trace.
-      weight=1000.0,
+      # Discovery needs a clear signal for a genuine upward launch, but it
+      # must not outweigh the final physical outcome of the event.
+      weight=600.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -193,7 +195,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # without a separate rate target that a one-frame spike could game, and
       # it is deliberately bounded so a partial crash cannot numerically
       # dominate the landing result.
-      weight=1100.0,
+      weight=600.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -207,7 +209,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a physical reason to fold a flailing leg back into a compact recovery
       # package, while leaving launch, angular acceleration, and braking free
       # for PPO to discover.
-      weight=900.0,
+      # This is useful recovery evidence, not a substitute for a landing.
+      weight=300.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -233,7 +236,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # turn from one that has the right commanded-axis integral but unwanted
       # off-axis tumble.  It contains no joint, timing, or rate reference;
       # the strict four-wheel endpoint is still paid by the same term.
-      weight=1600.0,
+      # The completion bonus below is intentionally much larger than the
+      # late-flight preview: a body/leg crash after almost one turn must not
+      # be as profitable as actually returning to quiet four-wheel support.
+      weight=800.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -252,6 +258,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
         "late_flight_brake_angular_speed_std": 14.0,
+        "completion_bonus": 4.0,
         "post_idle_settle_time": 0.30,
       },
     ),
@@ -261,11 +268,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     # zero-turn fall during PPO discovery.
     "event_failure": RewardTermCfg(
       func=trick_rewards.aerial_event_failure,
-      # With raw-radian rotation reward a 0.6-turn body crash was several
-      # times more profitable than a quiet landing.  Rotation is normalized
-      # above; this matched terminal scale now makes a partial turn better
-      # than zero, but worse than completing the same one event.
-      weight=-500.0,
+      # Aerial m1000 confirmed that the previous -500 terminal cost was far
+      # below the summed launch/turn/preview rewards.  At the end of the
+      # same discovery curriculum, an illegal touchdown now loses to both a
+      # quiet completion and to staying in the legal flight/recovery path.
+      # The early scalar ramp remains, so it does not suppress first launch
+      # discovery from an untrained policy.
+      weight=-2500.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,

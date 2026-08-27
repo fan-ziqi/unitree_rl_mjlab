@@ -1241,6 +1241,7 @@ class AerialRotationCompletion:
     landing_angular_velocity_limit: float = 1.5,
     late_flight_brake_start_turn_fraction: float = 0.75,
     late_flight_brake_angular_speed_std: float = 18.0,
+    completion_bonus: float = 1.0,
     post_idle_settle_time: float = 0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
@@ -1256,6 +1257,8 @@ class AerialRotationCompletion:
       raise ValueError("late_flight_brake_start_turn_fraction must be in (0, 1).")
     if late_flight_brake_angular_speed_std <= 0.0:
       raise ValueError("late_flight_brake_angular_speed_std must be positive.")
+    if completion_bonus <= 0.0:
+      raise ValueError("completion_bonus must be positive.")
     asset: Entity = env.scene[asset_cfg.name]
     command_term = env.command_manager.get_term(command_name)
     command = _command(env, command_name)
@@ -1353,4 +1356,7 @@ class AerialRotationCompletion:
     )
     new_completion = completed & (~self.awarded)
     self.awarded |= completed
-    return (orientation_gain + new_completion.to(orientation_gain.dtype)) / env.step_dt
+    return (
+      orientation_gain
+      + completion_bonus * new_completion.to(orientation_gain.dtype)
+    ) / env.step_dt
