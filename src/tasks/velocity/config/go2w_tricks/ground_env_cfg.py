@@ -292,13 +292,15 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Continue rear-biased static discovery through the later m2000
-            # transition.  Early audits can touch a rear support but cannot
+            # Continue rear-biased static discovery through update 400.
+            # Early audits can touch a rear support but cannot
             # yet hold the complete target attitude; asking for locomotion
             # would turn that incomplete balance into a rolling escape.
             # Keep the same fused actor and direct command interface, but
             # make a quiet static support the prerequisite for x/yaw motion.
-            "step": 25_600,
+            # ``common_step_counter`` counts 48 control steps per PPO
+            # update for this task.
+            "step": 19_200,
             "mode_probabilities": (0.10, 0.35, 0.55),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
@@ -307,12 +309,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Once each static one-hot has independently discovered its wheel
-            # pair, train direct normal <-> front/rear changes while all
+            # At update 800, train direct normal <-> front/rear changes while all
             # requested velocities remain zero.  The deployment sequence
             # requires this physical transition; previously the static sampler
             # held one one-hot for a whole episode and never trained it.
-            "step": 76_800,
+            "step": 38_400,
             "mode_probabilities": (0.30, 0.30, 0.40),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.25,
@@ -324,7 +325,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # Retain static command-to-command practice while conservative
             # x/yaw requests start, rather than making the first direct
             # transition a rolling escape.
-            "step": 128_000,
+            # Begin conservative x/yaw command replay at update 1,200.  The
+            # previous 128,000-control-step boundary accidentally delayed it
+            # until update 2,667, leaving almost no locomotion samples in a
+            # 3,000-update run.
+            "step": 57_600,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.35,
@@ -333,10 +338,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Reach the requested command range at update 2,400, retaining
-            # 600 full-range updates after the extended static discovery and
+            # Reach the requested command range at update 1,800, retaining
+            # 1,200 full-range updates after the extended static discovery and
             # conservative rolling stage.
-            "step": 153_600,
+            "step": 86_400,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.50,
