@@ -174,13 +174,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # the trunk above its transverse support axle; without this existing
         # support-outcome geometry, V1 found a low front crouch with the right
         # two contacts but not the requested inverted stand.
-        # The m400 fixed-command audit measures only 0.23 m of true
-        # trunk-to-support-axle clearance.  Requiring 0.62 m *and* squaring
-        # it leaves the normal-reset-to-upright discovery gradient almost
-        # zero.  The spin task has independently demonstrated that 0.45 m is
-        # a physically reachable, visibly extended Go2W two-wheel support.
-        # This remains a measured geometry outcome, not a leg pose target.
-        "minimum_root_clearance": (0.18, 0.45, 0.45),
+        # The m1000 fixed replay shows the visibly upright front support at
+        # 0.27 m trunk-to-axle clearance.  A 0.45-m requirement is therefore
+        # unattainable and rewards an artificial extension.  0.30 m still
+        # excludes the ordinary four-wheel clearance (~0.22 m), while
+        # measuring the actual upright two-wheel outcome rather than a pose.
+        "minimum_root_clearance": (0.18, 0.30, 0.30),
         # Keep a direct monotonic incentive from the current low support all
         # the way to that extended physical clearance.  Exact contacts and
         # body attitude remain multiplicative validity requirements below.
@@ -222,20 +221,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # static one-hots must rank a truly quiet wheel balance above that
         # high-speed transient; this does not apply to requested x/yaw motion.
         "static_stillness_floor": 0.0,
-        # Begin favouring a quiet support as soon as a substantial physical
-        # rise is present.  The former near-final gate let PPO collect
-        # repeated high-speed approach reward while rocking through a low
-        # two-wheel slant, so front could rise but never settle and rear
-        # could retain contact without its target attitude.  The reset and
-        # first wheel-lift remain outside this gate; no get-up trajectory or
-        # joint pose is prescribed.
-        # The m1200 fixed audit reaches roughly 0.59 target alignment and
-        # 0.35 support before turning into a fast rolling escape.  Start
-        # preferring low speed at that genuine partial-support state; reset
-        # still has zero support, so this does not freeze initial discovery.
-        "static_settling_alignment_threshold": 0.50,
-        "static_settling_support_threshold": 0.20,
-        "static_settling_clearance_threshold": 0.20,
+        # Do not brake a rear command while it is still a low, incomplete
+        # rise.  f186 has only 0.62 target alignment and 0.20 target support
+        # there, so the old gate suppresses the angular motion needed to
+        # finish standing.  Stillness begins only after the same measured
+        # outcome is mostly established; no get-up path is prescribed.
+        "static_settling_alignment_threshold": 0.80,
+        "static_settling_support_threshold": 0.60,
+        "static_settling_clearance_threshold": 0.60,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -251,7 +244,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "command_name": "trick",
         "modes": (1, 2),
         "num_modes": 3,
-        "target_height": 0.561,
+        # The confirmed vertical two-wheel support has root height ~0.37 m;
+        # 0.561 m is not a physical result of that support.
+        "target_height": 0.39,
         "scale": 5.0,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
@@ -377,12 +372,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # m700 reaches front and rear only briefly; direct command changes
-            # here turn that transient into a rolling escape.  Extend pure
-            # static discovery in the same actor, with a modest rear bias,
-            # before asking it to transition or move.
+            # f186 confirms front standing but rear never reaches its target
+            # by m1000.  Keep the same fused actor on static discovery for a
+            # further block instead of teaching it to switch through falls.
             "step": 38_400,
-            "mode_probabilities": (0.10, 0.25, 0.65),
+            "mode_probabilities": (0.10, 0.30, 0.60),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -390,11 +384,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Once both supports have an additional static block, introduce
-            # the required normal <-> front/rear one-hot transition while
-            # retaining zero x/yaw.  This preserves one fused policy and
-            # trains the real public switch before wheel locomotion.
-            "step": 57_600,
+            # Only after the extended static block introduce normal <->
+            # front/rear one-hot transitions, still at zero x/yaw.
+            "step": 76_800,
             "mode_probabilities": (0.30, 0.30, 0.40),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.25,
@@ -403,9 +395,9 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Start conservative x/yaw replay only after static supports and
-            # their direct transitions have had 1,600 updates of evidence.
-            "step": 76_800,
+            # Start conservative x/yaw replay after static support and direct
+            # transitions have both been trained in the same policy.
+            "step": 96_000,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.35,
@@ -414,9 +406,8 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Reach the requested command range after a distinct low-range
-            # stage, leaving 800 updates for the fused final behaviour.
-            "step": 105_600,
+            # Reach the requested command range after the low-range stage.
+            "step": 115_200,
             "mode_probabilities": (0.30, 0.25, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.50,
