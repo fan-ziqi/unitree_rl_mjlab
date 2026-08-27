@@ -139,7 +139,12 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # retain the finite 1.5 action bound but use 0.80 early exploration so
     # PPO can discover the physically measured launch without a joint target.
     init_std=0.80,
-    entropy_coef=0.002,
+    # f159's m2500 audit is unequivocal mode collapse: only front approaches
+    # a turn while left/right remain small hops.  This modest increase keeps
+    # the shared actor exploring command-conditioned alternatives through the
+    # delayed landing-validity curriculum; it does not alter observations,
+    # actions, or the one-policy requirement.
+    entropy_coef=0.004,
     # The large batch already produces a low-variance PPO gradient.  A
     # smaller actor step prevents a rare successful mode from overwriting
     # still-exploring command branches between checkpoints.

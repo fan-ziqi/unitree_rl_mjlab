@@ -212,8 +212,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a physical reason to fold a flailing leg back into a compact recovery
       # package, while leaving launch, angular acceleration, and braking free
       # for PPO to discover.
-      # This is useful recovery evidence, not a substitute for a landing.
-      weight=3.0,
+      # The m2500 audit has exposed the actual remaining failure mode: front
+      # can make almost one turn, but the trunk reaches the floor first, and
+      # the other three body-axis commands never discover their own compact
+      # recovery.  Raise this *single physical clearance outcome* above the
+      # partial-turn signal so PPO has an earlier, continuous reason to fold
+      # the wheel package below every link.  It remains neither a joint pose
+      # nor a timing/reference trajectory; the strict four-wheel endpoint
+      # below is still the only completion.
+      weight=8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -248,7 +255,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # profitable even after its terminal failure was made negative.  Keep
       # this as a small late-flight diagnostic, but reserve the meaningful
       # landing return for the actual quiet four-wheel completion below.
-      weight=4.0,
+      # Keep a small whole-body return diagnostic, but put the dense recovery
+      # emphasis on wheel-first clearance above rather than paying a nearly
+      # upright high-speed trunk strike.
+      weight=2.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -267,9 +277,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
         "late_flight_brake_angular_speed_std": 14.0,
-        # Preserve the former 48-point one-off completion outcome while
-        # removing the crash-friendly dense recovery scale above.
-        "completion_bonus": 12.0,
+        # Preserve the former 48-point one-off completion outcome while the
+        # dense orientation diagnostic is reduced from 4 to 2.
+        "completion_bonus": 24.0,
         "post_idle_settle_time": 0.30,
       },
     ),
@@ -312,10 +322,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "minimum_motion_failure_fraction": 0.25,
         # Let PPO first rediscover a legal launch/turn, then steadily make an
         # illegal partial touchdown lose to the quiet four-wheel endpoint.
-        # These steps correspond to roughly iterations 400--800 at the
-        # current 8,192-environment rollout setup.
-        "base_cost_ramp_start_steps": 25_600,
-        "base_cost_ramp_steps": 25_600,
+        # f159 reached the final crash penalty around update 1,000, while
+        # only the front branch had discovered a near-turn and no branch had
+        # yet explored wheel-first recovery.  Keep the final validity rule,
+        # but let the shared five-way actor collect compact-airborne evidence
+        # through update 1,200, then ramp it over the following 1,200
+        # updates.  This is task-difficulty scheduling only: all five events,
+        # their exact 2π endpoint, and their one-hot interface are unchanged.
+        "base_cost_ramp_start_steps": 57_600,
+        "base_cost_ramp_steps": 57_600,
       },
     ),
   }
