@@ -402,14 +402,18 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           {
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+            # Back and left are mechanically harder signed directions in the
+            # first raw policy sweeps.  Keep every one-hot present, while
+            # giving those two branches enough on-policy discoveries before
+            # the later uniform fused-task stage.
+            "mode_probabilities": (0.18, 0.28, 0.28, 0.21, 0.05),
           },
           {
             # After 400 updates, raise yaw replay while the four body-axis
             # branches still receive most launch-discovery data.
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.22, 0.22, 0.22, 0.22, 0.12),
+            "mode_probabilities": (0.18, 0.27, 0.27, 0.17, 0.11),
           },
           {
             # At 800 updates, train the actual uniform five-direction task.
