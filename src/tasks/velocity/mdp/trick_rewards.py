@@ -326,6 +326,11 @@ def mode_root_height_exp(
   target_height: float,
   scale: float,
   num_modes: int = 5,
+  gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
+  contact_masks: tuple[tuple[float, float, float, float], ...] | None = None,
+  sensor_name: str | None = None,
+  orientation_power: float = 1.0,
+  extra_contact_discount: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Reward the final trunk height for selected support-command outcomes.
@@ -338,10 +343,49 @@ def mode_root_height_exp(
   """
   if target_height <= 0.0 or scale <= 0.0:
     raise ValueError("target_height and scale must be positive.")
+  if orientation_power <= 0.0:
+    raise ValueError("orientation_power must be positive.")
+  if not 0.0 <= extra_contact_discount <= 1.0:
+    raise ValueError("extra_contact_discount must be in [0, 1].")
+  gate_args = (gravity_targets, contact_masks, sensor_name)
+  if any(value is None for value in gate_args) and not all(
+    value is None for value in gate_args
+  ):
+    raise ValueError(
+      "gravity_targets, contact_masks, and sensor_name must be supplied together."
+    )
   asset: Entity = env.scene[asset_cfg.name]
-  active, _ = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
   height_error = torch.abs(asset.data.root_link_pos_w[:, 2] - target_height)
-  return active.to(height_error.dtype) * torch.exp(-scale * height_error)
+  height_score = torch.exp(-scale * height_error)
+  if gravity_targets is None:
+    return active.to(height_error.dtype) * height_score
+
+  if len(gravity_targets) != num_modes or len(contact_masks) != num_modes:
+    raise ValueError("height gate targets/masks must cover every command mode.")
+  assert sensor_name is not None
+  gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+  targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
+  alignment = torch.clamp(
+    0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), min=0.0, max=1.0
+  )
+  contacts = _wheel_contacts(env, sensor_name).float()
+  masks = torch.tensor(contact_masks, dtype=contacts.dtype, device=env.device)
+  target = masks[mode]
+  desired = (contacts * target).sum(dim=1) / target.sum(dim=1).clamp_min(1.0)
+  non_target = 1.0 - target
+  extra = (contacts * non_target).sum(dim=1) / non_target.sum(dim=1).clamp_min(1.0)
+  support = desired * (1.0 - extra_contact_discount * extra)
+  # A high base is useful only in the same physical support outcome requested
+  # by the one-hot.  Without this gate, a two-wheel command can collect a
+  # height return by extending into an ordinary four-wheel slant, which is
+  # neither the desired gravity direction nor the named wheel pair.
+  return (
+    active.to(height_error.dtype)
+    * height_score
+    * torch.pow(alignment, orientation_power)
+    * support
+  )
 
 
 def _stance_spin_components(
