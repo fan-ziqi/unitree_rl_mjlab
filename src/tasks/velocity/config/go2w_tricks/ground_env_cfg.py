@@ -131,7 +131,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "modes": (1, 2),
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "num_modes": 3,
-        "power": 1.5,
+        "power": 1.0,
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
