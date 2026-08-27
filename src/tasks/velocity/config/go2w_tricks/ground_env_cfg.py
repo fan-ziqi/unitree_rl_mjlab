@@ -480,11 +480,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # after discovery so the same geometry must carry the signed rate at
         # a stationary all-wheel centroid.
         "normal_final_geometry_weight": 0.04,
-        # A spin rollout contains 64 control steps.  Keep the bridge through
+        # A spin rollout contains 48 control steps.  Keep the bridge through
         # the first 600 PPO updates, then make the normal branch earn its
         # reward from an actual local pivot while the named forms are learned.
-        "normal_geometry_decay_start_steps": 38_400,
-        "normal_geometry_decay_steps": 38_400,
+        "normal_geometry_decay_start_steps": 28_800,
+        "normal_geometry_decay_steps": 28_800,
         # Keep the signed world-z rate valuable through a direct one-hot
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
@@ -605,7 +605,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             "step": 0,
             # First discover a compact, level four-wheel common axle from the
-            # ordinary reset.  At 64 control steps/update, this lasts 600
+            # ordinary reset.  At 48 control steps/update, this lasts 600
             # updates—not 1,200.  The policy still needs a normal discovery
             # period, but a 3,000-update run must spend most of its time on
             # the required five-command fused behaviour.
@@ -625,7 +625,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # support outcomes densely before asking the same actor to spin
             # or switch them.  The command remains the identical six-vector;
             # only its sampled difficulty changes here.
-            "step": 38_400,
+            "step": 28_800,
             "mode_probabilities": (0.10, 0.30, 0.30, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
@@ -639,7 +639,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the same one actor in pure static support discovery until each
             # mode has a substantially longer chance to meet its measured
             # attitude/clearance result.
-            "step": 102_400,
+            "step": 76_800,
             "mode_probabilities": (0.15, 0.27, 0.27, 0.155, 0.155),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 1.0,
@@ -650,7 +650,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # After the extended static block, retain half held supports while
             # the others learn only a small signed rate in the same support.
-            "step": 121_600,
+            "step": 91_200,
             "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.50,
@@ -661,7 +661,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Only after named supports have static and low-rate evidence do
             # we introduce sparse direct one-hot changes and moderate speed.
-            "step": 140_800,
+            "step": 105_600,
             "mode_probabilities": (0.20, 0.25, 0.25, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
@@ -671,7 +671,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             # Restore all-dynamic samples while keeping switches common.
-            "step": 160_000,
+            "step": 120_000,
             "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
@@ -683,7 +683,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # The final portion is the visibly fast, continuous AS2-W-style
             # pivot distribution after the measured support geometry is no
             # longer a low travelling slant.
-            "step": 172_800,
+            "step": 129_600,
             "mode_probabilities": (0.22, 0.24, 0.24, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,

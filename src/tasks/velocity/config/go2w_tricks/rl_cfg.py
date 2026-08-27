@@ -65,9 +65,11 @@ def _trick_runner_cfg(
 def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   return _trick_runner_cfg(
     "go2w_spin_stance",
-    # A support-pair change needs more than the former short rollout, but this
-    # remains far below an episode and keeps updates fast on the flat scene.
-    num_steps_per_env=64,
+    # 48 control steps are sufficient for a contact-pair change while cutting
+    # the flat-scene collection time by one quarter.  The spin curriculum is
+    # expressed in these same control steps below, so phase boundaries remain
+    # at their intended PPO update numbers.
+    num_steps_per_env=48,
     gamma=0.995,
     # Five visibly distinct contact outcomes share one command-conditioned
     # policy.  Match the aerial policy capacity so the easy normal branch
@@ -93,7 +95,10 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
 def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
   return _trick_runner_cfg(
     "go2w_stance_locomotion",
-    num_steps_per_env=64,
+    # The ground curriculum already uses 48 control steps per update.  Using
+    # 64 here silently advanced every direct-switch/x/yaw stage 25% early and
+    # made the flat training loop needlessly slow.
+    num_steps_per_env=48,
     gamma=0.995,
     # Normal/front/rear transitions and their x/yaw responses are a genuinely
     # multimodal mapping from a ten-frame proprioceptive history.  The wider
