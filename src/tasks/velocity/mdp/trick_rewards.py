@@ -1329,14 +1329,19 @@ class AerialTuckThenWheelLanding:
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg
-    self.peak_score = torch.zeros(env.num_envs, device=env.device)
+    # Tuck and wheel-first clearance are successive physical outcomes.  They
+    # must retain independent high-water marks: a compact mid-air package is
+    # not a substitute for making the wheels lowest again before touchdown.
+    self.peak_tuck_score = torch.zeros(env.num_envs, device=env.device)
+    self.peak_landing_score = torch.zeros(env.num_envs, device=env.device)
     self.previous_active = torch.zeros(
       env.num_envs, dtype=torch.bool, device=env.device
     )
     self.body_ids: torch.Tensor | None = None
 
   def reset(self, env_ids: torch.Tensor) -> None:
-    self.peak_score[env_ids] = 0.0
+    self.peak_tuck_score[env_ids] = 0.0
+    self.peak_landing_score[env_ids] = 0.0
     self.previous_active[env_ids] = False
 
   def __call__(
@@ -1380,7 +1385,8 @@ class AerialTuckThenWheelLanding:
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     reset = (~active) | (active & ~self.previous_active) | (env.episode_length_buf == 0)
-    self.peak_score[reset] = 0.0
+    self.peak_tuck_score[reset] = 0.0
+    self.peak_landing_score[reset] = 0.0
 
     command_term = env.command_manager.get_term(command_name)
     progress = getattr(
@@ -1447,22 +1453,38 @@ class AerialTuckThenWheelLanding:
     )
     # The two terms are consecutive outcomes of one airborne maneuver: tuck
     # while rotation is built, then wheel-lowest only in the final approach.
-    # A peak-gain reward gives PPO credit for discovering either improvement
-    # without paying it indefinitely as a stationary configuration.
-    shape_score = tuck_phase * tuck_score + landing_phase * wheel_lowest_score
-    score = torch.where(
+    # Keep their peak-gain accounting separate.  A shared peak accidentally
+    # paid a good tuck *instead of* a later wheel-first recovery, so a policy
+    # had no geometric credit for unfolding from the compact flight package
+    # into the required landing package.  This remains one outcome-only
+    # reward—no pose, timing, or reference trajectory is introduced.
+    tuck_event_score = torch.where(
       candidate,
-      shape_score,
-      torch.zeros_like(shape_score),
+      tuck_phase * tuck_score,
+      torch.zeros_like(tuck_score),
     )
-    gain = torch.clamp(score - self.peak_score, min=0.0)
-    self.peak_score = torch.where(
+    landing_event_score = torch.where(
+      candidate,
+      landing_phase * wheel_lowest_score,
+      torch.zeros_like(wheel_lowest_score),
+    )
+    tuck_gain = torch.clamp(tuck_event_score - self.peak_tuck_score, min=0.0)
+    landing_gain = torch.clamp(
+      landing_event_score - self.peak_landing_score,
+      min=0.0,
+    )
+    self.peak_tuck_score = torch.where(
       active,
-      torch.maximum(self.peak_score, score),
-      torch.zeros_like(self.peak_score),
+      torch.maximum(self.peak_tuck_score, tuck_event_score),
+      torch.zeros_like(self.peak_tuck_score),
+    )
+    self.peak_landing_score = torch.where(
+      active,
+      torch.maximum(self.peak_landing_score, landing_event_score),
+      torch.zeros_like(self.peak_landing_score),
     )
     self.previous_active = active
-    return gain / env.step_dt
+    return (tuck_gain + landing_gain) / env.step_dt
 
 
 class AerialRotationCompletion:
