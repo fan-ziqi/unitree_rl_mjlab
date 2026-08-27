@@ -1432,13 +1432,11 @@ class AerialRotationCompletion:
     self.settle_time = torch.zeros(env.num_envs, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.peak_orientation_return = torch.zeros(env.num_envs, device=env.device)
-    self.peak_contact_recovery = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
     self.peak_orientation_return[env_ids] = 0.0
-    self.peak_contact_recovery[env_ids] = 0.0
 
   def __call__(
     self,
@@ -1549,46 +1547,6 @@ class AerialRotationCompletion:
       torch.zeros_like(self.peak_orientation_return),
     )
 
-    # A full turn can now reach a wheel contact with a small residual attitude
-    # or speed error, but the former reward becomes completely sparse at that
-    # point: it pays only the all-wheel, fully quiet endpoint.  Continue to
-    # rank the same physical normal-landing outcome through its short contact
-    # recovery window.  This does not name a limb pose, action, flight clock,
-    # or reference trajectory; it is simply the simultaneous quality of wheel
-    # support, launch-frame return, upright gravity, and whole-body quietness.
-    landing_candidate = (
-      landing_started
-      & was_airborne
-      & (progress >= target_angle)
-      & (progress <= target_angle + max_overrotation)
-      & legal
-    )
-    contact_fraction = torch.mean(contacts.to(orientation_similarity.dtype), dim=1)
-    gravity_quality = torch.exp(-gravity_error / landing_gravity_std)
-    linear_quality = 1.0 / (
-      1.0 + torch.square(linear_speed / landing_linear_velocity_limit)
-    )
-    angular_quality = 1.0 / (
-      1.0 + torch.square(angular_speed / landing_angular_velocity_limit)
-    )
-    contact_recovery = contact_fraction * torch.sqrt(
-      torch.clamp(
-        gravity_quality * orientation_similarity * linear_quality * angular_quality,
-        min=0.0,
-      )
-    )
-    contact_recovery = torch.where(
-      landing_candidate, contact_recovery, torch.zeros_like(contact_recovery)
-    )
-    contact_recovery_gain = torch.clamp(
-      contact_recovery - self.peak_contact_recovery, min=0.0
-    )
-    self.peak_contact_recovery = torch.where(
-      landing_started,
-      torch.maximum(self.peak_contact_recovery, contact_recovery),
-      torch.zeros_like(self.peak_contact_recovery),
-    )
-
     stable = (
       post_landing_idle
       & was_airborne
@@ -1611,6 +1569,5 @@ class AerialRotationCompletion:
     self.awarded |= completed
     return (
       orientation_gain
-      + contact_recovery_gain
       + completion_bonus * new_completion.to(orientation_gain.dtype)
     ) / env.step_dt
