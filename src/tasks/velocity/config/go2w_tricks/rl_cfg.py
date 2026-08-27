@@ -110,7 +110,11 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # without prescribing posture or trajectory.
     init_std=0.8,
     entropy_coef=0.0035,
-    clip_actions=1.0,
+    # Fixed front/rear audits show 63%/78% of position outputs beyond the
+    # former +/-1 clip while the trunk is still short of its target support.
+    # Permit a measured 25% more of the existing joint-residual envelope;
+    # this changes neither actuator torque limits nor the actor observation.
+    clip_actions=1.25,
   )
 
 

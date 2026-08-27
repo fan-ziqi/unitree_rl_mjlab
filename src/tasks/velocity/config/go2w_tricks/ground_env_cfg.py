@@ -125,11 +125,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # the requested direction.  It supplies a persistent pose-result route
       # to the later contact/clearance outcome, without a leg target or a
       # prescribed get-up motion.
-      # Fixed-command audits at m1600/m1800 find the requested wheel pair
-      # without reaching the last 30 degrees of the physical two-wheel
-      # attitude.  Strengthen this existing whole-body endpoint signal rather
-      # than adding a pose target, trajectory, or auxiliary reward.
-      weight=50.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
