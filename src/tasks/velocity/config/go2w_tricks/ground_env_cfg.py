@@ -561,7 +561,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # front/rear stance task, and require a visibly extended trunk above
         # its named support pair.  These are outcome geometry, never a joint
         # target.
-        "minimum_root_clearance": (0.18, 0.45, 0.45, 0.35, 0.35),
+        # The pitch-pair support is physically established around 0.30 m of
+        # root-to-axle clearance; requiring 0.45 m made the named front/rear
+        # result unreachable even after the correct wheel pair was found.
+        "minimum_root_clearance": (0.18, 0.30, 0.30, 0.35, 0.35),
         "orientation_power": 3.0,
         "clearance_power": 1.0,
         # The rate channel alone distinguishes a held support from a pivot.
@@ -611,15 +614,15 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "named_pitch_support_height": RewardTermCfg(
       func=trick_rewards.mode_root_height_exp,
       # A selected front or rear wheel pair can touch while the trunk remains
-      # in the observed low slant.  The working Go2W upright task establishes
-      # this measured 0.561-m base height as the extended pitch-pair outcome.
-      # It is a whole-body endpoint, not a leg target or a get-up trajectory.
+      # in the observed low slant.  The fixed-command stance audit establishes
+      # a roughly 0.39-m root height as the reachable extended pitch-pair
+      # outcome.  It is a whole-body endpoint, not a leg target or trajectory.
       weight=15.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
         "num_modes": 5,
-        "target_height": 0.561,
+        "target_height": 0.39,
         "scale": 5.0,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "contact_masks": STANCE_CONTACT_MASKS,
