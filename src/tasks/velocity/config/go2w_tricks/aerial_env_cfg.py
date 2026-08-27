@@ -282,6 +282,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
         "late_flight_brake_angular_speed_std": 14.0,
+        # A legal four-wheel touchdown with residual full-frame error is a
+        # physical discovery step.  It receives at most one third of the
+        # strict endpoint credit below, so it guides final alignment without
+        # redefining a wrong-heading landing as success.
+        "partial_landing_bonus": 8.0,
         # Preserve the 48-point one-off completion outcome (2 * 24 = 48).
         "completion_bonus": 24.0,
         "post_idle_settle_time": 0.30,

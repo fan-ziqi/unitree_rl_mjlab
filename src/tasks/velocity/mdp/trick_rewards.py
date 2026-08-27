@@ -1502,11 +1502,13 @@ class AerialRotationCompletion:
     self.settle_time = torch.zeros(env.num_envs, device=env.device)
     self.awarded = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     self.peak_orientation_return = torch.zeros(env.num_envs, device=env.device)
+    self.peak_landing_quality = torch.zeros(env.num_envs, device=env.device)
 
   def reset(self, env_ids: torch.Tensor) -> None:
     self.settle_time[env_ids] = 0.0
     self.awarded[env_ids] = False
     self.peak_orientation_return[env_ids] = 0.0
+    self.peak_landing_quality[env_ids] = 0.0
 
   def __call__(
     self,
@@ -1522,6 +1524,7 @@ class AerialRotationCompletion:
     landing_angular_velocity_limit: float = 1.5,
     late_flight_brake_start_turn_fraction: float = 0.75,
     late_flight_brake_angular_speed_std: float = 18.0,
+    partial_landing_bonus: float = 0.0,
     completion_bonus: float = 1.0,
     post_idle_settle_time: float = 0.30,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -1538,8 +1541,8 @@ class AerialRotationCompletion:
       raise ValueError("late_flight_brake_start_turn_fraction must be in (0, 1).")
     if late_flight_brake_angular_speed_std <= 0.0:
       raise ValueError("late_flight_brake_angular_speed_std must be positive.")
-    if completion_bonus <= 0.0:
-      raise ValueError("completion_bonus must be positive.")
+    if partial_landing_bonus < 0.0 or completion_bonus <= 0.0:
+      raise ValueError("partial_landing_bonus must be non-negative and completion_bonus positive.")
     asset: Entity = env.scene[asset_cfg.name]
     command_term = env.command_manager.get_term(command_name)
     command = _command(env, command_name)
@@ -1617,6 +1620,43 @@ class AerialRotationCompletion:
       torch.zeros_like(self.peak_orientation_return),
     )
 
+    # The aerial command hands control to literal idle immediately after its
+    # first four-wheel touchdown, so an otherwise legal landing with a small
+    # residual full-frame error cannot receive any later in-flight gradient.
+    # Credit the same physical endpoint once, continuously by its whole-body
+    # orientation and measured quietness.  It is deliberately smaller than
+    # the strict completion below: a stable but misaligned landing is a
+    # useful discovery step, never an alternative task success.
+    partial_landing = (
+      post_landing_idle
+      & was_airborne
+      & (progress >= target_angle)
+      & (progress <= target_angle + max_overrotation)
+      & torch.all(contacts, dim=1)
+      & legal
+    )
+    landing_quietness = torch.exp(
+      -0.5
+      * (
+        torch.square(linear_speed / landing_linear_velocity_limit)
+        + torch.square(angular_speed / landing_angular_velocity_limit)
+      )
+    )
+    landing_quality = torch.where(
+      partial_landing,
+      orientation_similarity * landing_quietness,
+      torch.zeros_like(orientation_similarity),
+    )
+    landing_quality_gain = torch.clamp(
+      landing_quality - self.peak_landing_quality, min=0.0
+    )
+    event_open = active | landing_started
+    self.peak_landing_quality = torch.where(
+      event_open,
+      torch.maximum(self.peak_landing_quality, landing_quality),
+      torch.zeros_like(self.peak_landing_quality),
+    )
+
     stable = (
       post_landing_idle
       & was_airborne
@@ -1639,5 +1679,6 @@ class AerialRotationCompletion:
     self.awarded |= completed
     return (
       orientation_gain
+      + partial_landing_bonus * landing_quality_gain
       + completion_bonus * new_completion.to(orientation_gain.dtype)
     ) / env.step_dt
