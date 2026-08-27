@@ -305,7 +305,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
         # Preserve the original early absolute loss while the final terminal
         # scale is stronger, so a tentative legal lift remains discoverable.
-        "early_missing_angle_cost": 0.0625,
+        # The f170 m800 audit establishes that the previous 0.0625 factor
+        # makes a visibly illegal half-turn profitable: launch, turn, and
+        # wheel-envelope gains sum to roughly +3.8 while its terminal loss is
+        # only -0.2.  Keep enough early credit for a real takeoff, but make a
+        # no-turn crash lose to a compact ballistic attempt from update zero.
+        "early_missing_angle_cost": 0.20,
         "final_missing_angle_cost": 1.0,
         # A nearly-complete turn that lands its trunk or a leg is still a
         # failure.  Angle-only cost accidentally made that failure free as
@@ -320,17 +325,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # is not a reference angular-rate command or a motion trajectory.
         "terminal_angular_speed_scale": 8.0,
         "minimum_motion_failure_fraction": 0.25,
-        # Let PPO first rediscover a legal launch/turn, then steadily make an
-        # illegal partial touchdown lose to the quiet four-wheel endpoint.
-        # f159 reached the final crash penalty around update 1,000, while
-        # only the front branch had discovered a near-turn and no branch had
-        # yet explored wheel-first recovery.  Keep the final validity rule,
-        # but let the shared five-way actor collect compact-airborne evidence
-        # through update 1,200, then ramp it over the following 1,200
-        # updates.  This is task-difficulty scheduling only: all five events,
-        # their exact 2π endpoint, and their one-hot interface are unchanged.
-        "base_cost_ramp_start_steps": 57_600,
-        "base_cost_ramp_steps": 57_600,
+        # f170 m800 has already established legal flight, signed rotation,
+        # and a wheel-first high-water result, yet every mode still lands
+        # illegally because its endpoint cost remains nearly zero until
+        # update 1,200.  Reserve the first 500 updates for ballistic
+        # discovery, then complete the same outcome-only validity ramp by
+        # update 1,200.  This changes no command, observation, posture, or
+        # reference trajectory.
+        "base_cost_ramp_start_steps": 24_000,
+        "base_cost_ramp_steps": 33_600,
       },
     ),
   }
