@@ -200,12 +200,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # over repeated high-speed attempts near the target.
         "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
-        # The front/rear stances use identical outcome measurements, but the
-        # front support discovers first and otherwise consumes the shared
-        # actor's PPO advantage.  Weight the harder rear *same outcome* so
-        # its one-hot receives comparable policy pressure without a separate
-        # network, a pose target, or a reference transition.
-        "mode_weights": (0.0, 1.0, 4.0),
+        # The two pitch stances share exactly the same physical endpoint
+        # measurement.  A moderate rear balance preserves the front support
+        # already discovered by the fused actor while still giving the harder
+        # rear one-hot adequate return; the later 4x rear experiment caused
+        # both modes to regress without improving rear discovery.
+        "mode_weights": (0.0, 1.0, 2.5),
         "clearance_power": 1.0,
         # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
         # audit found that without this existing outcome's stillness factor,
@@ -347,12 +347,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Start rear-biased static discovery in the same fused actor,
-            # while retaining a small default-normal replay share.  The
+            # Start balanced static discovery in the same fused actor, while
+            # retaining a small default-normal replay share.  The
             # all-zero normal idle is still supplied by the action gate;
             # this one-hot share merely keeps its observation branch present
             # before normal x/yaw commands enter.
-            "mode_probabilities": (0.10, 0.15, 0.75),
+            "mode_probabilities": (0.10, 0.25, 0.65),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -360,7 +360,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Continue rear-biased static discovery through update 400.
+            # Continue balanced static discovery through update 400.
             # Early audits can touch a rear support but cannot
             # yet hold the complete target attitude; asking for locomotion
             # would turn that incomplete balance into a rolling escape.
@@ -369,7 +369,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # ``common_step_counter`` counts 48 control steps per PPO
             # update for this task.
             "step": 19_200,
-            "mode_probabilities": (0.10, 0.20, 0.70),
+            "mode_probabilities": (0.10, 0.35, 0.55),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
