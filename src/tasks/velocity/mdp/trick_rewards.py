@@ -477,6 +477,12 @@ def mode_gravity_alignment_rise(
   gravity_targets: tuple[tuple[float, float, float], ...],
   num_modes: int = 5,
   power: float = 1.0,
+  static_command_start_index: int | None = None,
+  command_deadband: float = 0.0,
+  static_alignment_threshold: float = 0.50,
+  static_angular_velocity_scale: float | None = None,
+  static_linear_velocity_scale: float | None = None,
+  static_stillness_floor: float = 0.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Reward only progress beyond ordinary upright toward a commanded attitude.
@@ -494,8 +500,23 @@ def mode_gravity_alignment_rise(
     raise ValueError("power must be positive.")
   if len(gravity_targets) != num_modes:
     raise ValueError("gravity_targets must cover every command mode.")
+  if static_command_start_index is not None and (
+    not 0 <= static_command_start_index < _command(env, command_name).shape[1]
+  ):
+    raise ValueError("static_command_start_index is outside the command tensor.")
+  if command_deadband < 0.0:
+    raise ValueError("command_deadband must be non-negative.")
+  if not 0.0 <= static_alignment_threshold <= 1.0:
+    raise ValueError("static_alignment_threshold must be in [0, 1].")
+  if static_angular_velocity_scale is not None and static_angular_velocity_scale <= 0.0:
+    raise ValueError("static_angular_velocity_scale must be positive.")
+  if static_linear_velocity_scale is not None and static_linear_velocity_scale <= 0.0:
+    raise ValueError("static_linear_velocity_scale must be positive.")
+  if not 0.0 <= static_stillness_floor < 1.0:
+    raise ValueError("static_stillness_floor must be in [0, 1).")
   asset: Entity = env.scene[asset_cfg.name]
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  command = _command(env, command_name)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   targets = torch.tensor(gravity_targets, dtype=gravity.dtype, device=env.device)
   alignment = torch.clamp(
@@ -504,7 +525,31 @@ def mode_gravity_alignment_rise(
   # Map normal reset (alignment=.5) to zero rather than paying it as a
   # partial stand; any progress in the wrong direction also remains zero.
   rise = torch.clamp(2.0 * alignment - 1.0, min=0.0, max=1.0)
-  return active.to(rise.dtype) * torch.pow(rise, power)
+  # For a static support request, a high attitude reached only while the
+  # chassis is still tumbling is not the requested state.  Keep the complete
+  # route from the four-wheel reset unconstrained (``rise`` is zero there),
+  # then rank the same measured attitude by physical stillness once it has
+  # materially risen.  This is deliberately an outcome check--not a leg
+  # posture, phase, or reference motion.
+  stillness = torch.ones_like(rise)
+  if static_command_start_index is not None:
+    static_request = torch.amax(
+      torch.abs(command[:, static_command_start_index:]), dim=1
+    ) <= command_deadband
+    settling = static_request & (alignment >= static_alignment_threshold)
+    if static_angular_velocity_scale is not None:
+      angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+      angular_stillness = static_stillness_floor + (
+        1.0 - static_stillness_floor
+      ) / (1.0 + torch.square(angular_speed / static_angular_velocity_scale))
+      stillness = torch.where(settling, angular_stillness, stillness)
+    if static_linear_velocity_scale is not None:
+      planar_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w[:, :2], dim=1)
+      linear_stillness = static_stillness_floor + (
+        1.0 - static_stillness_floor
+      ) / (1.0 + torch.square(planar_speed / static_linear_velocity_scale))
+      stillness = torch.where(settling, stillness * linear_stillness, stillness)
+  return active.to(rise.dtype) * torch.pow(rise, power) * stillness
 
 
 def _stance_spin_components(

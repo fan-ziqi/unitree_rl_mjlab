@@ -132,6 +132,16 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "num_modes": 3,
         "power": 1.5,
+        # A static front/rear command needs a held support, not the short
+        # high-attitude pass produced by rocking through the target.  Apply
+        # stillness only after leaving the ordinary four-wheel alignment, so
+        # PPO remains free to discover its own rise and leg motion.
+        "static_command_start_index": 3,
+        "command_deadband": 0.04,
+        "static_alignment_threshold": 0.55,
+        "static_angular_velocity_scale": 0.70,
+        "static_linear_velocity_scale": 0.18,
+        "static_stillness_floor": 0.0,
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
