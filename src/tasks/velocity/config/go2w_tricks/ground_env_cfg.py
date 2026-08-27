@@ -615,6 +615,16 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "num_modes": 5,
         "power": 1.5,
+        # A zero-rate named one-hot is a held two-wheel stance.  Once it has
+        # materially left four-wheel idle, rank the same commanded attitude
+        # by physical stillness so an actor cannot keep rocking through it.
+        # Nonzero-rate pivot commands bypass this gate entirely.
+        "static_command_start_index": 5,
+        "command_deadband": 0.20,
+        "static_alignment_threshold": 0.55,
+        "static_angular_velocity_scale": 0.80,
+        "static_linear_velocity_scale": 0.12,
+        "static_stillness_floor": 0.0,
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
