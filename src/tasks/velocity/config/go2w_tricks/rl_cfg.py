@@ -88,7 +88,11 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     std_type="log",
     distribution_params={"min_std": 0.15, "max_std": 0.65},
     entropy_coef=0.005,
-    clip_actions=1.0,
+    # The fixed front@zero-rate audit has 86% of position outputs beyond the
+    # former +/-1 clip before its gravity direction leaves normal.  Expose
+    # the same modest support envelope as stance locomotion; actuator limits
+    # and the one-hot command interface remain unchanged.
+    clip_actions=1.25,
   )
 
 
