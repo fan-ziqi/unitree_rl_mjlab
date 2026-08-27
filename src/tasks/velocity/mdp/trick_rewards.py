@@ -132,6 +132,9 @@ def mode_support_score(
   static_angular_velocity_scale: float | None = None,
   static_linear_velocity_scale: float | None = None,
   static_stillness_floor: float = 0.10,
+  static_settling_alignment_threshold: float = 0.70,
+  static_settling_support_threshold: float = 0.35,
+  static_settling_clearance_threshold: float = 0.40,
   attitude_progress_weight: float = 0.0,
   attitude_progress_rate_scale: float = 1.0,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -180,6 +183,15 @@ def mode_support_score(
     raise ValueError("static_linear_velocity_scale must be positive.")
   if not 0.0 <= static_stillness_floor < 1.0:
     raise ValueError("static_stillness_floor must be in [0, 1).")
+  if not all(
+    0.0 <= threshold <= 1.0
+    for threshold in (
+      static_settling_alignment_threshold,
+      static_settling_support_threshold,
+      static_settling_clearance_threshold,
+    )
+  ):
+    raise ValueError("static settling thresholds must be in [0, 1].")
   if not 0.0 <= attitude_progress_weight <= 1.0:
     raise ValueError("attitude_progress_weight must be in [0, 1].")
   if attitude_progress_rate_scale <= 0.0:
@@ -245,12 +257,15 @@ def mode_support_score(
     static_command = torch.amax(
       torch.abs(command[:, static_command_start_index:]), dim=1
     ) <= command_deadband
-  # Enter the existing static-stillness result as soon as a recognizable
-  # partial support exists.  The old 0.85/0.60/0.60 gates were reached only
-  # after the m1200 policy had already flung itself past the target, so zero
-  # command rewarded angular momentum rather than a balance recovery.
-  static_settling = static_command & (alignment >= 0.70) & (support >= 0.35) & (
-    clearance >= 0.40
+  # Apply stillness only after the caller's measured support is sufficiently
+  # close to its final result.  A task can choose strict thresholds when its
+  # intermediate two-wheel contact is a low slant that still needs angular
+  # motion to rise; the defaults retain the earlier generic behaviour.
+  static_settling = (
+    static_command
+    & (alignment >= static_settling_alignment_threshold)
+    & (support >= static_settling_support_threshold)
+    & (clearance >= static_settling_clearance_threshold)
   )
   stillness = torch.ones_like(orientation)
   if static_angular_velocity_scale is not None:

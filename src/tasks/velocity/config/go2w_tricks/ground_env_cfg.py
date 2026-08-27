@@ -173,7 +173,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # This is the existing reset-to-support bridge, now deliberately
         # smaller than the held-support result so a zero-command balance wins
         # over repeated high-speed attempts near the target.
-        "attitude_progress_weight": 0.08,
+        "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
         # The front/rear stances use identical outcome measurements, but the
         # front support discovers first and otherwise consumes the shared
@@ -197,6 +197,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # static one-hots must rank a truly quiet wheel balance above that
         # high-speed transient; this does not apply to requested x/yaw motion.
         "static_stillness_floor": 0.0,
+        # Exact wheel-pair contact appears before the trunk reaches a true
+        # front/rear upright.  The m2000 replay showed that the generic gate
+        # freezes this low slant; brake only near the measured final result.
+        "static_settling_alignment_threshold": 0.90,
+        "static_settling_support_threshold": 0.80,
+        "static_settling_clearance_threshold": 0.75,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -459,9 +465,15 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "static_angular_velocity_scale": 0.80,
         "static_linear_velocity_scale": 0.12,
         "static_stillness_floor": 0.0,
+        # Named spin supports traverse the same low-slant intermediate form;
+        # do not freeze their angular motion until the physical result is
+        # close to the requested two-wheel geometry.
+        "static_settling_alignment_threshold": 0.90,
+        "static_settling_support_threshold": 0.80,
+        "static_settling_clearance_threshold": 0.75,
         # This measured attitude-rate bridge is active only away from the
         # outcome, so it cannot reward a permanent fling.
-        "attitude_progress_weight": 0.12,
+        "attitude_progress_weight": 0.16,
         "attitude_progress_rate_scale": 4.0,
         "asset_cfg": _support_wheels(),
       },
