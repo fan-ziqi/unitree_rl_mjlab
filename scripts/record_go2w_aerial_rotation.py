@@ -168,6 +168,15 @@ def run(cfg: RecordConfig) -> Path:
   command_cfg = env_cfg.commands["trick"]
   command_cfg.idle_probability = 0.0
   command_cfg.resampling_time_range = (total_duration_s + 1.0, total_duration_s + 1.0)
+  # A training rollout intentionally terminates on an illegal contact or a
+  # post-landing rebound.  Those boundaries are useful for PPO, but they
+  # truncate a real-time multi-command demonstration before the next one-hot
+  # can be issued.  Keep the ordinary fixed-mode recorder strict; only a
+  # sequence recorder is allowed to run until its requested wall-clock end so
+  # that successful landings can transition to the next command.
+  if sequence_modes:
+    env_cfg.terminations.pop("illegal_contact", None)
+    env_cfg.terminations.pop("post_landing_relaunch", None)
 
   agent_cfg = load_rl_cfg(TASK_ID)
   if cfg.actor_hidden_dims is not None:

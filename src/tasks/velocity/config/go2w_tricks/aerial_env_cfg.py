@@ -436,37 +436,37 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "stages": (
           {
             # Train each signed body axis as a pair from the first update.
-            # The former left-heavy start produced a positive-direction policy
-            # and made back/right collapse when their commands were increased.
+            # The previous equal-probability run still collapsed onto the
+            # mechanically easy yaw branch: yaw reached a full turn while the
+            # four body-axis branches mostly struck the floor.  Bias early
+            # discovery toward the four physical flip axes, then restore equal
+            # coverage after the shared launch/tuck solution has formed.
             "step": 0,
             "idle_probability": 0.0,
-            # All five signed axes must receive equal event coverage from the
-            # first update.  Delaying yaw and starving the side pair lets the
-            # shared policy spend the whole discovery phase on front/back and
-            # leaves no robust landing policy for the rare modes.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
           },
           {
-            # Keep equal coverage while the shared launch/tuck solution is
-            # refined; no mode is introduced late or treated as optional.
+            # Keep the hard body-axis branches overrepresented while the
+            # shared launch/tuck solution is refined; yaw remains represented
+            # and is restored to equal coverage in the final stage.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
           },
           {
             "step": 96_000,
