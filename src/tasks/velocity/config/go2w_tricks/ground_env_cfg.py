@@ -458,9 +458,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Learn a genuine rotating pivot from the outset.  Isolating
             # normal at 0.5--1 rad/s for hundreds of iterations produced a
             # policy that had never experienced the requested fast command.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
+            "upright_static_probability": 0.25,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
@@ -470,9 +470,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # after one short discovery block, rather than serially spending
             # thousands of updates on five independently staged forms.
             "step": 28_800,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.15,
+            "upright_static_probability": 0.25,
             "direct_switch_probability": 0.10,
             "spin_rate_range": (7.0, 11.0),
             "resampling_time_range": (6.0, 6.0),
@@ -481,9 +481,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Spend the majority of the run on the actual delivery setting:
             # fast normal/front/rear pivoting plus continuous one-hot changes.
             "step": 57_600,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.10,
+            "upright_static_probability": 0.25,
             "direct_switch_probability": 0.30,
             "spin_rate_range": (10.0, 15.0),
             "resampling_time_range": (6.0, 6.0),
