@@ -412,20 +412,31 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "stages": (
           {
+            # Learn the shared launch/tuck/landing controller on one body-axis
+            # branch before asking the same actor to separate five outcomes.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+            "mode_probabilities": (0.10, 0.10, 0.70, 0.10, 0.0),
           },
           {
-            # After 400 updates, raise yaw replay while the four body-axis
-            # branches still receive most launch-discovery data.
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.22, 0.22, 0.22, 0.22, 0.12),
+            "mode_probabilities": (0.70, 0.10, 0.10, 0.10, 0.0),
           },
           {
-            # At 800 updates, train the actual uniform five-direction task.
             "step": 38_400,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.10, 0.70, 0.10, 0.10, 0.0),
+          },
+          {
+            "step": 57_600,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.10, 0.10, 0.10, 0.70, 0.0),
+          },
+          {
+            # Finish with all five one-hots so the final policy retains every
+            # direction, including the in-place yaw event.
+            "step": 76_800,
             "idle_probability": 0.0,
             "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
           },
