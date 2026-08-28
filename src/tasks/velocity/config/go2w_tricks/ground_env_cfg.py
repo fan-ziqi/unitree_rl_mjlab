@@ -79,6 +79,13 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
+  # Front/rear wheel stands need enough pitch authority to leave the normal
+  # four-wheel basin.  Keep this larger envelope local to the requested
+  # two-wheel locomotion task; the normal one-hot is still hard-gated to the
+  # model default pose, so idle/normal walking does not become a squat.
+  cfg.actions["joint_pos"].scale[r".*_thigh_joint"] = 1.20
+  cfg.actions["joint_pos"].scale[r".*_calf_joint"] = 1.20
+  cfg.actions["joint_vel"].scale = 70.0
   # A legal front/rear support must lift the trunk over one wheel pair.  Keep
   # it free of a prescribed pose, but expose the model's usable hip workspace
   # so that the measured clearance is physically reachable from four-wheel
