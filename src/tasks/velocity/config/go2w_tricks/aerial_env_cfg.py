@@ -349,6 +349,20 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       },
     ),
   }
+  # Give the policy a short physical launch window before rejecting a
+  # non-wheel scrape.  With immediate history-based termination, the
+  # exploratory crouch/impulse was cut off on its first transient contact and
+  # every direction learned a ballistic body strike instead of a tucked jump.
+  # The grace is only for takeoff; sustained trunk/leg support remains an
+  # illegal outcome and is still terminated once the window expires.
+  cfg.terminations["illegal_contact"] = TerminationTermCfg(
+    func=mdp.illegal_contact_after_grace,
+    params={
+      "sensor_name": nonwheel_contact_cfg.name,
+      "force_threshold": 10.0,
+      "grace_period_s": 0.20,
+    },
+  )
   # Collision ends an episode immediately.  The decisive terminal term
   # distinguishes an illegal partial turn from a wheelward recovery without
   # prescribing how the limbs should execute either action.
