@@ -432,30 +432,33 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # and made back/right collapse when their commands were increased.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.45, 0.45, 0.05, 0.05, 0.0),
+            # All five signed axes must receive equal event coverage from the
+            # first update.  Delaying yaw and starving the side pair lets the
+            # shared policy spend the whole discovery phase on front/back and
+            # leaves no robust landing policy for the rare modes.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.35, 0.35, 0.15, 0.15, 0.0),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.28, 0.28, 0.22, 0.22, 0.0),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
-            # Introduce yaw only after both signed body-axis pairs have a
-            # shared launch/tuck solution, then retain every branch while its
-            # z-axis controller is discovered.
+            # Keep equal coverage while the shared launch/tuck solution is
+            # refined; no mode is introduced late or treated as optional.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.24, 0.24, 0.20, 0.20, 0.12),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.22, 0.22, 0.18, 0.18, 0.20),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 96_000,
