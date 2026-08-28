@@ -690,7 +690,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Learn a genuine rotating pivot from the outset.  Isolating
             # normal at 0.5--1 rad/s for hundreds of iterations produced a
             # policy that had never experienced the requested fast command.
-            "mode_probabilities": (0.70, 0.15, 0.15, 0.0, 0.0),
+            "mode_probabilities": (0.34, 0.28, 0.28, 0.05, 0.05),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.20,
             "direct_switch_probability": 0.0,
