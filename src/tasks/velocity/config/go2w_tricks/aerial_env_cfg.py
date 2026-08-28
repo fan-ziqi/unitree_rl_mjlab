@@ -434,9 +434,31 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "mode_probabilities": (0.10, 0.10, 0.10, 0.70, 0.0),
           },
           {
-            # Finish with all five one-hots so the final policy retains every
-            # direction, including the in-place yaw event.
+            # Do not abruptly replace the four learned body-axis branches
+            # with a new yaw branch.  The uniform jump at 76,800 control
+            # steps caused the shared actor to forget its legal launch/landing
+            # solution (illegal contact rose from about 13% to 54%).  Keep
+            # all four branches present while introducing yaw in small steps;
+            # the public command remains the same five-way one-hot.
             "step": 76_800,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+          },
+          {
+            "step": 96_000,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
+          },
+          {
+            "step": 115_200,
+            "idle_probability": 0.0,
+            "mode_probabilities": (0.2125, 0.2125, 0.2125, 0.2125, 0.15),
+          },
+          {
+            # Spend the final block on the requested uniform five-way policy,
+            # but only after yaw has had three smaller-distribution blocks to
+            # discover its own launch and wheel landing.
+            "step": 134_400,
             "idle_probability": 0.0,
             "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
           },
