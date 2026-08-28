@@ -170,10 +170,30 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # fraction, otherwise the policy can improve the attitude score while
         # retaining the low ordinary gait that the task explicitly rejects.
         "extra_contact_discount": 1.0,
+        # Once the requested pair starts carrying the trunk, prefer a
+        # genuinely extended support leg over the folded low-clearance local
+        # optimum.  This is a measured wheel-to-hip outcome, not a joint pose.
+        "support_leg_length_target": 0.27,
         # Rear support is the persistent weak branch under locomotion.  Give
         # its measured physical endpoint more return without prescribing a
         # pose or changing normal/front behavior.
         "mode_weights": (0.5, 1.0, 2.0),
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "non_support_wheel_clearance": RewardTermCfg(
+      func=trick_rewards.mode_non_support_wheel_clearance,
+      # Contact bits switch only after a wheel has already lifted.  This
+      # continuous height signal gives front/rear modes a route out of the
+      # ordinary four-wheel reset without prescribing a limb trajectory.
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        "target_height": 0.30,
+        "minimum_height": 0.10,
+        "num_modes": 3,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -189,12 +209,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "command_name": "trick",
         "std": 0.45,
         "lateral_weight": 2.0,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 1.0,
         # Keep command tracking dense during the rise and during a mode
         # transition.  Support and gravity remain the separate endpoint
         # objective above; multiplying velocity by an eighth-power validity
         # gate removed nearly all x/yaw gradient before an upright stance was
         # already solved.
-        "mode_weights": (2.0, 2.0, 2.0),
+        "mode_weights": (2.0, 1.0, 1.0),
       },
     ),
     "track_yaw": RewardTermCfg(
@@ -205,10 +227,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       params={
         "command_name": "trick",
         "std": 0.60,
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "gravity_power": 1.0,
         # As with x tracking, leave this signal dense while the robot is
         # changing support.  The commanded one-hot plus the measured support
         # endpoint still disambiguate normal/front/rear behaviours.
-        "mode_weights": (2.0, 2.0, 2.0),
+        "mode_weights": (2.0, 1.0, 1.0),
       },
     ),
     # This remains a generic temporal smoothness cost—not a free-leg pose
