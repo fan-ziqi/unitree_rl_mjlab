@@ -179,7 +179,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Keep the event-return scale numerically small.  The previous
       # hundreds-scale rewards drove the critic value loss into the 1e5 range
       # while leaving the relative crash return positive.
-      weight=6.0,
+      weight=12.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -191,7 +191,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # The Go2W actuator sweep reaches roughly 1.8 m/s reliably; a 2.15
         # m/s target left every body-axis branch under-powered before it had
         # enough flight time to fold and rotate.
-        "target_upward_speed": 1.80,
+        "target_upward_speed": 2.00,
         "target_duration": 0.40,
       },
     ),
@@ -202,7 +202,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # without a separate rate target that a one-frame spike could game, and
       # it is deliberately bounded so a partial crash cannot numerically
       # dominate the landing result.
-      weight=6.0,
+      weight=5.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -225,7 +225,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # the wheel package below every link.  It remains neither a joint pose
       # nor a timing/reference trajectory; the strict four-wheel endpoint
       # below is still the only completion.
-      weight=20.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -236,10 +236,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # reference pose.  The policy itself determines when it reaches them.
         "tuck_start_turn_fraction": 0.04,
         "tuck_ramp_end_turn_fraction": 0.16,
-        "tuck_end_turn_fraction": 0.64,
+        "tuck_end_turn_fraction": 0.55,
         "tuck_target_wheel_root_distance": 0.28,
-        "tuck_max_wheel_root_distance": 0.40,
-        "landing_start_turn_fraction": 0.64,
+        "tuck_max_wheel_root_distance": 0.55,
+        "landing_start_turn_fraction": 0.55,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
@@ -267,7 +267,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # stronger dense term made the first 600 iterations prefer fast body
       # strikes over the already-demonstrated wheel-first landing pathway.
       # The physical endpoint bonus below remains the dominant landing goal.
-      weight=2.0,
+      weight=10.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -285,14 +285,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # final forty percent.  This rewards braking an actual nearly-complete
         # aerial, not a prescribed phase, joint pose, or commanded rate.
         "late_flight_brake_start_turn_fraction": 0.60,
-        "late_flight_brake_angular_speed_std": 14.0,
+        "late_flight_brake_angular_speed_std": 10.0,
         # A legal four-wheel touchdown with residual full-frame error is a
         # physical discovery step.  It receives at most one third of the
         # strict endpoint credit below, so it guides final alignment without
         # redefining a wrong-heading landing as success.
-        "partial_landing_bonus": 8.0,
+        "partial_landing_bonus": 16.0,
         # Preserve the 48-point one-off completion outcome (2 * 24 = 48).
-        "completion_bonus": 24.0,
+        "completion_bonus": 40.0,
         "post_idle_settle_time": 0.30,
       },
     ),
@@ -312,7 +312,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # high-speed trunk strike remains more profitable than attempting the
       # rare quiet wheel landing.  This is still an outcome-only cost: it
       # names neither a joint configuration nor a flight trajectory.
-      weight=-30.0,
+      weight=-40.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
