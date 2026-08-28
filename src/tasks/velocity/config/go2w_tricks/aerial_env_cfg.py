@@ -471,7 +471,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # Keep the mechanically easier yaw branch represented but rare in
+            # the final fused policy.  The first long run reached a full yaw
+            # turn while the body-axis branches still struck the floor; a
+            # small persistent yaw mass leaves PPO updates focused on the
+            # four wheel-first flips without splitting the policy.
+            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
           },
         ),
       },

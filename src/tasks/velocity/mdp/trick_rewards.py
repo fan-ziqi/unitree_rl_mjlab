@@ -1486,11 +1486,13 @@ class AerialTuckThenWheelLanding:
     )
     # The two terms are consecutive outcomes of one airborne maneuver: tuck
     # while rotation is built, then wheel-lowest only in the final approach.
-    # Keep their peak-gain accounting separate.  A shared peak accidentally
-    # paid a good tuck *instead of* a later wheel-first recovery, so a policy
-    # had no geometric credit for unfolding from the compact flight package
-    # into the required landing package.  This remains one outcome-only
-    # reward—no pose, timing, or reference trajectory is introduced.
+    # Keep their peak-gain accounting separate for a one-off discovery signal,
+    # but also retain a small *continuous* measurement below.  A pure
+    # high-water reward goes silent as soon as the policy has briefly tucked;
+    # it therefore cannot tell PPO that the same body is extending too early
+    # and will strike the floor before touchdown.  The continuous term is the
+    # same measured wheel-root distance/clearance outcome, not a joint target,
+    # clock, or reference trajectory.
     tuck_event_score = torch.where(
       candidate,
       tuck_phase * tuck_score,
@@ -1517,7 +1519,15 @@ class AerialTuckThenWheelLanding:
       torch.zeros_like(self.peak_landing_score),
     )
     self.previous_active = active
-    return (tuck_gain + landing_gain) / env.step_dt
+    dense_geometry = torch.where(
+      candidate,
+      0.5 * tuck_phase * tuck_score + 0.5 * landing_phase * wheel_lowest_score,
+      torch.zeros_like(tuck_score),
+    )
+    # RewardManager supplies the dt integral.  Keep the dense bridge bounded
+    # at one per second so it guides the pre-contact package without
+    # overwhelming the one-off turn and landing outcomes above.
+    return (tuck_gain + landing_gain) / env.step_dt + dense_geometry
 
 
 class AerialRotationCompletion:
