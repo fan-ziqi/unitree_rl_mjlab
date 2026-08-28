@@ -375,11 +375,15 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     params={
       "command_name": "trick",
       "sensor_name": wheel_contact_cfg.name,
-      "min_ballistic_time": 0.08,
+      # A wheel-first landing can unload the suspension for a few control
+      # frames before all four wheels settle.  The one-shot event is already
+      # closed at first contact, so allow this measured transient to damp
+      # instead of labelling it a second jump at 80 ms.
+      "min_ballistic_time": 0.30,
       # A first individual tyre graze can rebound during a real landing.
       # Arm the second-jump detector only after a brief all-wheel hold, so
       # that rebound is available to the same one-shot contact controller.
-      "arming_settle_time": 0.06,
+      "arming_settle_time": 0.12,
     },
   )
   if not play:
