@@ -177,51 +177,31 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # encourages a fast four-wheel escape.  Keep x response in this single
       # policy, but make the physical support result the dominant discovery
       # return; command tracking remains active throughout the same rollout.
-      weight=30.0,
+      weight=60.0,
       params={
         "command_name": "trick",
         "std": 0.45,
         "lateral_weight": 2.0,
-        # A light physical gate keeps a fallen robot from being paid for a
-        # coincidental root velocity; it is not a posture target.
-        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        # A front/rear command must not earn most of its velocity return by
-        # simply rolling in the ordinary four-wheel attitude.  At the normal
-        # pose its target-gravity alignment is 0.5; cubing the existing
-        # outcome gate reduces that bypass to 0.125 while preserving a smooth
-        # signal toward the requested two-wheel attitude.  No joint pose or
-        # transition timing is prescribed.
-        # With the strengthened x/yaw weights, a cubic validity gate still
-        # lets an ordinary four-wheel front/rear request earn enough velocity
-        # return to avoid standing up.  An eighth power makes that bypass
-        # negligible at the reset attitude yet leaves a strong command signal
-        # once the measured two-wheel orientation is genuinely established.
-        "gravity_power": 8.0,
-        "mode_weights": (3.0, 1.0, 1.0),
-        "contact_masks": LOCOMOTION_CONTACT_MASKS,
-        "sensor_name": wheel_contact_cfg.name,
+        # Keep command tracking dense during the rise and during a mode
+        # transition.  Support and gravity remain the separate endpoint
+        # objective above; multiplying velocity by an eighth-power validity
+        # gate removed nearly all x/yaw gradient before an upright stance was
+        # already solved.
+        "mode_weights": (2.0, 2.0, 2.0),
       },
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
       # Yaw stays in the same outcome-conditioned policy, but cannot displace
       # the still-undiscovered upright support.
-      weight=30.0,
+      weight=60.0,
       params={
         "command_name": "trick",
         "std": 0.60,
-        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        # Normal needs the stronger yaw signal: its default four-wheel
-        # support is already valid, so no stance discovery competes with
-        # turning.  Front/rear retain the previous effective scale until
-        # their two-wheel form is established, preventing a normal-pose yaw
-        # response from displacing the requested inverted support.
-        "mode_weights": (2.5, 1.0, 1.0),
-        # Apply the same mode-validity gate to yaw, otherwise rear mode can
-        # collect yaw return while visibly remaining a normal wheeled robot.
-        "gravity_power": 8.0,
-        "contact_masks": LOCOMOTION_CONTACT_MASKS,
-        "sensor_name": wheel_contact_cfg.name,
+        # As with x tracking, leave this signal dense while the robot is
+        # changing support.  The commanded one-hot plus the measured support
+        # endpoint still disambiguate normal/front/rear behaviours.
+        "mode_weights": (2.0, 2.0, 2.0),
       },
     ),
     # This remains a generic temporal smoothness cost—not a free-leg pose
@@ -243,11 +223,15 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # all-zero normal idle is still supplied by the action gate;
             # this one-hot share merely keeps its observation branch present
             # before normal x/yaw commands enter.
-            "mode_probabilities": (0.0, 0.35, 0.65),
-            "mode_idle_probabilities": (1.0, 1.0, 1.0),
+            "mode_probabilities": (0.34, 0.33, 0.33),
+            # Include moving commands from the first rollout.  Static
+            # one-hots remain in the same batch, but withholding all x/yaw
+            # requests for the first 19,200 steps starved the fused actor of
+            # the very response the task is meant to learn.
+            "mode_idle_probabilities": (0.25, 0.50, 0.50),
             "direct_switch_probability": 0.0,
-            "lin_vel_x_range": (0.0, 0.0),
-            "yaw_rate_range": (0.0, 0.0),
+            "lin_vel_x_range": (-0.15, 0.15),
+            "yaw_rate_range": (-0.20, 0.20),
             "resampling_time_range": (6.0, 6.0),
           },
           {
