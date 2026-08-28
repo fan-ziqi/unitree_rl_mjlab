@@ -427,58 +427,40 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "stages": (
           {
-            # Learn the shared launch/tuck/landing controller on one body-axis
-            # branch before asking the same actor to separate five outcomes.
+            # Train each signed body axis as a pair from the first update.
+            # The former left-heavy start produced a positive-direction policy
+            # and made back/right collapse when their commands were increased.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.10, 0.10, 0.70, 0.10, 0.0),
+            "mode_probabilities": (0.45, 0.45, 0.05, 0.05, 0.0),
           },
           {
-            # Preserve the discovered left branch while adding back rotation.
-            # A serial 70% -> 70% switch made the shared actor forget a
-            # previously complete left flip at the next stage.
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.10, 0.30, 0.50, 0.10, 0.0),
+            "mode_probabilities": (0.35, 0.35, 0.15, 0.15, 0.0),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.35, 0.35, 0.10, 0.0),
+            "mode_probabilities": (0.28, 0.28, 0.22, 0.22, 0.0),
           },
           {
+            # Introduce yaw only after both signed body-axis pairs have a
+            # shared launch/tuck solution, then retain every branch while its
+            # z-axis controller is discovered.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
+            "mode_probabilities": (0.24, 0.24, 0.20, 0.20, 0.12),
           },
           {
-            # Do not abruptly replace the four learned body-axis branches
-            # with a new yaw branch.  The uniform jump at 76,800 control
-            # steps caused the shared actor to forget its legal launch/landing
-            # solution (illegal contact rose from about 13% to 54%).  Keep
-            # all four branches present while introducing yaw in small steps;
-            # the public command remains the same five-way one-hot.
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+            "mode_probabilities": (0.22, 0.22, 0.18, 0.18, 0.20),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
-          },
-          {
-            "step": 115_200,
-            "idle_probability": 0.0,
-            "mode_probabilities": (0.2125, 0.2125, 0.2125, 0.2125, 0.15),
-          },
-          {
-            # Spend the final block on the requested uniform five-way policy,
-            # but only after yaw has had three smaller-distribution blocks to
-            # discover its own launch and wheel landing.
-            "step": 134_400,
-            "idle_probability": 0.0,
-            "mode_probabilities": (0.2, 0.2, 0.2, 0.2, 0.2),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
         ),
       },
