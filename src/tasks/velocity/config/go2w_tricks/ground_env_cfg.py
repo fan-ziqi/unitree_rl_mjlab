@@ -320,7 +320,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   # inside the model's +/-1.05-rad abduction range; the compact-pivot outcome
   # below, not a smaller unexplained action envelope, is what prevents a
   # splayed final form.
-  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
   # Discovery needs the wheels to stay planted while legs find the common
   # axle.  With an 80-rad/s residual range, the bounded exploratory policy
   # drove the four-wheel footprint across the plane before it could improve
@@ -332,7 +332,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      mode_probabilities=(0.50, 0.25, 0.25, 0.0, 0.0),
+      mode_probabilities=(0.60, 0.10, 0.10, 0.10, 0.10),
       spin_idle_probability=0.0,
       upright_static_probability=0.0,
       direct_switch_probability=0.0,
@@ -405,69 +405,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # dense measured-rate component merely makes acceleration toward it
         # discoverable without adding a pose or transition target.
         "rate_progress_weight": 0.75,
-        # The separate held-support term below is the sole zero-rate named
-        # outcome, so two incompatible products cannot compete for it.
-        "static_support_weight": 0.0,
+        # One result term owns both dynamic pivots and zero-rate static
+        # supports.  This avoids a second reward paying a low/crouched local
+        # optimum independently of the commanded outcome.
+        "static_support_weight": 1.0,
         "asset_cfg": _support_wheels(),
-      },
-    ),
-    "named_static_support": RewardTermCfg(
-      func=trick_rewards.mode_support_score,
-      # A named zero-rate one-hot is a static two-wheel outcome.  Reuse the
-      # direct contact/attitude/clearance result that gives the locomotion
-      # task a route out of four-wheel idle; it contains no leg pose or
-      # transition reference.
-      weight=100.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2, 3, 4),
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "contact_masks": STANCE_CONTACT_MASKS,
-        "sensor_name": wheel_contact_cfg.name,
-        "num_modes": 5,
-        "extra_contact_discount": 1.0,
-        "orientation_power": 1.0,
-        # The rate channel alone distinguishes a held support from a pivot.
-        "stationary_command_index": 5,
-        "static_command_start_index": 5,
-        "command_deadband": 0.20,
-        "static_angular_velocity_scale": 0.80,
-        "static_linear_velocity_scale": 0.12,
-        "static_stillness_floor": 0.0,
-        # A zero-rate named one-hot must begin preferring low angular speed
-        # once it has a meaningful partial support.  Waiting for the former
-        # near-final thresholds let the policy spin/rock through the contact
-        # bridge forever, because the existing stillness result was never
-        # activated.  This leaves the reset and initial lift unconstrained;
-        # it only changes the outcome ranking after partial physical rise.
-        # f160 m1800 reaches about 0.58 attitude alignment with commanded
-        # contacts, then keeps rocking because the prior 0.60/0.40/0.35 gate
-        # never activates its measured stillness result.  Begin damping at a
-        # genuine partial two-wheel support, as in stance locomotion; the
-        # full contact/attitude/height outcome remains the only maximum.
-        "static_settling_alignment_threshold": 0.50,
-        "static_settling_support_threshold": 0.20,
-        "static_settling_clearance_threshold": 0.20,
-        # This measured attitude-rate bridge is active only away from the
-        # outcome, so it cannot reward a permanent fling.
-        "attitude_progress_weight": 0.12,
-        "attitude_progress_rate_scale": 4.0,
-        "asset_cfg": _support_wheels(),
-      },
-    ),
-    # Side one-hots are static supports rather than pivots.  Keep one direct
-    # body-attitude result for them; without it, contact-only exploration can
-    # remain a flat moving four-wheel state with no route to the side form.
-    "named_side_attitude": RewardTermCfg(
-      func=trick_rewards.mode_gravity_alignment_rise,
-      weight=80.0,
-      params={
-        "command_name": "trick",
-        "modes": (3, 4),
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "num_modes": 5,
-        "power": 1.0,
-        "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
     # Common-axis formation is a coordinated but smooth movement over many
@@ -486,40 +428,52 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "stages": (
           {
             "step": 0,
-            # Learn a genuine rotating pivot from the outset.  Isolating
-            # normal at 0.5--1 rad/s for hundreds of iterations produced a
-            # policy that had never experienced the requested fast command.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # First form a continuous-contact four-wheel pivot at a rate the
+            # reset can physically reach.  The other one-hots are visible,
+            # but cannot drown out normal discovery.
+            "mode_probabilities": (0.60, 0.10, 0.10, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.25,
+            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
-            "spin_rate_range": (4.0, 8.0),
+            "spin_rate_range": (0.5, 1.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Add both static side supports and a higher-rate fused pivot
-            # after one short discovery block, rather than serially spending
-            # thousands of updates on five independently staged forms.
             "step": 28_800,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.25,
-            "direct_switch_probability": 0.10,
-            "spin_rate_range": (7.0, 11.0),
+            "upright_static_probability": 0.30,
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Spend the majority of the run on the actual delivery setting:
-            # fast normal/front/rear pivoting plus continuous one-hot changes.
-            # Keep the upper bound at 12 rad/s: the requested AS2W-like
-            # maneuver is already fast at this rate, while 15 rad/s caused a
-            # rare long-horizon MuJoCo state explosion in the wheel contacts.
             "step": 57_600,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.35, 0.225, 0.225, 0.10, 0.10),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.25,
-            "direct_switch_probability": 0.30,
-            "spin_rate_range": (8.0, 12.0),
+            "upright_static_probability": 0.30,
+            "direct_switch_probability": 0.25,
+            "spin_rate_range": (2.0, 5.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            "step": 86_400,
+            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.0,
+            "direct_switch_probability": 0.60,
+            "spin_rate_range": (5.0, 8.0),
+            "resampling_time_range": (6.0, 6.0),
+          },
+          {
+            # Leave the final 600 updates for the high-rate, continuous
+            # delivery setting and direct mode changes.
+            "step": 115_200,
+            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            "spin_idle_probability": 0.0,
+            "upright_static_probability": 0.0,
+            "direct_switch_probability": 1.0,
+            "spin_rate_range": (10.0, 15.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
