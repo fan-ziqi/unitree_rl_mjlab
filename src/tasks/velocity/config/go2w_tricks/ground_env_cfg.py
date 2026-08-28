@@ -433,6 +433,21 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _support_wheels(),
       },
     ),
+    # Side one-hots are static supports rather than pivots.  Keep one direct
+    # body-attitude result for them; without it, contact-only exploration can
+    # remain a flat moving four-wheel state with no route to the side form.
+    "named_side_attitude": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment_rise,
+      weight=60.0,
+      params={
+        "command_name": "trick",
+        "modes": (3, 4),
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "num_modes": 5,
+        "power": 1.0,
+        "asset_cfg": SceneEntityCfg("robot"),
+      },
+    ),
     # Common-axis formation is a coordinated but smooth movement over many
     # control frames.  The former temporal cost was comparable to the entire
     # zero-action formation signal, so it selected immobility before PPO could
