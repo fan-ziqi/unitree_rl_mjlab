@@ -247,32 +247,27 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Continue balanced static discovery through update 400.
-            # Early audits can touch a rear support but cannot
-            # yet hold the complete target attitude; asking for locomotion
-            # would turn that incomplete balance into a rolling escape.
-            # Keep the same fused actor and direct command interface, but
-            # make a quiet static support the prerequisite for x/yaw motion.
-            # ``common_step_counter`` counts 48 control steps per PPO
-            # update for this task.
+            # Static audits now reach both pitch supports by update 400.  Start
+            # a small x/yaw command range at that measured milestone so the
+            # fused actor learns locomotion without waiting for an arbitrary
+            # long static-only block.
             "step": 19_200,
-            "mode_probabilities": (0.0, 0.50, 0.50),
-            "mode_idle_probabilities": (1.0, 1.0, 1.0),
-            "direct_switch_probability": 0.0,
-            "lin_vel_x_range": (0.0, 0.0),
-            "yaw_rate_range": (0.0, 0.0),
+            "mode_probabilities": (0.30, 0.35, 0.35),
+            "mode_idle_probabilities": (0.30, 0.35, 0.35),
+            "direct_switch_probability": 0.15,
+            "lin_vel_x_range": (-0.10, 0.10),
+            "yaw_rate_range": (-0.15, 0.15),
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # f186 confirms front standing but rear never reaches its target
-            # by m1000.  Keep the same fused actor on static discovery for a
-            # further block instead of teaching it to switch through falls.
+            # Expand to the requested walking/turning range after one short
+            # low-speed locomotion block, while retaining all three modes.
             "step": 38_400,
-            "mode_probabilities": (0.0, 0.50, 0.50),
-            "mode_idle_probabilities": (1.0, 1.0, 1.0),
-            "direct_switch_probability": 0.0,
-            "lin_vel_x_range": (0.0, 0.0),
-            "yaw_rate_range": (0.0, 0.0),
+            "mode_probabilities": (0.30, 0.35, 0.35),
+            "mode_idle_probabilities": (0.10, 0.25, 0.25),
+            "direct_switch_probability": 0.30,
+            "lin_vel_x_range": (-0.20, 0.20),
+            "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (6.0, 6.0),
           },
           {
