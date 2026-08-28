@@ -125,7 +125,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # the requested direction.  It supplies a persistent pose-result route
       # to the later contact/clearance outcome, without a leg target or a
       # prescribed get-up motion.
-      weight=30.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -140,11 +140,12 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      # The m400 policy genuinely finds the commanded two-wheel contacts,
-      # but visual replay shows a low folded support.  Put the same measured
-      # outcome ahead of velocity tracking until it is a visibly extended
-      # stand; this adds neither a joint target nor a transition schedule.
-      weight=100.0,
+      # This is the only held-stance endpoint: target gravity direction and
+      # exactly the named wheel pair.  Earlier versions separately rewarded
+      # absolute base height, free-wheel height, and leg span.  Those are
+      # correlated diagnostics, not independent task goals; together they
+      # created a profitable low slant before the body became upright.
+      weight=120.0,
       params={
         "command_name": "trick",
         # Normal's default four-wheel support is supplied by the action gate.
@@ -162,121 +163,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # fraction, otherwise the policy can improve the attitude score while
         # retaining the low ordinary gait that the task explicitly rejects.
         "extra_contact_discount": 1.0,
-        # Once the opposite pair has cleared, give the selected two wheels a
-        # continuous grounding/levelness route before both contact bits can
-        # simultaneously become true.  This is a wheel-centre endpoint, not
-        # a leg pose or a transition reference.
-        "soft_support_height": 0.11,
-        "soft_support_height_std": 0.07,
-        "soft_support_pair_height_std": 0.06,
-        # Fixed-command audits found the front support pair folded to a
-        # 0.16-m hip-to-wheel span despite the correct contacts.  Require the
-        # same measured support geometry as the extended rear branch, without
-        # prescribing any joint configuration.
-        "support_leg_length_target": 0.28,
-        # Normal four-wheel idle has the natural low clearance of the Go2W
-        # default.  A front/rear two-wheel command instead must visibly lift
-        # the trunk above its transverse support axle; without this existing
-        # support-outcome geometry, V1 found a low front crouch with the right
-        # two contacts but not the requested inverted stand.
-        # The m1000 fixed replay shows the visibly upright front support at
-        # 0.27 m trunk-to-axle clearance.  A 0.45-m requirement is therefore
-        # unattainable and rewards an artificial extension.  0.30 m still
-        # excludes the ordinary four-wheel clearance (~0.22 m), while
-        # measuring the actual upright two-wheel outcome rather than a pose.
-        "minimum_root_clearance": (0.18, 0.30, 0.30),
-        # Keep a direct monotonic incentive from the current low support all
-        # the way to that extended physical clearance.  Exact contacts and
-        # body attitude remain multiplicative validity requirements below.
-        # Even the squared gate left the m200 policy orbiting the low
-        # four-wheel form: changing its wheel contacts and rotating its trunk
-        # must initially happen together, so their product was still too
-        # sparse.  Use the measured attitude itself as the continuous route;
-        # exact contacts, clearance, and non-wheel collision termination are
-        # unchanged.  This is not a joint pose or transition trajectory.
-        # Target contacts already exclude the four-wheel reset.  A cubic
-        # attitude gate plateaued at the observed half-stand; retain the
-        # strict measured endpoint but provide a stronger continuous route.
-        # The measured exact-contact and clearance outcome still gives only
-        # the genuinely inverted two-wheel stand the full return.
-        "orientation_power": 2.0,
-        # This is the existing reset-to-support bridge, now deliberately
-        # smaller than the held-support result so a zero-command balance wins
-        # over repeated high-speed attempts near the target.
-        "attitude_progress_weight": 0.12,
-        "attitude_progress_rate_scale": 4.0,
-        # The two pitch stances share exactly the same physical endpoint
-        # measurement.  A moderate rear balance preserves the front support
-        # already discovered by the fused actor while still giving the harder
-        # rear one-hot adequate return; the later 4x rear experiment caused
-        # both modes to regress without improving rear discovery.
-        "mode_weights": (0.0, 1.0, 2.5),
-        "clearance_power": 1.0,
-        # A zero x/yaw request is a static two-wheel stand.  The m200 fixed
-        # audit found that without this existing outcome's stillness factor,
-        # rear could collect a large support reward while translating at
-        # 0.54 m/s and yawing at 1.02 rad/s.  These measured root speeds are
-        # applied only when both public command components are zero; moving
-        # x/yaw requests later in the same fused policy are unaffected.
-        "static_command_start_index": 3,
-        "command_deadband": 0.04,
-        "static_angular_velocity_scale": 0.55,
-        "static_linear_velocity_scale": 0.15,
-        # The m600 replay reaches a tall rear support but repeatedly throws
-        # itself sideways.  Once the measured support is substantially there,
-        # static one-hots must rank a truly quiet wheel balance above that
-        # high-speed transient; this does not apply to requested x/yaw motion.
-        "static_stillness_floor": 0.0,
-        # Do not brake a rear command while it is still a low, incomplete
-        # rise.  f186 has only 0.62 target alignment and 0.20 target support
-        # there, so the old gate suppresses the angular motion needed to
-        # finish standing.  Stillness begins only after the same measured
-        # outcome is mostly established; no get-up path is prescribed.
-        "static_settling_alignment_threshold": 0.80,
-        "static_settling_support_threshold": 0.60,
-        "static_settling_clearance_threshold": 0.60,
-        "asset_cfg": _support_wheels(),
-      },
-    ),
-    "commanded_support_height": RewardTermCfg(
-      func=trick_rewards.mode_root_height_exp,
-      # The working Go2W upright task needs an explicit final trunk-height
-      # result to reject a low wheel-supported slant.  Apply the same
-      # whole-body outcome only to front/rear modes; normal idle intentionally
-      # remains at the default four-wheel height.  This names no joint pose or
-      # transition trajectory.
-      weight=15.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2),
-        "num_modes": 3,
-        # The confirmed vertical two-wheel support has root height ~0.37 m;
-        # 0.561 m is not a physical result of that support.
-        "target_height": 0.39,
-        "scale": 5.0,
-        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "contact_masks": LOCOMOTION_CONTACT_MASKS,
-        "sensor_name": wheel_contact_cfg.name,
-        "orientation_power": 2.0,
-        "extra_contact_discount": 1.0,
-        "asset_cfg": SceneEntityCfg("robot"),
-      },
-    ),
-    "commanded_non_support_wheel_clearance": RewardTermCfg(
-      func=trick_rewards.mode_non_support_wheel_clearance,
-      # A front/rear command cannot become a genuine two-wheel stance while
-      # its opposite wheel pair remains near the terrain.  This is a single
-      # endpoint clearance measurement, not a target leg pose or get-up
-      # trajectory.  It provides the missing continuous bridge from the
-      # observed low four-wheel fold to the contact/attitude outcome above.
-      weight=18.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2),
-        "contact_masks": LOCOMOTION_CONTACT_MASKS,
-        "target_height": 0.42,
-        "minimum_height": 0.10,
-        "num_modes": 3,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -337,7 +223,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # This remains a generic temporal smoothness cost—not a free-leg pose
     # target—but now has enough scale to reject the visibly flailing airborne
     # pair once the support and velocity outcomes are already satisfied.
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.01),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   cfg.curriculum = {
@@ -353,7 +239,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # all-zero normal idle is still supplied by the action gate;
             # this one-hot share merely keeps its observation branch present
             # before normal x/yaw commands enter.
-            "mode_probabilities": (0.10, 0.25, 0.65),
+            "mode_probabilities": (0.0, 0.50, 0.50),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -370,7 +256,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # ``common_step_counter`` counts 48 control steps per PPO
             # update for this task.
             "step": 19_200,
-            "mode_probabilities": (0.10, 0.35, 0.55),
+            "mode_probabilities": (0.0, 0.50, 0.50),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -382,7 +268,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # by m1000.  Keep the same fused actor on static discovery for a
             # further block instead of teaching it to switch through falls.
             "step": 38_400,
-            "mode_probabilities": (0.10, 0.30, 0.60),
+            "mode_probabilities": (0.0, 0.50, 0.50),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
