@@ -26,6 +26,7 @@ from src.tasks.velocity.mdp.terminations import (
   AerialEventFinished,
   AerialIncompleteLanding,
   AerialPostLandingRelaunch,
+  illegal_contact_after_grace,
 )
 from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
 
@@ -356,7 +357,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # The grace is only for takeoff; sustained trunk/leg support remains an
   # illegal outcome and is still terminated once the window expires.
   cfg.terminations["illegal_contact"] = TerminationTermCfg(
-    func=mdp.illegal_contact_after_grace,
+    func=illegal_contact_after_grace,
     params={
       "sensor_name": nonwheel_contact_cfg.name,
       "force_threshold": 10.0,
