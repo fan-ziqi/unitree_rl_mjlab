@@ -80,7 +80,9 @@ def _configure_command(cfg, duration_s: float) -> None:
 
 def _mode_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
   """Return the signed public rate carried by every active one-hot."""
-  return torch.full_like(modes, spin_rate, dtype=torch.float32)
+  rates = torch.full_like(modes, spin_rate, dtype=torch.float32)
+  # Side one-hots are held two-wheel supports; their public rate is ignored.
+  return torch.where(modes >= 3, torch.zeros_like(rates), rates)
 
 
 def _expected_down_rates(modes: torch.Tensor, spin_rate: float) -> torch.Tensor:
