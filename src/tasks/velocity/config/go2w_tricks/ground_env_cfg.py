@@ -145,7 +145,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # absolute base height, free-wheel height, and leg span.  Those are
       # correlated diagnostics, not independent task goals; together they
       # created a profitable low slant before the body became upright.
-      weight=120.0,
+      weight=180.0,
       params={
         "command_name": "trick",
         # Normal's default four-wheel support is supplied by the action gate.
@@ -223,15 +223,15 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # all-zero normal idle is still supplied by the action gate;
             # this one-hot share merely keeps its observation branch present
             # before normal x/yaw commands enter.
-            "mode_probabilities": (0.34, 0.33, 0.33),
+            "mode_probabilities": (0.10, 0.45, 0.45),
             # Include moving commands from the first rollout.  Static
             # one-hots remain in the same batch, but withholding all x/yaw
             # requests for the first 19,200 steps starved the fused actor of
             # the very response the task is meant to learn.
-            "mode_idle_probabilities": (0.25, 0.50, 0.50),
+            "mode_idle_probabilities": (0.50, 0.50, 0.50),
             "direct_switch_probability": 0.0,
-            "lin_vel_x_range": (-0.15, 0.15),
-            "yaw_rate_range": (-0.20, 0.20),
+            "lin_vel_x_range": (0.0, 0.0),
+            "yaw_rate_range": (0.0, 0.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -240,20 +240,20 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # fused actor learns locomotion without waiting for an arbitrary
             # long static-only block.
             "step": 19_200,
-            "mode_probabilities": (0.25, 0.30, 0.45),
-            "mode_idle_probabilities": (0.30, 0.35, 0.35),
-            "direct_switch_probability": 0.15,
-            "lin_vel_x_range": (-0.10, 0.10),
-            "yaw_rate_range": (-0.15, 0.15),
+            "mode_probabilities": (0.20, 0.40, 0.40),
+            "mode_idle_probabilities": (0.25, 0.40, 0.40),
+            "direct_switch_probability": 0.10,
+            "lin_vel_x_range": (-0.15, 0.15),
+            "yaw_rate_range": (-0.20, 0.20),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             # Expand to the requested walking/turning range after one short
             # low-speed locomotion block, while retaining all three modes.
             "step": 38_400,
-            "mode_probabilities": (0.25, 0.30, 0.45),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "direct_switch_probability": 0.30,
+            "mode_probabilities": (0.25, 0.375, 0.375),
+            "mode_idle_probabilities": (0.10, 0.30, 0.30),
+            "direct_switch_probability": 0.25,
             "lin_vel_x_range": (-0.20, 0.20),
             "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (6.0, 6.0),
