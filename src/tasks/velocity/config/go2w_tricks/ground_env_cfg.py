@@ -518,7 +518,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # together but looks like a crawling chassis.  This names no leg
         # angle—the policy remains free to find its own extended support.
         "normal_min_root_clearance": 0.35,
-        "upright_support_weight": 0.20,
+        "upright_support_weight": 0.35,
         # The early common-axle geometry bridge is only for discovering the
         # four-wheel packing from its ordinary rectangular reset.  It fades
         # after discovery so the same geometry must carry the signed rate at
