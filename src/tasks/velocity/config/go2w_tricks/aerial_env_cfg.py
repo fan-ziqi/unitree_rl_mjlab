@@ -424,12 +424,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # previously complete left flip at the next stage.
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.10, 0.40, 0.40, 0.10, 0.0),
+            "mode_probabilities": (0.10, 0.30, 0.50, 0.10, 0.0),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.45, 0.25, 0.10, 0.0),
+            "mode_probabilities": (0.20, 0.35, 0.35, 0.10, 0.0),
           },
           {
             "step": 57_600,
