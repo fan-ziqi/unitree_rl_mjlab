@@ -270,38 +270,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             "yaw_rate_range": (-0.30, 0.30),
             "resampling_time_range": (6.0, 6.0),
           },
-          {
-            # Only after the extended static block introduce normal <->
-            # front/rear one-hot transitions, still at zero x/yaw.
-            "step": 76_800,
-            "mode_probabilities": (0.30, 0.30, 0.40),
-            "mode_idle_probabilities": (1.0, 1.0, 1.0),
-            "direct_switch_probability": 0.25,
-            "lin_vel_x_range": (0.0, 0.0),
-            "yaw_rate_range": (0.0, 0.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Start conservative x/yaw replay after static support and direct
-            # transitions have both been trained in the same policy.
-            "step": 96_000,
-            "mode_probabilities": (0.30, 0.25, 0.45),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "direct_switch_probability": 0.35,
-            "lin_vel_x_range": (-0.10, 0.10),
-            "yaw_rate_range": (-0.15, 0.15),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Reach the requested command range after the low-range stage.
-            "step": 115_200,
-            "mode_probabilities": (0.30, 0.25, 0.45),
-            "mode_idle_probabilities": (0.10, 0.25, 0.25),
-            "direct_switch_probability": 0.50,
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (6.0, 6.0),
-          },
         ),
       },
     )
