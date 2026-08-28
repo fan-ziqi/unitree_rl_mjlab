@@ -348,7 +348,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # gradient before either direction could spin.  This is a discovery
         # scale, not the acceptance threshold: the evaluator still requires
         # a visibly local support midpoint.
-        "pivot_speed_limit": 0.12,
+        # Keep local-centre quality in the outcome, but avoid making the
+        # early front/rear rotation gradient almost zero while the support
+        # axle is still settling.
+        "pivot_speed_limit": 0.20,
         # The common axle must live below a recognizably level Go2W trunk.
         # Without this measured root-to-wheel clearance, the new all-wheel
         # line reward has a low crouching local optimum: it can pack wheels
@@ -370,7 +373,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # change.  The strict final tracking score remains present; this
         # dense measured-rate component merely makes acceleration toward it
         # discoverable without adding a pose or transition target.
-        "rate_progress_weight": 0.50,
+        "rate_progress_weight": 0.75,
         # The separate held-support term below is the sole zero-rate named
         # outcome, so two incompatible products cannot compete for it.
         "static_support_weight": 0.0,
@@ -383,7 +386,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # direct contact/attitude/clearance result that gives the locomotion
       # task a route out of four-wheel idle; it contains no leg pose or
       # transition reference.
-      weight=80.0,
+      weight=100.0,
       params={
         "command_name": "trick",
         "modes": (1, 2, 3, 4),
@@ -426,7 +429,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     # remain a flat moving four-wheel state with no route to the side form.
     "named_side_attitude": RewardTermCfg(
       func=trick_rewards.mode_gravity_alignment_rise,
-      weight=60.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "modes": (3, 4),
@@ -455,9 +458,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Learn a genuine rotating pivot from the outset.  Isolating
             # normal at 0.5--1 rad/s for hundreds of iterations produced a
             # policy that had never experienced the requested fast command.
-            "mode_probabilities": (0.40, 0.20, 0.20, 0.10, 0.10),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.20,
+            "upright_static_probability": 0.30,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (4.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
@@ -467,7 +470,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # after one short discovery block, rather than serially spending
             # thousands of updates on five independently staged forms.
             "step": 28_800,
-            "mode_probabilities": (0.35, 0.20, 0.20, 0.125, 0.125),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.15,
             "direct_switch_probability": 0.10,
@@ -478,7 +481,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Spend the majority of the run on the actual delivery setting:
             # fast normal/front/rear pivoting plus continuous one-hot changes.
             "step": 57_600,
-            "mode_probabilities": (0.30, 0.22, 0.22, 0.13, 0.13),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.10,
             "direct_switch_probability": 0.30,

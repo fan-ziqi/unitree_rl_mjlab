@@ -571,11 +571,15 @@ def _stance_spin_components(
   moving = active & (mode <= 2) & (torch.abs(command[:, 5]) > speed_deadband)
   gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
   actual_rate = torch.sum(asset.data.root_link_ang_vel_b * gravity, dim=1)
-  rate_score = torch.clamp(
-    1.0 - torch.abs(command[:, 5] - actual_rate) / rate_std,
-    min=0.0,
-    max=1.0,
-  )
+  # A fixed ``1 - error / std`` score is exactly zero for the requested
+  # 10--15 rad/s rates while the policy is still at rest.  Its clamp then
+  # removes the only acceleration gradient, so front/rear modes learn the
+  # support shape but never learn to spin.  Normalize the error by the
+  # requested magnitude and use a Gaussian-shaped score instead; it remains
+  # bounded, signed-direction sensitive, and informative from zero speed.
+  rate_scale = 0.75 * torch.abs(command[:, 5]) + rate_std
+  normalized_rate_error = (command[:, 5] - actual_rate) / rate_scale.clamp_min(1.0e-6)
+  rate_score = torch.exp(-0.5 * torch.square(normalized_rate_error))
 
   contacts = _wheel_contacts(env, sensor_name).float()
   masks = torch.tensor(
