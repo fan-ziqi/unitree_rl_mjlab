@@ -361,7 +361,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
     params={
       "sensor_name": nonwheel_contact_cfg.name,
       "force_threshold": 10.0,
-      "grace_period_s": 0.20,
+      # A full wheel-first turn needs roughly 0.4--0.5 s of flight in the
+      # current model.  A 0.2 s window terminated every exploratory flip
+      # before the wheel package could reach the ground; keep the physical
+      # body-contact rule, but allow a short landing completion window.
+      "grace_period_s": 0.60,
     },
   )
   # Collision ends an episode immediately.  The decisive terminal term
