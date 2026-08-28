@@ -419,19 +419,22 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "mode_probabilities": (0.10, 0.10, 0.70, 0.10, 0.0),
           },
           {
+            # Preserve the discovered left branch while adding back rotation.
+            # A serial 70% -> 70% switch made the shared actor forget a
+            # previously complete left flip at the next stage.
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.70, 0.10, 0.10, 0.10, 0.0),
+            "mode_probabilities": (0.10, 0.40, 0.40, 0.10, 0.0),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.10, 0.70, 0.10, 0.10, 0.0),
+            "mode_probabilities": (0.20, 0.45, 0.25, 0.10, 0.0),
           },
           {
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.10, 0.10, 0.10, 0.70, 0.0),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.25, 0.0),
           },
           {
             # Do not abruptly replace the four learned body-axis branches
