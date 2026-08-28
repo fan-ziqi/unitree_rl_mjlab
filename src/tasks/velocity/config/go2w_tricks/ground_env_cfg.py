@@ -163,6 +163,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         # fraction, otherwise the policy can improve the attitude score while
         # retaining the low ordinary gait that the task explicitly rejects.
         "extra_contact_discount": 1.0,
+        # Rear support is the persistent weak branch under locomotion.  Give
+        # its measured physical endpoint more return without prescribing a
+        # pose or changing normal/front behavior.
+        "mode_weights": (0.5, 1.0, 2.0),
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -239,7 +243,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # all-zero normal idle is still supplied by the action gate;
             # this one-hot share merely keeps its observation branch present
             # before normal x/yaw commands enter.
-            "mode_probabilities": (0.0, 0.50, 0.50),
+            "mode_probabilities": (0.0, 0.35, 0.65),
             "mode_idle_probabilities": (1.0, 1.0, 1.0),
             "direct_switch_probability": 0.0,
             "lin_vel_x_range": (0.0, 0.0),
@@ -252,7 +256,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # fused actor learns locomotion without waiting for an arbitrary
             # long static-only block.
             "step": 19_200,
-            "mode_probabilities": (0.30, 0.35, 0.35),
+            "mode_probabilities": (0.25, 0.30, 0.45),
             "mode_idle_probabilities": (0.30, 0.35, 0.35),
             "direct_switch_probability": 0.15,
             "lin_vel_x_range": (-0.10, 0.10),
@@ -263,7 +267,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
             # Expand to the requested walking/turning range after one short
             # low-speed locomotion block, while retaining all three modes.
             "step": 38_400,
-            "mode_probabilities": (0.30, 0.35, 0.35),
+            "mode_probabilities": (0.25, 0.30, 0.45),
             "mode_idle_probabilities": (0.10, 0.25, 0.25),
             "direct_switch_probability": 0.30,
             "lin_vel_x_range": (-0.20, 0.20),
