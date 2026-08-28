@@ -187,8 +187,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # flight: enough to crash through a turn but not to brake and recover
         # a wheel package.  Ask for a longer measured ballistic result, not a
         # takeoff pose or timing trace.
-        "target_upward_speed": 2.15,
-        "target_duration": 0.42,
+        # The Go2W actuator sweep reaches roughly 1.8 m/s reliably; a 2.15
+        # m/s target left every body-axis branch under-powered before it had
+        # enough flight time to fold and rotate.
+        "target_upward_speed": 1.80,
+        "target_duration": 0.40,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -221,7 +224,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # the wheel package below every link.  It remains neither a joint pose
       # nor a timing/reference trajectory; the strict four-wheel endpoint
       # below is still the only completion.
-      weight=8.0,
+      weight=20.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -230,12 +233,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "target_angle": math.tau,
         # These are actual accumulated-turn fractions, not a clock or a
         # reference pose.  The policy itself determines when it reaches them.
-        "tuck_start_turn_fraction": 0.08,
-        "tuck_ramp_end_turn_fraction": 0.20,
-        "tuck_end_turn_fraction": 0.62,
-        "tuck_target_wheel_root_distance": 0.30,
+        "tuck_start_turn_fraction": 0.04,
+        "tuck_ramp_end_turn_fraction": 0.16,
+        "tuck_end_turn_fraction": 0.64,
+        "tuck_target_wheel_root_distance": 0.28,
         "tuck_max_wheel_root_distance": 0.40,
-        "landing_start_turn_fraction": 0.62,
+        "landing_start_turn_fraction": 0.64,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
