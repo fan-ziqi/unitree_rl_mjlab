@@ -83,6 +83,11 @@ def run(cfg: RecordConfig) -> Path:
   env_cfg.viewer.distance = 3.0
   env_cfg.viewer.elevation = -12.0
   _configure_command(env_cfg, total_duration_s)
+  # The switch schedule may outlive the task's interactive default episode
+  # length (currently six seconds).  Keep one physical rollout alive for the
+  # complete schedule; otherwise the environment resets exactly at a mode
+  # boundary and the command sampler silently replaces the requested one-hot.
+  env_cfg.episode_length_s = total_duration_s + 0.5
   agent_cfg = load_rl_cfg(TASK_ID)
   base_env = ManagerBasedRlEnv(cfg=env_cfg, device=cfg.device, render_mode="rgb_array")
   num_steps = round(total_duration_s / base_env.step_dt)
@@ -100,6 +105,11 @@ def run(cfg: RecordConfig) -> Path:
   policy = runner.get_inference_policy(device=cfg.device)
   env.reset()
   command_term = base_env.command_manager.get_term("trick")
+  # CommandTerm samples ``time_left`` during reset.  Set it explicitly after
+  # construction as well: some play-task wrappers retain the six-second
+  # default sampled before the schedule length is applied, which would
+  # replace a requested one-hot at that exact boundary.
+  command_term.time_left.fill_(total_duration_s + 1.0)
   modes = torch.full((1,), schedule[0][0], dtype=torch.long, device=base_env.device)
   _pin_modes(command_term, modes, cfg.spin_rate, cfg.ramp_spin_rate)
   obs = _fixed_reset_observation(base_env)
