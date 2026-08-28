@@ -795,8 +795,13 @@ class StanceSpinPivotResult:
     speed_quality = (1.0 - rate_progress_weight) * rate_score + (
       rate_progress_weight * signed_rate_progress
     )
-    dynamic_quality = coaxial_factor * pivot_stillness * (
-      speed_quality
+    # Keep a direct gradient toward the requested signed rate while the
+    # support centre is still settling.  Multiplying by the raw stillness
+    # score made any exploratory wheel motion nearly reward-free, so PPO chose
+    # a static support forever.  The nonzero floor is only a discovery bridge;
+    # the final outcome still ranks a local pivot through ``pivot_stillness``.
+    dynamic_quality = coaxial_factor * speed_quality * (
+      0.30 + 0.70 * pivot_stillness
     )
     # Every named two-wheel mode starts at the ordinary four-wheel reset with near-zero
     # commanded-rate score.  Multiplying that zero by every support factor
@@ -837,11 +842,11 @@ class StanceSpinPivotResult:
     normal_geometry_weight = upright_support_weight + normal_decay * (
       normal_final_geometry_weight - upright_support_weight
     )
-    normal_result = (
-      support_quality
-      * normal_geometry
-      * (normal_geometry_weight + (1.0 - normal_geometry_weight)
-         * pivot_stillness * speed_quality)
+    normal_result = support_quality * normal_geometry * (
+      normal_geometry_weight
+      + (1.0 - normal_geometry_weight)
+      * speed_quality
+      * (0.30 + 0.70 * pivot_stillness)
     )
     dynamic_result = torch.where(mode == 0, normal_result, upright_result)
 

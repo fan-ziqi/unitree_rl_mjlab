@@ -404,20 +404,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 5,
         "extra_contact_discount": 1.0,
-        "soft_support_height": 0.11,
-        "soft_support_height_std": 0.07,
-        "soft_support_pair_height_std": 0.06,
-        # A low slant has both commanded wheels but is not the requested
-        # stand.  Use the same measured attitude pressure as the successful
-        # front/rear stance task, and require a visibly extended trunk above
-        # its named support pair.  These are outcome geometry, never a joint
-        # target.
-        # The pitch-pair support is physically established around 0.30 m of
-        # root-to-axle clearance; requiring 0.45 m made the named front/rear
-        # result unreachable even after the correct wheel pair was found.
-        "minimum_root_clearance": (0.18, 0.30, 0.30, 0.35, 0.35),
-        "orientation_power": 3.0,
-        "clearance_power": 1.0,
+        "orientation_power": 1.0,
         # The rate channel alone distinguishes a held support from a pivot.
         "stationary_command_index": 5,
         "static_command_start_index": 5,
@@ -446,80 +433,6 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _support_wheels(),
       },
     ),
-    "named_static_attitude": RewardTermCfg(
-      func=trick_rewards.mode_gravity_alignment_rise,
-      # Named two-wheel pivots need a state-level route from ordinary four
-      # wheels to their commanded gravity direction before their exact
-      # wheel-pair/height score can become non-zero.  Normal is deliberately
-      # excluded: it remains a level four-wheel common-axle problem.
-      weight=30.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2, 3, 4),
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "num_modes": 5,
-        "power": 1.5,
-        "asset_cfg": SceneEntityCfg("robot"),
-      },
-    ),
-    "named_pitch_support_height": RewardTermCfg(
-      func=trick_rewards.mode_root_height_exp,
-      # A selected front or rear wheel pair can touch while the trunk remains
-      # in the observed low slant.  The fixed-command stance audit establishes
-      # a roughly 0.39-m root height as the reachable extended pitch-pair
-      # outcome.  It is a whole-body endpoint, not a leg target or trajectory.
-      weight=15.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2),
-        "num_modes": 5,
-        "target_height": 0.39,
-        "scale": 5.0,
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "contact_masks": STANCE_CONTACT_MASKS,
-        "sensor_name": wheel_contact_cfg.name,
-        "orientation_power": 2.0,
-        "extra_contact_discount": 1.0,
-        "asset_cfg": _support_wheels(),
-      },
-    ),
-    "named_non_support_wheel_clearance": RewardTermCfg(
-      func=trick_rewards.mode_non_support_wheel_clearance,
-      # The named static two-wheel commands face the same sparse contact
-      # barrier as the locomotion supports.  Share the exact wheel-clearance
-      # outcome so all one-hots retain one actor and one physical objective,
-      # with no leg pose, reference frame, or transition schedule added.
-      weight=18.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2, 3, 4),
-        "contact_masks": STANCE_CONTACT_MASKS,
-        "target_height": 0.40,
-        "minimum_height": 0.10,
-        "num_modes": 5,
-        "asset_cfg": _support_wheels(),
-      },
-    ),
-    "named_roll_support_height": RewardTermCfg(
-      func=trick_rewards.mode_root_height_exp,
-      # A left/right pair places the short base dimension vertically, so its
-      # physically extended wheel-pair height is lower than the pitch pair.
-      # Reward the state result only; PPO still selects all joint geometry.
-      weight=12.0,
-      params={
-        "command_name": "trick",
-        "modes": (3, 4),
-        "num_modes": 5,
-        "target_height": 0.45,
-        "scale": 5.0,
-        "gravity_targets": STANCE_GRAVITY_TARGETS,
-        "contact_masks": STANCE_CONTACT_MASKS,
-        "sensor_name": wheel_contact_cfg.name,
-        "orientation_power": 2.0,
-        "extra_contact_discount": 1.0,
-        "asset_cfg": _support_wheels(),
-      },
-    ),
     # Common-axis formation is a coordinated but smooth movement over many
     # control frames.  The former temporal cost was comparable to the entire
     # zero-action formation signal, so it selected immobility before PPO could
@@ -539,7 +452,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Learn a genuine rotating pivot from the outset.  Isolating
             # normal at 0.5--1 rad/s for hundreds of iterations produced a
             # policy that had never experienced the requested fast command.
-            "mode_probabilities": (0.34, 0.28, 0.28, 0.05, 0.05),
+            "mode_probabilities": (0.55, 0.20, 0.20, 0.025, 0.025),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.20,
             "direct_switch_probability": 0.0,
@@ -551,7 +464,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # after one short discovery block, rather than serially spending
             # thousands of updates on five independently staged forms.
             "step": 28_800,
-            "mode_probabilities": (0.40, 0.25, 0.25, 0.05, 0.05),
+            "mode_probabilities": (0.45, 0.25, 0.25, 0.025, 0.025),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.15,
             "direct_switch_probability": 0.10,
