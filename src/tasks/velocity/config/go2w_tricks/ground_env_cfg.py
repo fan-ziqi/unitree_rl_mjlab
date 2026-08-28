@@ -487,12 +487,15 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           {
             # Spend the majority of the run on the actual delivery setting:
             # fast normal/front/rear pivoting plus continuous one-hot changes.
+            # Keep the upper bound at 12 rad/s: the requested AS2W-like
+            # maneuver is already fast at this rate, while 15 rad/s caused a
+            # rare long-horizon MuJoCo state explosion in the wheel contacts.
             "step": 57_600,
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.25,
             "direct_switch_probability": 0.30,
-            "spin_rate_range": (10.0, 15.0),
+            "spin_rate_range": (8.0, 12.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
