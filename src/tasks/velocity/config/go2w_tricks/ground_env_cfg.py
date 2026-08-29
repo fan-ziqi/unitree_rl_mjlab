@@ -394,7 +394,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # four-wheel packing from its ordinary rectangular reset.  It fades
         # after discovery so the same geometry must carry the signed rate at
         # a stationary all-wheel centroid.
-        "normal_final_geometry_weight": 0.04,
+        # The previous 0.04 late-stage floor was too weak to preserve the
+        # common-axle form: the policy learned a low, travelling pivot while
+        # still receiving a healthy signed-rate return.  Keep geometry a
+        # material part of the final outcome so normal cannot collapse after
+        # the discovery bridge fades.
+        "normal_final_geometry_weight": 0.30,
         # A spin rollout contains 48 control steps.  Keep the bridge through
         # the first 600 PPO updates, then make the normal branch earn its
         # reward from an actual local pivot while the named forms are learned.
@@ -458,7 +463,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 86_400,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            # Side supports were under-sampled at the final stage and their
+            # zero-rate one-hots never became reliable.  Give both static
+            # forms enough rollouts without removing the normal/front/rear
+            # dynamic branches.
+            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -469,7 +478,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Leave the final 600 updates for the high-rate, continuous
             # delivery setting and direct mode changes.
             "step": 115_200,
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
