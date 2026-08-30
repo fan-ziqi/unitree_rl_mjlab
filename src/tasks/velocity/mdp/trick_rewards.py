@@ -1467,11 +1467,24 @@ class AerialTuckThenWheelLanding:
       asset.data.site_pos_w[:, asset_cfg.site_ids] - asset.data.root_link_pos_w[:, None],
       dim=-1,
     ).mean(dim=1)
-    tuck_score = torch.clamp(
-      (tuck_max_wheel_root_distance - wheel_root_distance)
-      / (tuck_max_wheel_root_distance - tuck_target_wheel_root_distance),
-      min=0.0,
-      max=1.0,
+    # Keep a usable gradient even when an exploratory policy has thrown the
+    # wheel package well outside the compact envelope.  The former linear
+    # clamp became exactly zero above ``tuck_max_wheel_root_distance`` (the
+    # m300 policy reached roughly 0.56 m), so PPO could not discover how to
+    # pull the limbs back in after its first wide launch.  A smooth Gaussian
+    # around the measured compact-distance outcome stays bounded in [0, 1]
+    # while remaining informative throughout that recovery region.  The
+    # scale is twice the configured envelope width: at the envelope edge the
+    # score is still substantial, and the target distance remains the unique
+    # maximum without naming a joint pose.
+    tuck_distance_scale = 2.0 * (
+      tuck_max_wheel_root_distance - tuck_target_wheel_root_distance
+    )
+    tuck_score = torch.exp(
+      -torch.square(
+        (wheel_root_distance - tuck_target_wheel_root_distance)
+        / tuck_distance_scale
+      )
     )
     # A hard zero while one limb is still below the wheel plane makes this
     # otherwise physical result undiscoverable.  Score the same wheel-first
