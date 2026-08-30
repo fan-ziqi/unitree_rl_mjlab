@@ -228,7 +228,7 @@ class AerialPostLandingRelaunch:
 
 
 class AerialEventFinished:
-  """Truncate after the one-shot aerial event has returned to public idle.
+  """Truncate after a one-shot aerial event has *stably* returned to idle.
 
   The command term keeps its one-hot through the short first-landing verdict,
   then exposes the literal zero-command/default controller.  One additional
@@ -238,8 +238,10 @@ class AerialEventFinished:
   most of every three-second PPO rollout on an already-finished event.
 
   An episode that was sampled idle does not satisfy ``_landing_started`` and
-  therefore retains the ordinary timeout path.  This is only an event
-  boundary; it supplies no pose, action, or reward target.
+  therefore retains the ordinary timeout path.  The physical landing checks
+  below are the same measured endpoint used by the completion reward; they
+  prevent a one-hot clear during a rebound from truncating the useful
+  post-contact learning window.
   """
 
   def __init__(self, cfg, env: ManagerBasedRlEnv):
@@ -253,6 +255,8 @@ class AerialEventFinished:
     self,
     env: ManagerBasedRlEnv,
     command_name: str,
+    sensor_name: str,
+    nonwheel_sensor_name: str,
     post_idle_settle_time_s: float,
     target_angle: float = math.tau,
     max_overrotation: float = 0.50,
@@ -273,8 +277,47 @@ class AerialEventFinished:
       progress <= target_angle + max_overrotation
     )
     idle_after_landing = landed & (~active)
+
+    # Do not end a valid-turn episode merely because the public command has
+    # cleared.  A first wheel contact can still be a rebound, and a body/leg
+    # can be resting on the floor while all four wheel bits are not present.
+    # Require the measured quiet wheel-supported endpoint before truncating;
+    # this is deliberately the same endpoint used by AerialRotationCompletion.
+    wheel_sensor: ContactSensor = env.scene[sensor_name]
+    found = wheel_sensor.data.found
+    assert found is not None
+    wheel_contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
+    nonwheel_sensor: ContactSensor = env.scene[nonwheel_sensor_name]
+    nonwheel_found = nonwheel_sensor.data.found
+    assert nonwheel_found is not None
+    nonwheel_contact = (
+      nonwheel_found.reshape(env.num_envs, nonwheel_found.shape[1], -1) > 0
+    ).any(dim=(1, 2))
+    asset = env.scene[command_term.cfg.entity_name]
+    normal_gravity = torch.tensor(
+      (0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device
+    )
+    gravity_error = torch.sum(
+      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+    )
+    launch_quat = getattr(
+      command_term, "_launch_root_quat_w", torch.zeros_like(asset.data.root_link_quat_w)
+    )
+    orientation_similarity = torch.abs(
+      torch.sum(asset.data.root_link_quat_w * launch_quat, dim=1)
+    )
+    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
+    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    stable_landing = (
+      torch.all(wheel_contacts, dim=1)
+      & ~nonwheel_contact
+      & (gravity_error < command_term.cfg.landing_gravity_error_limit)
+      & (orientation_similarity >= command_term.cfg.landing_orientation_dot_min)
+      & (linear_speed < command_term.cfg.landing_linear_velocity_limit)
+      & (angular_speed < command_term.cfg.landing_angular_velocity_limit)
+    )
     self.idle_time = torch.where(
-      idle_after_landing,
+      idle_after_landing & stable_landing,
       self.idle_time + env.step_dt,
       torch.zeros_like(self.idle_time),
     )
@@ -288,7 +331,7 @@ class AerialEventFinished:
     # m800 recording exposes directly.  Only a legal one-turn event gets the
     # normal timeout boundary; the complementary case is handled by the
     # non-timeout termination below.
-    return idle_after_landing & valid_turn & (
+    return idle_after_landing & valid_turn & stable_landing & (
       self.idle_time + 0.5 * env.step_dt >= post_idle_settle_time_s
     )
 
@@ -313,6 +356,8 @@ class AerialIncompleteLanding:
     self,
     env: ManagerBasedRlEnv,
     command_name: str,
+    sensor_name: str,
+    nonwheel_sensor_name: str,
     post_idle_settle_time_s: float,
     target_angle: float = math.tau,
     max_overrotation: float = 0.50,
@@ -333,11 +378,47 @@ class AerialIncompleteLanding:
       progress <= target_angle + max_overrotation
     )
     idle_after_landing = landed & (~active)
+    wheel_sensor: ContactSensor = env.scene[sensor_name]
+    found = wheel_sensor.data.found
+    assert found is not None
+    wheel_contacts = (found.reshape(env.num_envs, found.shape[1], -1) > 0).any(dim=-1)
+    nonwheel_sensor: ContactSensor = env.scene[nonwheel_sensor_name]
+    nonwheel_found = nonwheel_sensor.data.found
+    assert nonwheel_found is not None
+    nonwheel_contact = (
+      nonwheel_found.reshape(env.num_envs, nonwheel_found.shape[1], -1) > 0
+    ).any(dim=(1, 2))
+    asset = env.scene[command_term.cfg.entity_name]
+    normal_gravity = torch.tensor(
+      (0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device
+    )
+    gravity_error = torch.sum(
+      torch.square(asset.data.projected_gravity_b - normal_gravity), dim=1
+    )
+    launch_quat = getattr(
+      command_term, "_launch_root_quat_w", torch.zeros_like(asset.data.root_link_quat_w)
+    )
+    orientation_similarity = torch.abs(
+      torch.sum(asset.data.root_link_quat_w * launch_quat, dim=1)
+    )
+    linear_speed = torch.linalg.vector_norm(asset.data.root_link_lin_vel_w, dim=1)
+    angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+    stable_landing = (
+      torch.all(wheel_contacts, dim=1)
+      & ~nonwheel_contact
+      & (gravity_error < command_term.cfg.landing_gravity_error_limit)
+      & (orientation_similarity >= command_term.cfg.landing_orientation_dot_min)
+      & (linear_speed < command_term.cfg.landing_linear_velocity_limit)
+      & (angular_speed < command_term.cfg.landing_angular_velocity_limit)
+    )
+    # For an incomplete/unstable attempt the clock must continue through the
+    # whole post-landing verdict window; unlike the successful event above it
+    # is intentionally not gated by ``stable_landing``.
     self.idle_time = torch.where(
       idle_after_landing,
       self.idle_time + env.step_dt,
       torch.zeros_like(self.idle_time),
     )
-    return idle_after_landing & (~valid_turn) & (
+    return idle_after_landing & ((~valid_turn) | (valid_turn & ~stable_landing)) & (
       self.idle_time + 0.5 * env.step_dt >= post_idle_settle_time_s
     )

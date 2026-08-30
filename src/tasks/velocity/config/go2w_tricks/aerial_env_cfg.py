@@ -431,7 +431,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       func=AerialEventFinished,
       params={
         "command_name": "trick",
-        "post_idle_settle_time_s": 0.30,
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        # Keep the event open through the normal wheel touchdown/bounce
+        # transient; the termination itself now also requires the measured
+        # quiet four-wheel endpoint.
+        "post_idle_settle_time_s": 0.60,
         "target_angle": math.tau,
         "max_overrotation": 0.50,
       },
@@ -446,7 +451,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       func=AerialIncompleteLanding,
       params={
         "command_name": "trick",
-        "post_idle_settle_time_s": 0.30,
+        "sensor_name": wheel_contact_cfg.name,
+        "nonwheel_sensor_name": nonwheel_contact_cfg.name,
+        "post_idle_settle_time_s": 0.60,
         "target_angle": math.tau,
         "max_overrotation": 0.50,
       },
