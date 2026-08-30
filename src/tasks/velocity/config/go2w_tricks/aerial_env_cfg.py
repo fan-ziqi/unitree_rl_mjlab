@@ -133,8 +133,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # alongside the middle-envelope run so PPO can trade signed rotation
       # authority against the compact-flight outcome without changing the
       # task interface.
-      r".*_hip_joint": 0.55,
-      r".*_thigh_joint": 0.55,
+      # The wide .55 envelope consistently produces full turns by throwing
+      # the leg package out to 2+ rad, then striking the ground before the
+      # wheels.  Tighten only the two swing-producing joints; the calf keeps
+      # its native launch authority so this remains a physically reachable
+      # compact tuck rather than a frozen jump.
+      r".*_hip_joint": 0.40,
+      r".*_thigh_joint": 0.40,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
