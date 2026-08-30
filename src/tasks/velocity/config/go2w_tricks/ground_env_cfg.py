@@ -534,10 +534,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # First form a continuous-contact four-wheel pivot at a rate the
             # reset can physically reach.  The other one-hots are visible,
             # but cannot drown out normal discovery.
-            # The m600 side-clearance seed solved right support but left the
-            # mirrored branch drifting.  Give both lateral one-hots equal
-            # rollout mass while retaining every normal/front/rear branch.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            # Keep all five branches represented while preserving the
+            # balanced normal/front/rear discovery mix used by the best
+            # two-sided checkpoint.  The later side-heavy trial improved one
+            # mirror but destabilized the other.
+            "mode_probabilities": (0.35, 0.175, 0.175, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -546,7 +547,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 28_800,
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.0,
@@ -555,7 +556,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 57_600,
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.20, 0.20, 0.175, 0.175),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.25,
@@ -568,7 +569,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # zero-rate one-hots never became reliable.  Give both static
             # forms enough rollouts without removing the normal/front/rear
             # dynamic branches.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.20, 0.20, 0.175, 0.175),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -579,7 +580,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Leave the final 600 updates for the high-rate, continuous
             # delivery setting and direct mode changes.
             "step": 115_200,
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.25, 0.20, 0.20, 0.175, 0.175),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
