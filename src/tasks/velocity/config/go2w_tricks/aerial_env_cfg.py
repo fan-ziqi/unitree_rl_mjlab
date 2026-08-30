@@ -129,7 +129,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
-      r".*_calf_joint": 0.80,
+      # The current five-way policy consistently reaches the commanded turn
+      # but back/yaw strike the floor before the wheel package can recover.
+      # Expose the native calf actuator's remaining bounded position range so
+      # PPO can discover a stronger single launch impulse; this is not a
+      # torque-limit change and does not prescribe a jump pose.
+      r".*_calf_joint": 1.00,
     },
     use_default_offset=True,
   )
@@ -234,7 +239,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # with a 0.5--0.6 m wheel package before striking the body.  Raise this
       # measured compactness outcome so folding the wheel/leg package is worth
       # more than simply spinning faster; it still contains no joint target.
-      weight=40.0,
+      weight=80.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -246,7 +251,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "tuck_start_turn_fraction": 0.04,
         "tuck_ramp_end_turn_fraction": 0.16,
         "tuck_end_turn_fraction": 0.64,
-        "tuck_target_wheel_root_distance": 0.28,
+        # The default wheel-root mean is about 0.364 m, while AS2W's airborne
+        # package is visibly tighter.  Move the measured compactness optimum
+        # modestly inward and strengthen this existing outcome term so a wide
+        # body strike is no longer as profitable as folding the wheel package.
+        "tuck_target_wheel_root_distance": 0.24,
         "tuck_max_wheel_root_distance": 0.40,
         "landing_start_turn_fraction": 0.64,
         # Keep the wheel-first result dense even when an exploratory leg is
