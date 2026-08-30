@@ -189,6 +189,8 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
   normal_common_axle_line_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_compact_span_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   normal_root_clearance_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  selected_root_clearance_sum = torch.zeros(cfg.num_envs, device=base_env.device)
+  non_support_wheel_height_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   rate_error_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   down_rate_sum = torch.zeros(cfg.num_envs, device=base_env.device)
   support_center_speed_sum = torch.zeros(cfg.num_envs, device=base_env.device)
@@ -291,6 +293,14 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       normal_root_clearance = (
         robot.data.root_link_pos_w[:, 2] - wheel_positions[:, :, 2].mean(dim=1)
       )
+      selected_wheel_height = (
+        wheel_positions[:, :, 2] * support_mask
+      ).sum(dim=1) / support_mask.sum(dim=1).clamp_min(1.0)
+      selected_root_clearance = robot.data.root_link_pos_w[:, 2] - selected_wheel_height
+      non_support_mask = 1.0 - support_mask
+      non_support_wheel_height = (
+        wheel_positions[:, :, 2] * non_support_mask
+      ).sum(dim=1) / non_support_mask.sum(dim=1).clamp_min(1.0)
       pose_ok = torch.where(
         modes == 0,
         (target_alignment >= 0.97) & (normal_root_clearance >= 0.35),
@@ -325,6 +335,8 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       normal_root_clearance_sum += (
         valid.float() * (modes == 0).float() * normal_root_clearance
       )
+      selected_root_clearance_sum += valid.float() * selected_root_clearance
+      non_support_wheel_height_sum += valid.float() * non_support_wheel_height
       rate_error_sum += valid.float() * rate_error
       down_rate_sum += valid.float() * down_rate
       support_center_speed_sum += valid.float() * center_speed
@@ -363,6 +375,12 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
       ).mean().item(),
       "mean_normal_root_clearance_m": (
         normal_root_clearance_sum[mask] / denom
+      ).mean().item(),
+      "mean_selected_root_clearance_m": (
+        selected_root_clearance_sum[mask] / denom
+      ).mean().item(),
+      "mean_non_support_wheel_height_m": (
+        non_support_wheel_height_sum[mask] / denom
       ).mean().item(),
       "steady_normal_four_wheel_support_rate": steady_normal_four_wheel_support[mask]
       .float()
