@@ -435,7 +435,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # AS2W's lateral two-wheel form is tall and wheel-supported, not a
         # body-on-floor roll.  This is a measured trunk-to-selected-wheel
         # clearance outcome; it does not prescribe a joint pose.
-        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.30, 0.30),
+        # The front/rear wheel stands naturally leave 0.30 m or more below
+        # the trunk, but a lateral roll places the selected wheel pair about
+        # 0.19 m below the root in this model.  Requiring the front/rear
+        # clearance for side supports made the final static-centre gate
+        # unreachable, so keep the physically reachable side envelope while
+        # retaining the tall non-wheel clearance outcome below.
+        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.18, 0.18),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -456,7 +462,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
-        "static_settling_clearance_threshold": 0.20,
+        "static_settling_clearance_threshold": 0.15,
         "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
         "asset_cfg": _support_wheels(),
