@@ -291,7 +291,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # The one-off high-water signal found a wide, rotating crash and then
         # went silent.  Keep the same measured tuck/clearance outcome dense
         # enough to pull the wheel package inward throughout the legal flight.
-        "dense_geometry_weight": 4.0,
+        # 4.0 suppressed the commanded turn before PPO had a reliable
+        # launch/rotation basin (a277 m200 fell from ~0.7 turn to ~0.2--0.4).
+        # Keep a modest 2x bridge over the original value so compactness can
+        # shape the flight without becoming the task itself.
+        "dense_geometry_weight": 1.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
