@@ -126,7 +126,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # unreachable while the calf alone provides the launch impulse.
       r".*_hip_joint": 0.55,
       r".*_thigh_joint": 0.55,
-      r".*_calf_joint": 0.55,
+      # Keep hip/thigh motion compliant while exposing more of the native
+      # calf torque range for the single launch impulse.  This is an action
+      # envelope, not a prescribed tuck or jump trajectory.
+      r".*_calf_joint": 0.80,
     },
     use_default_offset=True,
   )
@@ -188,10 +191,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # flight: enough to crash through a turn but not to brake and recover
         # a wheel package.  Ask for a longer measured ballistic result, not a
         # takeoff pose or timing trace.
-        # The Go2W actuator sweep reaches roughly 1.8 m/s reliably; a 2.15
-        # m/s target left every body-axis branch under-powered before it had
-        # enough flight time to fold and rotate.
-        "target_upward_speed": 1.80,
+        # The m500 audit now shows the learned body-axis turns reaching the
+        # requested angle but striking the floor after a low 0.18--0.30 m
+        # hop.  Ask for a higher measured launch impulse so the wheel package
+        # has physical clearance to complete its rotation and recover.
+        "target_upward_speed": 2.05,
         "target_duration": 0.40,
       },
     ),
