@@ -445,7 +445,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # 0.16--0.19 m above the selected wheels, visibly lower than AS2W.
         # Raise the measured side envelope modestly; this remains a result
         # constraint, not a prescribed joint configuration.
-        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.22, 0.22),
+        # The m600--m900 side checkpoints satisfy the selected contacts but
+        # leave the trunk only ~0.20--0.23 m above the support wheels.  AS2W's
+        # side stand has a visibly taller, wheel-supported body.  Raise only
+        # this measured side envelope modestly; the policy remains free to
+        # discover the joint configuration and can still use the existing
+        # contact/attitude bridge during the approach.
+        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.26, 0.26),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -480,7 +486,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "attitude_progress_rate_scale": 4.0,
         # Reuse the existing hip-to-wheel extension outcome so a low folded
         # side support is not the easiest way to satisfy contact and attitude.
-        "support_leg_length_target": 0.27,
+        "support_leg_length_target": 0.30,
         "asset_cfg": _support_wheels(),
       },
     ),
