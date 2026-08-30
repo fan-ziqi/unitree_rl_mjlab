@@ -288,6 +288,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
         "minimum_clearance_for_progress": -0.30,
+        # The one-off high-water signal found a wide, rotating crash and then
+        # went silent.  Keep the same measured tuck/clearance outcome dense
+        # enough to pull the wheel package inward throughout the legal flight.
+        "dense_geometry_weight": 4.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
@@ -391,8 +395,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # solved the hard back direction.  Delay and lengthen this same
         # outcome-only validity ramp so PPO can retain the discovered landing
         # basin while the difficult signed axis receives more samples.
-        "base_cost_ramp_start_steps": 48_000,
-        "base_cost_ramp_steps": 72_000,
+        # By m600 the baseline has already discovered near-one-turn crashes.
+        # Open the invalid-touchdown cost from that point so the next policy
+        # update must trade the turn for a wheel-first recovery instead of
+        # continuing to optimise a wide body strike.
+        "base_cost_ramp_start_steps": 28_800,
+        "base_cost_ramp_steps": 28_800,
       },
     ),
   }

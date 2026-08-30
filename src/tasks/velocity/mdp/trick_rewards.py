@@ -1474,6 +1474,7 @@ class AerialTuckThenWheelLanding:
     landing_start_turn_fraction: float = 0.62,
     target_clearance: float = 0.10,
     minimum_clearance_for_progress: float = -0.30,
+    dense_geometry_weight: float = 0.5,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
   ) -> torch.Tensor:
     if (
@@ -1481,6 +1482,7 @@ class AerialTuckThenWheelLanding:
       or target_clearance <= 0.0
       or tuck_target_wheel_root_distance <= 0.0
       or tuck_max_wheel_root_distance <= tuck_target_wheel_root_distance
+      or dense_geometry_weight < 0.0
     ):
       raise ValueError("Aerial geometry distances and target_angle must be positive.")
     if minimum_clearance_for_progress >= target_clearance:
@@ -1618,7 +1620,7 @@ class AerialTuckThenWheelLanding:
       torch.zeros_like(self.peak_landing_score),
     )
     self.previous_active = active
-    dense_geometry = torch.where(
+    dense_geometry = dense_geometry_weight * torch.where(
       candidate,
       0.5 * tuck_phase * tuck_score + 0.5 * landing_phase * wheel_lowest_score,
       torch.zeros_like(tuck_score),
