@@ -525,6 +525,22 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": _support_wheels(),
       },
     ),
+    "side_static_angular_velocity": RewardTermCfg(
+      func=trick_rewards.mode_static_angular_velocity_exp,
+      # Left/right one-hots are held two-wheel supports.  Reward the measured
+      # end state of a quiet body once the side attitude is formed; this stops
+      # the policy from satisfying the side contacts while continuing to roll
+      # around them.  No pose or timing target is introduced.
+      weight=120.0,
+      params={
+        "command_name": "trick",
+        "modes": (3, 4),
+        "angular_velocity_scale": 0.60,
+        "num_modes": 5,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "alignment_power": 4.0,
+      },
+    ),
     # Common-axis formation is a coordinated but smooth movement over many
     # control frames.  The former temporal cost was comparable to the entire
     # zero-action formation signal, so it selected immobility before PPO could

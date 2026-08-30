@@ -535,6 +535,42 @@ def mode_non_support_wheel_clearance(
   return active.to(clearance.dtype) * clearance * support_ground
 
 
+def mode_static_angular_velocity_exp(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  modes: tuple[int, ...],
+  angular_velocity_scale: float,
+  num_modes: int = 5,
+  gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
+  alignment_power: float = 4.0,
+) -> torch.Tensor:
+  """Reward a formed named support for actually stopping its body rotation.
+
+  Lateral two-wheel commands are held supports, not pivots.  Contact and
+  gravity terms can be satisfied while the root keeps rolling around the
+  selected wheels, so this single measured outcome closes that loophole.  The
+  alignment power keeps the signal small at the ordinary four-wheel reset and
+  makes it strong only after the requested side attitude has formed; it is not
+  a joint pose or a transition trajectory.
+  """
+  if angular_velocity_scale <= 0.0 or alignment_power <= 0.0:
+    raise ValueError("angular velocity scale and alignment power must be positive.")
+  active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  asset: Entity = env.scene["robot"]
+  angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
+  stillness = torch.exp(-0.5 * torch.square(angular_speed / angular_velocity_scale))
+  if gravity_targets is not None:
+    targets = torch.tensor(
+      gravity_targets, dtype=asset.data.projected_gravity_b.dtype, device=env.device
+    )
+    gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+    alignment = torch.clamp(
+      0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+    )
+    stillness = stillness * alignment.pow(alignment_power)
+  return active.to(stillness.dtype) * stillness
+
+
 def mode_gravity_alignment_rise(
   env: ManagerBasedRlEnv,
   command_name: str,
