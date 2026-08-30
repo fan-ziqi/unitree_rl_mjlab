@@ -25,7 +25,6 @@ from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.terminations import (
   AerialEventFinished,
   AerialIncompleteLanding,
-  AerialPostLandingRelaunch,
   illegal_contact_after_grace,
 )
 from src.tasks.velocity.mdp.trick_commands import AerialRotationCommandCfg
@@ -418,28 +417,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
   # Collision ends an episode immediately.  The decisive terminal term
   # distinguishes an illegal partial turn from a wheelward recovery without
   # prescribing how the limbs should execute either action.
-  # The command becomes all-zero after its first landing.  A later genuine
-  # wheel-free interval is a second attempt, even if it began as a rebound,
-  # and is therefore an event failure rather than a way to continue hopping.
-  cfg.terminations["post_landing_relaunch"] = TerminationTermCfg(
-    func=AerialPostLandingRelaunch,
-    params={
-      "command_name": "trick",
-      "sensor_name": wheel_contact_cfg.name,
-      # A wheel-first landing can unload the suspension for a few control
-      # frames before all four wheels settle.  The one-shot event is already
-      # closed at first contact, so allow this measured transient to damp
-      # instead of labelling it a second jump at 80 ms.
-      "min_ballistic_time": 0.30,
-      # A first individual tyre graze can rebound during a real landing.
-      # Arm the second-jump detector only after a brief all-wheel hold, so
-      # that rebound is available to the same one-shot contact controller.
-      # Give the default idle controller time to absorb a passive suspension
-      # bounce before arming the second-flight detector.  The one-hot itself
-      # still ends at the first four-wheel touchdown.
-      "arming_settle_time": 0.50,
-    },
-  )
+  # The aerial command is one-shot and is already cleared at the first
+  # four-wheel touchdown.  Any later wheel-free interval is therefore a
+  # passive suspension rebound, not a second commanded attempt; let the
+  # ordinary idle controller settle it so the strict event-finish condition
+  # can judge the final state.
   if not play:
     # One jump closes after its controlled landing window, then presents the
     # literal all-zero/default controller.  The short idle interval is enough
