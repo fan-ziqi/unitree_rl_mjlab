@@ -124,8 +124,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # residual range.  It neither raises that limit nor stiffens the
       # actuator, but avoids making a one-revolution jump physically
       # unreachable while the calf alone provides the launch impulse.
-      r".*_hip_joint": 0.55,
-      r".*_thigh_joint": 0.55,
+      # The m1000 audit reached the commanded turn but expanded the wheel
+      # package to 0.49--0.59 m and sent the legs as far as 2.3 rad from
+      # default.  Limit the two joints that create the large lateral swing;
+      # leave the calf impulse free to make the higher, compact launch.
+      r".*_hip_joint": 0.35,
+      r".*_thigh_joint": 0.35,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
@@ -134,7 +138,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Expose the native calf actuator's remaining bounded position range so
       # PPO can discover a stronger single launch impulse; this is not a
       # torque-limit change and does not prescribe a jump pose.
-      r".*_calf_joint": 1.00,
+      r".*_calf_joint": 1.35,
     },
     use_default_offset=True,
   )
