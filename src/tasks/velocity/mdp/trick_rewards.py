@@ -136,6 +136,7 @@ def mode_support_score(
   command_deadband: float = 0.0,
   static_angular_velocity_scale: float | None = None,
   static_linear_velocity_scale: float | None = None,
+  static_support_center_speed_scale: float | None = None,
   static_stillness_floor: float = 0.10,
   static_settling_alignment_threshold: float = 0.70,
   static_settling_support_threshold: float = 0.35,
@@ -194,6 +195,11 @@ def mode_support_score(
     raise ValueError("static_angular_velocity_scale must be positive.")
   if static_linear_velocity_scale is not None and static_linear_velocity_scale <= 0.0:
     raise ValueError("static_linear_velocity_scale must be positive.")
+  if (
+    static_support_center_speed_scale is not None
+    and static_support_center_speed_scale <= 0.0
+  ):
+    raise ValueError("static_support_center_speed_scale must be positive.")
   if not 0.0 <= static_stillness_floor < 1.0:
     raise ValueError("static_stillness_floor must be in [0, 1).")
   if not all(
@@ -329,6 +335,23 @@ def mode_support_score(
     )
     stillness = torch.where(
       static_settling, stillness * linear_stillness, stillness
+    )
+  if static_support_center_speed_scale is not None:
+    if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+      raise ValueError("static support-centre stillness needs four wheel sites.")
+    wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
+    support_velocity = (wheel_velocity * target.unsqueeze(2)).sum(dim=1) / target.sum(
+      dim=1, keepdim=True
+    ).clamp_min(1.0)
+    support_center_speed = torch.linalg.vector_norm(support_velocity, dim=1)
+    support_center_stillness = static_stillness_floor + (
+      1.0 - static_stillness_floor
+    ) / (
+      1.0
+      + torch.square(support_center_speed / static_support_center_speed_scale)
+    )
+    stillness = torch.where(
+      static_settling, stillness * support_center_stillness, stillness
     )
   # The support itself must be a valid contact outcome.  Additive clearance
   # let the previous task pay a robot that merely leaned toward the target

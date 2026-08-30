@@ -444,6 +444,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "command_deadband": 0.20,
         "static_angular_velocity_scale": 0.80,
         "static_linear_velocity_scale": 0.12,
+        # The AS2W side-support pair must remain a fixed ground pivot.  Root
+        # linear speed alone misses a rotating/drifting support axle, so use
+        # the measured centre velocity of the commanded wheel pair once the
+        # support has actually formed.
+        "static_support_center_speed_scale": 0.08,
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
