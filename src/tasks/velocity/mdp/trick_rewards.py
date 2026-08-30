@@ -558,7 +558,11 @@ def mode_static_angular_velocity_exp(
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
   asset: Entity = env.scene["robot"]
   angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
-  stillness = torch.exp(-0.5 * torch.square(angular_speed / angular_velocity_scale))
+  # Keep a usable braking gradient even when an exploratory side roll is
+  # several scale lengths fast; a Gaussian would numerically flatten there.
+  stillness = 1.0 / (
+    1.0 + torch.square(angular_speed / angular_velocity_scale)
+  )
   if gravity_targets is not None:
     targets = torch.tensor(
       gravity_targets, dtype=asset.data.projected_gravity_b.dtype, device=env.device
