@@ -792,14 +792,15 @@ class AerialRotationCommand(CommandTerm):
       torch.zeros_like(self._landing_control_time),
     )
     # A partial first contact may rebound and needs the retained one-hot to
-    # complete its contact recovery.  Keep the same one-shot command through
-    # the entire landing-control window even after all four wheels first touch:
-    # switching to the default controller on that single frame let the
-    # residual vertical/angular impulse bounce the robot into an apparent
-    # second jump before PPO could damp it.  The command is still cleared once
-    # the fixed window expires, so this cannot authorize another aerial event.
+    # complete its contact recovery.  Once all four wheels are simultaneously
+    # grounded, hand off to the literal idle controller immediately; keeping
+    # the flip action active after touchdown makes a learned high-rate policy
+    # press the trunk back into the floor.  The relaunch guard tolerates the
+    # remaining passive bounce without authorizing a second event.
+    four_wheel_landing = self._landing_started & torch.all(contacts, dim=1)
     finish_landing_control = self._landing_started & active & (
-      self._landing_control_time >= self.cfg.landing_control_time
+      (self._landing_control_time >= self.cfg.landing_control_time)
+      | four_wheel_landing
     )
     self.command_buf[finish_landing_control] = 0.0
 
