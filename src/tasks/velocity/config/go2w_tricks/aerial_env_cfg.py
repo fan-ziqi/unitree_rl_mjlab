@@ -129,11 +129,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # default.  Limit the two joints that create the large lateral swing;
       # leave the calf impulse free to make the higher, compact launch.
       # 0.35 reduced the m600 peak leg deviation, but also reduced every
-      # commanded direction below a full turn.  A middle envelope preserves
-      # that improvement while restoring the hip/thigh authority needed for
-      # signed body-axis rotation.
-      r".*_hip_joint": 0.48,
-      r".*_thigh_joint": 0.48,
+      # commanded direction below a full turn.  Keep a wider comparison seed
+      # alongside the middle-envelope run so PPO can trade signed rotation
+      # authority against the compact-flight outcome without changing the
+      # task interface.
+      r".*_hip_joint": 0.55,
+      r".*_thigh_joint": 0.55,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
