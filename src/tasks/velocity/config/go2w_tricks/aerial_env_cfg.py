@@ -239,7 +239,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # with a 0.5--0.6 m wheel package before striking the body.  Raise this
       # measured compactness outcome so folding the wheel/leg package is worth
       # more than simply spinning faster; it still contains no joint target.
-      weight=80.0,
+      # The first high-launch trial (weight 80, target 0.24 m) produced a
+      # taller hop but also drove large limb excursions before a full turn.
+      # Keep tuck stronger than the original while restoring room for PPO to
+      # discover the compact, fast body-axis rotation.
+      weight=60.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -255,7 +259,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # package is visibly tighter.  Move the measured compactness optimum
         # modestly inward and strengthen this existing outcome term so a wide
         # body strike is no longer as profitable as folding the wheel package.
-        "tuck_target_wheel_root_distance": 0.24,
+        "tuck_target_wheel_root_distance": 0.27,
         "tuck_max_wheel_root_distance": 0.40,
         "landing_start_turn_fraction": 0.64,
         # Keep the wheel-first result dense even when an exploratory leg is
