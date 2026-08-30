@@ -458,7 +458,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # linear speed alone misses a rotating/drifting support axle, so use
         # the measured centre velocity of the commanded wheel pair once the
         # support has actually formed.
-        "static_support_center_speed_scale": 0.08,
+        # 0.08 made the rational stillness score numerically flat once a
+        # support pair drifted at ~1 m/s, so PPO received almost no gradient
+        # for braking the side stance.  A broader measured scale preserves a
+        # strong preference for a fixed pivot while keeping that gradient
+        # usable throughout the approach.
+        "static_support_center_speed_scale": 0.30,
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
