@@ -476,29 +476,32 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # in the same fused actor; this changes only command frequency.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
+            # Keep every commanded axis equally visible to this single fused
+            # actor.  The earlier hard-branch weighting produced a reliable
+            # front flip but weak fixed-command generalization elsewhere.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             # Keep the hard back/yaw branches overrepresented while the shared
             # launch/tuck solution is refined; every one-hot remains active.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 96_000,
@@ -506,7 +509,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # Keep the difficult back/yaw branches represented at the same
             # elevated frequency in the final fused policy.  The previous
             # final-stage yaw suppression left those two commands unlearned.
-            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
         ),
       },
