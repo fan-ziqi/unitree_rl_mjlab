@@ -353,13 +353,14 @@ def mode_support_score(
     stillness = torch.where(
       static_settling, stillness * support_center_stillness, stillness
     )
-  # The support itself must be a valid contact outcome.  Additive clearance
-  # let the previous task pay a robot that merely leaned toward the target
-  # while keeping all four wheels down: it had no commanded pair but still
-  # collected clearance return every frame.  Contact provides the bridge from
-  # a four-wheel reset (lift an uncommanded wheel first); clearance completes
-  # that same bridge once the selected pair actually bears the robot.
-  support_progress = support * (0.65 + 0.35 * clearance)
+  # The support itself must be a valid contact outcome.  If a caller requests
+  # a minimum trunk-to-wheel clearance, make that measured endpoint part of
+  # the support result once the named pair is carrying the body.  This keeps
+  # a low, belly-down two-wheel contact from being scored as a finished stand,
+  # while contact still provides the bridge from the ordinary four-wheel
+  # reset.  Callers without a clearance requirement retain the direct contact
+  # score and its original discovery gradient.
+  support_progress = support if minimum_root_clearance is None else support * clearance
   if support_leg_length_target is not None:
     if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
       raise ValueError("support-leg geometry needs four explicit wheel sites.")
