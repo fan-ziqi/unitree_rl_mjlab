@@ -482,6 +482,8 @@ def mode_non_support_wheel_clearance(
   contact_masks: tuple[tuple[float, float, float, float], ...],
   target_height: float,
   minimum_height: float = 0.10,
+  support_ground_height: float = 0.086,
+  support_ground_height_std: float = 0.05,
   num_modes: int = 5,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
@@ -497,6 +499,8 @@ def mode_non_support_wheel_clearance(
   """
   if target_height <= minimum_height or minimum_height < 0.0:
     raise ValueError("target_height must exceed non-negative minimum_height.")
+  if support_ground_height < 0.0 or support_ground_height_std <= 0.0:
+    raise ValueError("support ground height and std must be non-negative/positive.")
   if len(contact_masks) != num_modes:
     raise ValueError("contact_masks must cover every command mode.")
   if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
@@ -508,14 +512,27 @@ def mode_non_support_wheel_clearance(
   non_support = 1.0 - masks[mode]
   non_support_count = non_support.sum(dim=1)
   wheel_height = asset.data.site_pos_w[:, asset_cfg.site_ids, 2]
+  target_count = masks[mode].sum(dim=1).clamp_min(1.0)
+  target_pair_height = (wheel_height * masks[mode]).sum(dim=1) / target_count
   mean_non_support_height = (wheel_height * non_support).sum(dim=1) / non_support_count.clamp_min(1.0)
   clearance = torch.clamp(
     (mean_non_support_height - minimum_height) / (target_height - minimum_height),
     min=0.0,
     max=1.0,
   )
+  # Clearance by itself is ambiguous: rolling to the *opposite* side also
+  # lifts the uncommanded pair and previously earned almost the same return.
+  # Gate it by the measured height of the commanded pair staying at the wheel
+  # ground plane.  This is a physical support outcome, not a joint/pose target;
+  # it preserves a smooth bridge at reset (where clearance is still zero) and
+  # removes the wrong-side local optimum that caused right-mode collapse.
+  support_ground = torch.exp(
+    -torch.square(
+      (target_pair_height - support_ground_height) / support_ground_height_std
+    )
+  )
   # Callers exclude normal mode because it has no non-support wheel pair.
-  return active.to(clearance.dtype) * clearance
+  return active.to(clearance.dtype) * clearance * support_ground
 
 
 def mode_gravity_alignment_rise(
