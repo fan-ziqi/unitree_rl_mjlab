@@ -297,7 +297,7 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         wheel_positions[:, :, 2] * support_mask
       ).sum(dim=1) / support_mask.sum(dim=1).clamp_min(1.0)
       selected_root_clearance = robot.data.root_link_pos_w[:, 2] - selected_wheel_height
-      non_support_mask = 1.0 - support_mask
+      non_support_mask = (~support_mask).to(wheel_positions.dtype)
       non_support_wheel_height = (
         wheel_positions[:, :, 2] * non_support_mask
       ).sum(dim=1) / non_support_mask.sum(dim=1).clamp_min(1.0)
