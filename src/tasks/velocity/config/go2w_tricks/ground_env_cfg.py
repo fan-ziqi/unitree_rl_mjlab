@@ -320,7 +320,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   # inside the model's +/-1.05-rad abduction range; the compact-pivot outcome
   # below, not a smaller unexplained action envelope, is what prevents a
   # splayed final form.
-  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.70
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
   # Discovery needs the wheels to stay planted while legs find the common
   # axle.  With an 80-rad/s residual range, the bounded exploratory policy
   # drove the four-wheel footprint across the plane before it could improve
@@ -410,11 +410,55 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # dense measured-rate component merely makes acceleration toward it
         # discoverable without adding a pose or transition target.
         "rate_progress_weight": 0.75,
-        # One result term owns both dynamic pivots and zero-rate static
-        # supports.  This avoids a second reward paying a low/crouched local
-        # optimum independently of the commanded outcome.
-        "static_support_weight": 1.0,
+        # Keep the dynamic result focused on commanded-rate pivots.  Held
+        # zero-rate named supports use the separate measured endpoint below;
+        # combining both products here diluted the side-roll gradient.
+        "static_support_weight": 0.0,
         "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_static_support": RewardTermCfg(
+      func=trick_rewards.mode_support_score,
+      # A zero-rate side one-hot is a real two-wheel balance outcome.  Restore
+      # the direct contact/attitude/clearance route that previously produced
+      # reliable left/right supports; it contains no joint target or phase.
+      weight=100.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2, 3, 4),
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "sensor_name": wheel_contact_cfg.name,
+        "num_modes": 5,
+        "extra_contact_discount": 1.0,
+        "orientation_power": 1.0,
+        "stationary_command_index": 5,
+        "static_command_start_index": 5,
+        "command_deadband": 0.20,
+        "static_angular_velocity_scale": 0.80,
+        "static_linear_velocity_scale": 0.12,
+        "static_stillness_floor": 0.0,
+        "static_settling_alignment_threshold": 0.50,
+        "static_settling_support_threshold": 0.20,
+        "static_settling_clearance_threshold": 0.20,
+        "attitude_progress_weight": 0.12,
+        "attitude_progress_rate_scale": 4.0,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "named_side_attitude": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment_rise,
+      # Side support must first roll away from the ordinary four-wheel reset.
+      # This direct measured attitude progress prevents contact-only PPO from
+      # settling into a flat or belly-low local optimum.
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "modes": (3, 4),
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "num_modes": 5,
+        "power": 1.0,
+        "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
     # Common-axis formation is a coordinated but smooth movement over many
@@ -436,7 +480,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # First form a continuous-contact four-wheel pivot at a rate the
             # reset can physically reach.  The other one-hots are visible,
             # but cannot drown out normal discovery.
-            "mode_probabilities": (0.60, 0.10, 0.10, 0.10, 0.10),
+            "mode_probabilities": (0.40, 0.15, 0.15, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -445,7 +489,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 28_800,
-            "mode_probabilities": (0.50, 0.15, 0.15, 0.10, 0.10),
+            "mode_probabilities": (0.35, 0.175, 0.175, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.0,
@@ -454,7 +498,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 57_600,
-            "mode_probabilities": (0.35, 0.225, 0.225, 0.10, 0.10),
+            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.25,
@@ -467,7 +511,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # zero-rate one-hots never became reliable.  Give both static
             # forms enough rollouts without removing the normal/front/rear
             # dynamic branches.
-            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
+            "mode_probabilities": (0.25, 0.20, 0.20, 0.175, 0.175),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -478,7 +522,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Leave the final 600 updates for the high-rate, continuous
             # delivery setting and direct mode changes.
             "step": 115_200,
-            "mode_probabilities": (0.30, 0.20, 0.20, 0.15, 0.15),
+            "mode_probabilities": (0.25, 0.20, 0.20, 0.175, 0.175),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
