@@ -436,47 +436,43 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "stages": (
           {
             # Train each signed body axis as a pair from the first update.
-            # The previous equal-probability run still collapsed onto the
-            # mechanically easy yaw branch: yaw reached a full turn while the
-            # four body-axis branches mostly struck the floor.  Bias early
-            # discovery toward the four physical flip axes, then restore equal
-            # coverage after the shared launch/tuck solution has formed.
+            # The previous run learned the mechanically easy right branch but
+            # repeatedly lost back/yaw.  Keep those hard signed axes
+            # over-sampled throughout discovery while retaining every one-hot
+            # in the same fused actor; this changes only command frequency.
             "step": 0,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
+            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
+            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
+            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
           },
           {
-            # Keep the hard body-axis branches overrepresented while the
-            # shared launch/tuck solution is refined; yaw remains represented
-            # and is restored to equal coverage in the final stage.
+            # Keep the hard back/yaw branches overrepresented while the shared
+            # launch/tuck solution is refined; every one-hot remains active.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
+            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.225, 0.225, 0.225, 0.225, 0.10),
+            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            # Keep the mechanically easier yaw branch represented but rare in
-            # the final fused policy.  The first long run reached a full yaw
-            # turn while the body-axis branches still struck the floor; a
-            # small persistent yaw mass leaves PPO updates focused on the
-            # four wheel-first flips without splitting the policy.
-            "mode_probabilities": (0.2375, 0.2375, 0.2375, 0.2375, 0.05),
+            # Keep the difficult back/yaw branches represented at the same
+            # elevated frequency in the final fused policy.  The previous
+            # final-stage yaw suppression left those two commands unlearned.
+            "mode_probabilities": (0.18, 0.30, 0.22, 0.15, 0.15),
           },
         ),
       },
