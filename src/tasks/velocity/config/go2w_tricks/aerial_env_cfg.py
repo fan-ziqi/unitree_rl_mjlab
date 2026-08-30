@@ -201,7 +201,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # reaches the plane before the wheel package.  Strengthen this single
       # launch outcome so PPO values a higher, longer hop; it remains a
       # measured impulse/duration result rather than a pose or timing trace.
-      weight=20.0,
+      weight=10.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -214,8 +214,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # requested angle but striking the floor after a low 0.18--0.30 m
         # hop.  Ask for a higher measured launch impulse so the wheel package
         # has physical clearance to complete its rotation and recover.
-        "target_upward_speed": 2.50,
-        "target_duration": 0.55,
+        "target_upward_speed": 2.30,
+        "target_duration": 0.50,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -225,7 +225,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # without a separate rate target that a one-frame spike could game, and
       # it is deliberately bounded so a partial crash cannot numerically
       # dominate the landing result.
-      weight=6.0,
+      # A compact jump is not sufficient: the fixed-command audits show that
+      # the prior 6-point turn term was numerically drowned by the roughly
+      # 20-point tuck return.  Raise only this existing normalized net-angle
+      # outcome so the fused actor keeps rotating while it searches for the
+      # same wheel-first landing; no rate, phase, or pose target is added.
+      weight=20.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
