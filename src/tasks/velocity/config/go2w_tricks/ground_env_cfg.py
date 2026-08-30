@@ -441,7 +441,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # clearance for side supports made the final static-centre gate
         # unreachable, so keep the physically reachable side envelope while
         # retaining the tall non-wheel clearance outcome below.
-        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.18, 0.18),
+        # m1000 reached the correct side contacts but left the trunk only
+        # 0.16--0.19 m above the selected wheels, visibly lower than AS2W.
+        # Raise the measured side envelope modestly; this remains a result
+        # constraint, not a prescribed joint configuration.
+        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.22, 0.22),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -470,6 +474,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "static_settling_clearance_threshold": 0.15,
         "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
+        # Reuse the existing hip-to-wheel extension outcome so a low folded
+        # side support is not the easiest way to satisfy contact and attitude.
+        "support_leg_length_target": 0.27,
         "asset_cfg": _support_wheels(),
       },
     ),
