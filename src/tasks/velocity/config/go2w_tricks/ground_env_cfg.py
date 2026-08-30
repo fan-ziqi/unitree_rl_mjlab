@@ -481,7 +481,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # roughly 0.9 m/s.  A wider rational scale keeps a usable derivative
         # in that regime, so PPO can learn to brake the selected pair instead
         # of receiving an effectively flat near-zero score.
-        "static_support_center_speed_scale": 0.50,
+        # The evaluator's local-pivot condition is center_speed < 0.08 m/s.
+        # A 0.50-m/s rational scale made the reward almost flat at the
+        # observed 0.10--0.16 m/s side drift, so the shared actor could keep
+        # a visually correct roll while never learning to brake the selected
+        # pair.  Tighten only this measured centre-speed scale; it does not
+        # prescribe a pose or alter the front/rear dynamic-rate objective.
+        "static_support_center_speed_scale": 0.20,
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
