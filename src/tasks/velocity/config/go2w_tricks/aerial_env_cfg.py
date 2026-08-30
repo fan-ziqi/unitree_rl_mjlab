@@ -263,14 +263,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # reference pose.  The policy itself determines when it reaches them.
         "tuck_start_turn_fraction": 0.04,
         "tuck_ramp_end_turn_fraction": 0.16,
-        "tuck_end_turn_fraction": 0.64,
+        # Body-axis branches are currently striking a non-wheel link around
+        # 0.55--0.65 turn.  Starting the wheel-first outcome only at 0.64
+        # leaves that failure with no recovery gradient.  Begin it at the
+        # half-turn boundary, after the compact-package outcome has done its
+        # main work.
+        "tuck_end_turn_fraction": 0.50,
         # The default wheel-root mean is about 0.364 m, while AS2W's airborne
         # package is visibly tighter.  Move the measured compactness optimum
         # modestly inward and strengthen this existing outcome term so a wide
         # body strike is no longer as profitable as folding the wheel package.
         "tuck_target_wheel_root_distance": 0.27,
         "tuck_max_wheel_root_distance": 0.40,
-        "landing_start_turn_fraction": 0.64,
+        "landing_start_turn_fraction": 0.50,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
