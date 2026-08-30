@@ -1494,7 +1494,12 @@ class AerialTuckThenWheelLanding:
     # scale is twice the configured envelope width: at the envelope edge the
     # score is still substantial, and the target distance remains the unique
     # maximum without naming a joint pose.
-    tuck_distance_scale = 2.0 * (
+    # Keep the measured compact-distance outcome informative when an
+    # exploratory policy has spread the wheel package far from the trunk.
+    # The earlier two-width Gaussian made a 0.55--0.60 m package retain too
+    # much return relative to the desired compact form; a narrower scale
+    # supplies a stronger gradient without naming a joint pose.
+    tuck_distance_scale = 1.2 * (
       tuck_max_wheel_root_distance - tuck_target_wheel_root_distance
     )
     tuck_score = torch.exp(

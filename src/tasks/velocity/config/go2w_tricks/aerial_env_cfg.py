@@ -262,7 +262,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # taller hop but also drove large limb excursions before a full turn.
       # Keep tuck stronger than the original while restoring room for PPO to
       # discover the compact, fast body-axis rotation.
-      weight=60.0,
+      # The m500 audit still leaves the wheel package around 0.56 m from the
+      # trunk, while the configured compact outcome is 0.27 m.  Make that
+      # existing measured distance meaningfully discriminative without
+      # introducing another pose or phase signal.
+      weight=80.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
