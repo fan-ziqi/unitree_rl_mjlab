@@ -229,7 +229,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # the wheel package below every link.  It remains neither a joint pose
       # nor a timing/reference trajectory; the strict four-wheel endpoint
       # below is still the only completion.
-      weight=20.0,
+      # At m300 the smooth distance bridge was present but too small compared
+      # with the one-turn progress return: the policy still reached 1.2 turns
+      # with a 0.5--0.6 m wheel package before striking the body.  Raise this
+      # measured compactness outcome so folding the wheel/leg package is worth
+      # more than simply spinning faster; it still contains no joint target.
+      weight=40.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -271,7 +276,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # stronger dense term made the first 600 iterations prefer fast body
       # strikes over the already-demonstrated wheel-first landing pathway.
       # The physical endpoint bonus below remains the dominant landing goal.
-      weight=2.0,
+      # A m300 audit still overshot to roughly 1.1--1.25 turns.  Strengthen
+      # the existing whole-body orientation/quietness return so PPO learns to
+      # brake at one turn instead of trading the endpoint for excess rate.
+      weight=8.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
