@@ -128,8 +128,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # package to 0.49--0.59 m and sent the legs as far as 2.3 rad from
       # default.  Limit the two joints that create the large lateral swing;
       # leave the calf impulse free to make the higher, compact launch.
-      r".*_hip_joint": 0.35,
-      r".*_thigh_joint": 0.35,
+      # 0.35 reduced the m600 peak leg deviation, but also reduced every
+      # commanded direction below a full turn.  A middle envelope preserves
+      # that improvement while restoring the hip/thigh authority needed for
+      # signed body-axis rotation.
+      r".*_hip_joint": 0.48,
+      r".*_thigh_joint": 0.48,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
