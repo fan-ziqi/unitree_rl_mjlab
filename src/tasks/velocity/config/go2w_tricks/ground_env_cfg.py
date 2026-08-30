@@ -468,6 +468,26 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "asset_cfg": SceneEntityCfg("robot"),
       },
     ),
+    "side_non_support_clearance": RewardTermCfg(
+      func=trick_rewards.mode_non_support_wheel_clearance,
+      # Side commands are static two-wheel supports.  Gravity alignment alone
+      # lets the policy roll toward the requested side and then settle with
+      # one or both uncommanded wheels still carrying the body.  This measured
+      # wheel-centre clearance supplies the missing continuous outcome signal:
+      # the opposite pair must actually rise above the floor while the named
+      # pair remains selected by the support score.  It names no joint angle,
+      # pose, or transition trajectory.
+      weight=80.0,
+      params={
+        "command_name": "trick",
+        "modes": (3, 4),
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "target_height": 0.30,
+        "minimum_height": 0.10,
+        "num_modes": 5,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
     # Common-axis formation is a coordinated but smooth movement over many
     # control frames.  The former temporal cost was comparable to the entire
     # zero-action formation signal, so it selected immobility before PPO could
