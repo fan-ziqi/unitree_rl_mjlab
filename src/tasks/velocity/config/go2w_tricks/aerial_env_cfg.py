@@ -196,12 +196,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # leaving no reward distinction between that crash and a real aerial.
       # These remain measured vertical impulse and wheel-free time, not a
       # take-off pose or a prescribed timing trace.
-      # Discovery needs a clear signal for a genuine upward launch, but it
-      # must not outweigh the final physical outcome of the event.
-      # Keep the event-return scale numerically small.  The previous
-      # hundreds-scale rewards drove the critic value loss into the 1e5 range
-      # while leaving the relative crash return positive.
-      weight=6.0,
+      # The compact branch already reaches a useful body-axis turn, but its
+      # measured wheel-free interval is only about 0.58 s and the trunk still
+      # reaches the plane before the wheel package.  Strengthen this single
+      # launch outcome so PPO values a higher, longer hop; it remains a
+      # measured impulse/duration result rather than a pose or timing trace.
+      weight=20.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -214,8 +214,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # requested angle but striking the floor after a low 0.18--0.30 m
         # hop.  Ask for a higher measured launch impulse so the wheel package
         # has physical clearance to complete its rotation and recover.
-        "target_upward_speed": 2.05,
-        "target_duration": 0.40,
+        "target_upward_speed": 2.50,
+        "target_duration": 0.55,
       },
     ),
     "net_rotation_progress": RewardTermCfg(
@@ -401,10 +401,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       "sensor_name": nonwheel_contact_cfg.name,
       "force_threshold": 10.0,
       # A full wheel-first turn needs roughly 0.4--0.5 s of flight in the
-      # current model.  A 0.2 s window terminated every exploratory flip
-      # before the wheel package could reach the ground; keep the physical
-      # body-contact rule, but allow a short landing completion window.
-      "grace_period_s": 0.60,
+      # current model.  The stronger launch experiment needs a little more
+      # physical room to complete the wheel-first touchdown; body support is
+      # still an illegal outcome once this short discovery window expires.
+      "grace_period_s": 0.75,
     },
   )
   # Collision ends an episode immediately.  The decisive terminal term
