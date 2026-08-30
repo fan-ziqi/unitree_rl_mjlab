@@ -451,12 +451,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # this measured side envelope modestly; the policy remains free to
         # discover the joint configuration and can still use the existing
         # contact/attitude bridge during the approach.
-        # The previous 0.26-m side target still paid a folded, belly-low
-        # support (the m400 video leaves the trunk only ~0.15--0.22 m above
-        # the selected wheels).  Raise the measured endpoint so the side
-        # branch must actually extend away from the floor; this is still a
-        # root-to-wheel result and does not prescribe any joint angle.
-        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.34, 0.34),
+        # Side support is a 90-degree body roll.  Its attainable root-to-wheel
+        # z separation is set by the model's lateral hip offset (~0.15--0.23
+        # m), so retain the reachable side envelope instead of asking PPO for
+        # an impossible tall target.
+        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.26, 0.26),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -486,15 +485,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
-        # Do not pay the quiet-support term while the body is still in the
-        # low side-roll basin.  It becomes active only after roughly 0.26 m
-        # of measured side clearance (0.75 * 0.34).
-        "static_settling_clearance_threshold": 0.75,
+        "static_settling_clearance_threshold": 0.15,
         "attitude_progress_weight": 0.12,
         "attitude_progress_rate_scale": 4.0,
         # Reuse the existing hip-to-wheel extension outcome so a low folded
         # side support is not the easiest way to satisfy contact and attitude.
-        "support_leg_length_target": 0.34,
+        "support_leg_length_target": 0.30,
         "asset_cfg": _support_wheels(),
       },
     ),
