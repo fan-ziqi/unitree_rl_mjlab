@@ -467,7 +467,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # for braking the side stance.  A broader measured scale preserves a
         # strong preference for a fixed pivot while keeping that gradient
         # usable throughout the approach.
-        "static_support_center_speed_scale": 0.30,
+        # The right-side branch still settles with a support-centre drift of
+        # roughly 0.9 m/s.  A wider rational scale keeps a usable derivative
+        # in that regime, so PPO can learn to brake the selected pair instead
+        # of receiving an effectively flat near-zero score.
+        "static_support_center_speed_scale": 0.50,
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
@@ -543,7 +547,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # right-side one-hot twice the rollout mass of the left branch so
             # PPO sees enough braking/support examples to remove that bias;
             # all five modes remain represented in the same actor.
-            "mode_probabilities": (0.25, 0.15, 0.15, 0.15, 0.30),
+            "mode_probabilities": (0.20, 0.10, 0.10, 0.25, 0.35),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -552,7 +556,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 28_800,
-            "mode_probabilities": (0.25, 0.15, 0.15, 0.15, 0.30),
+            "mode_probabilities": (0.20, 0.10, 0.10, 0.25, 0.35),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.0,
@@ -561,7 +565,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 57_600,
-            "mode_probabilities": (0.25, 0.15, 0.15, 0.15, 0.30),
+            "mode_probabilities": (0.20, 0.10, 0.10, 0.25, 0.35),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.25,
@@ -574,7 +578,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # zero-rate one-hots never became reliable.  Give both static
             # forms enough rollouts without removing the normal/front/rear
             # dynamic branches.
-            "mode_probabilities": (0.25, 0.15, 0.15, 0.15, 0.30),
+            "mode_probabilities": (0.20, 0.10, 0.10, 0.25, 0.35),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -585,7 +589,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Leave the final 600 updates for the high-rate, continuous
             # delivery setting and direct mode changes.
             "step": 115_200,
-            "mode_probabilities": (0.25, 0.15, 0.15, 0.15, 0.30),
+            "mode_probabilities": (0.20, 0.10, 0.10, 0.25, 0.35),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
