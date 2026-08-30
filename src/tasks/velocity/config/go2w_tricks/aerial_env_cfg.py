@@ -386,15 +386,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # is not a reference angular-rate command or a motion trajectory.
         "terminal_angular_speed_scale": 8.0,
         "minimum_motion_failure_fraction": 0.25,
-        # f170 m800 has already established legal flight, signed rotation,
-        # and a wheel-first high-water result, yet every mode still lands
-        # illegally because its endpoint cost remains nearly zero until
-        # update 1,200.  Reserve the first 500 updates for ballistic
-        # discovery, then complete the same outcome-only validity ramp by
-        # update 1,200.  This changes no command, observation, posture, or
-        # reference trajectory.
-        "base_cost_ramp_start_steps": 24_000,
-        "base_cost_ramp_steps": 33_600,
+        # The m1000 fixed-command audit is the useful window: four modes have
+        # wheel-first landings, while turning the terminal cost fully on at
+        # update 1,200 collapses those behaviours before the shared actor has
+        # solved the hard back direction.  Delay and lengthen this same
+        # outcome-only validity ramp so PPO can retain the discovered landing
+        # basin while the difficult signed axis receives more samples.
+        "base_cost_ramp_start_steps": 48_000,
+        "base_cost_ramp_steps": 72_000,
       },
     ),
   }
@@ -506,24 +505,24 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
-            # Keep the hard back/yaw branches overrepresented while the shared
-            # launch/tuck solution is refined; every one-hot remains active.
+            # Keep every one-hot active while the shared launch/tuck solution
+            # is refined.  The final stages below give the hard back direction
+            # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.15, 0.40, 0.15, 0.15, 0.15),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.15, 0.40, 0.15, 0.15, 0.15),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            # Keep the difficult back/yaw branches represented at the same
-            # elevated frequency in the final fused policy.  The previous
-            # final-stage yaw suppression left those two commands unlearned.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # Keep the difficult back branch overrepresented in the final
+            # fused policy; front/side/yaw remain present for retention.
+            "mode_probabilities": (0.15, 0.40, 0.15, 0.15, 0.15),
           },
         ),
       },
