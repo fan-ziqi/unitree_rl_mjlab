@@ -112,7 +112,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # A wheel touch closes the flight immediately, but the actor retains
       # this same one-hot for a short contact-braking interval before public
       # idle/default-pose settlement begins.  Rebound remains a termination.
-      landing_control_time=0.40,
+      # Keep the one-shot axis command long enough to damp the first
+      # wheel-first impact before the default idle gate takes over.
+      landing_control_time=0.50,
       debug_vis=False,
     )
   }
@@ -434,7 +436,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # A first individual tyre graze can rebound during a real landing.
       # Arm the second-jump detector only after a brief all-wheel hold, so
       # that rebound is available to the same one-shot contact controller.
-      "arming_settle_time": 0.12,
+      # Match the command's landing-control window.  A short 120-ms arm
+      # treated the normal post-touchdown suspension bounce as a second jump
+      # before the retained one-hot could finish braking.
+      "arming_settle_time": 0.50,
     },
   )
   if not play:
