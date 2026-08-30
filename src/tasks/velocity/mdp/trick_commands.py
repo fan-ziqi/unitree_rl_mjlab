@@ -150,14 +150,6 @@ class StanceSpinCommand(CommandTerm):
         torch.ones_like(magnitude),
       )
       signed_rate = sign * magnitude
-      # The lateral one-hots are the static left/right two-wheel supports
-      # shown in the AS2W manoeuvre.  They share the public rate slot for
-      # interface compatibility, but that slot must remain zero: the spin
-      # reward deliberately ignores lateral rates and the support reward
-      # treats a nonzero value as a dynamic request.  Sampling a random rate
-      # here therefore silently removed most useful side-support rollouts.
-      side_dynamic = modes[non_idle] >= 3
-      signed_rate = torch.where(side_dynamic, torch.zeros_like(signed_rate), signed_rate)
       # ``static_named_hold`` may have replaced the initially sampled next
       # one-hot.  Read the scheduled command rather than the stale sample so
       # both rate assignments describe the public command that will actually

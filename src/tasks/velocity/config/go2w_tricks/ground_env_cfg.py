@@ -432,6 +432,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "num_modes": 5,
         "extra_contact_discount": 1.0,
         "orientation_power": 1.0,
+        # Contact bits are binary and provide no signal while the side pair
+        # is approaching the floor.  These measured wheel-centre terms give
+        # the side modes a continuous route to the AS2W support line without
+        # prescribing any joint angles or transition trajectory.
+        "soft_support_height": 0.086,
+        "soft_support_height_std": 0.050,
+        "soft_support_pair_height_std": 0.040,
         "stationary_command_index": 5,
         "static_command_start_index": 5,
         "command_deadband": 0.20,
