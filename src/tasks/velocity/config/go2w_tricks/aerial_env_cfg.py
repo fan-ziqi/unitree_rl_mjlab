@@ -103,7 +103,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Keep all five signed axes equally visible.  The hard-branch weighting
       # previously let the shared actor forget a side/yaw landing after it
       # had learned the over-sampled front/back axes.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # The side branches are now reliable; put more rollouts on the
+      # unresolved back and yaw events while retaining all five modes.
+      mode_probabilities=(0.15, 0.30, 0.15, 0.15, 0.25),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -139,7 +141,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # off.  Extend the same contact-braking window modestly so the policy
       # can finish the measured wheel-first recovery; no new target or phase
       # signal is introduced.
-      landing_control_time=1.20,
+      landing_control_time=1.35,
       debug_vis=False,
     )
   }
@@ -170,8 +172,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a full turn).  Use a middle .50 residual: enough workspace to bring
       # the wheels below the links, while the measured compactness outcome
       # still discourages the wide .55 exploratory package.
-      r".*_hip_joint": 0.50,
-      r".*_thigh_joint": 0.50,
+      r".*_hip_joint": 0.45,
+      r".*_thigh_joint": 0.45,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
@@ -180,7 +182,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Expose the native calf actuator's remaining bounded position range so
       # PPO can discover a stronger single launch impulse; this is not a
       # torque-limit change and does not prescribe a jump pose.
-      r".*_calf_joint": 1.35,
+      r".*_calf_joint": 1.50,
     },
     use_default_offset=True,
   )
@@ -233,7 +235,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # reaches the plane before the wheel package.  Strengthen this single
       # launch outcome so PPO values a higher, longer hop; it remains a
       # measured impulse/duration result rather than a pose or timing trace.
-      weight=10.0,
+      # Give the measured launch impulse more leverage for the hard axes;
+      # the actuator torque limits and public command stay unchanged.
+      weight=14.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -272,7 +276,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # launch.  Weight only this existing measured signed-angle outcome
         # for the unresolved back one-hot; no rate, pose, or trajectory target
         # is introduced.
-        "mode_weights": (1.0, 2.0, 1.0, 1.0, 1.0),
+        "mode_weights": (1.0, 2.0, 1.0, 1.0, 1.25),
       },
     ),
     "tuck_then_wheel_landing": RewardTermCfg(
