@@ -592,19 +592,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples on the unresolved signed back and yaw events so
             # the single fused actor can discover their wheel-first recovery
             # without adding a second policy or a mode-specific controller.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.15, 0.30, 0.15, 0.15, 0.25),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.15, 0.30, 0.15, 0.15, 0.25),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
             # Keep the difficult back and yaw branches overrepresented in the
             # final fused policy; front/side remain present for retention.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.15, 0.30, 0.15, 0.15, 0.25),
           },
         ),
       },
