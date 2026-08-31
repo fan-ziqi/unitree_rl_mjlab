@@ -80,30 +80,22 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
-  # Front/rear wheel stands need enough pitch authority to leave the normal
-  # four-wheel basin.  Keep this larger envelope local to the requested
-  # two-wheel locomotion task; the normal one-hot is still hard-gated to the
-  # model default pose, so idle/normal walking does not become a squat.
-  cfg.actions["joint_pos"].scale[r".*_thigh_joint"] = 1.20
-  cfg.actions["joint_pos"].scale[r".*_calf_joint"] = 1.20
-  cfg.actions["joint_vel"].scale = 70.0
-  # A legal front/rear support must lift the trunk over one wheel pair.  Keep
-  # it free of a prescribed pose, but expose the model's usable hip workspace
-  # so that the measured clearance is physically reachable from four-wheel
-  # reset without changing torque authority.
-  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
-  cfg.episode_length_s = 6.0 if not play else cfg.episode_length_s
+  # Keep the locomotion branch on the compact, proven outcome scale.  Large
+  # residual/action overrides make the front support overshoot into a low
+  # folded basin; the base actuator limits already provide enough authority.
+  cfg.episode_length_s = 8.0 if not play else cfg.episode_length_s
   cfg.commands = {
     "trick": StanceLocomotionCommandCfg(
       entity_name="robot",
-      resampling_time_range=(6.0, 6.0),
+      # Four seconds exposes a real transition from the ordinary reset while
+      # still allowing two command changes in the eight-second rollout.
+      resampling_time_range=(4.0, 4.0),
+      mode_probabilities=(0.20, 0.40, 0.40),
+      mode_idle_probabilities=(0.25, 0.15, 0.15),
       direct_switch_probability=0.0,
-      # Rear is the harder support, but keep enough front samples for both
-      # one-hots to share a single static-discovery policy.
-      mode_probabilities=(0.0, 0.25, 0.75),
-      mode_idle_probabilities=(0.0, 1.0, 1.0),
-      lin_vel_x_range=(0.0, 0.0),
-      yaw_rate_range=(0.0, 0.0),
+      lin_vel_x_range=(-0.20, 0.20),
+      yaw_rate_range=(-0.30, 0.30),
+      initialize_stance_on_reset=False,
       debug_vis=False,
     )
   }
@@ -118,182 +110,57 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # four-leg silhouette as the untriggered Go2W, rather than spending policy
     # capacity on an unnecessary squat or leg swing.
     hold_default_position_mode_index=0,
-    # Normal is explicitly the model-default leg pose even while wheels move.
-    # A missing reset-time contact frame otherwise releases that invariant and
-    # produces the unwanted squatting normal gait.
-    hold_default_position_requires_physical_idle=False,
   )
   _use_history(cfg, "trick")
 
   cfg.rewards = {
-    "commanded_support_attitude": RewardTermCfg(
-      func=trick_rewards.mode_gravity_alignment_rise,
-      # At four-wheel reset, the target two-wheel gravity alignment is 0.5.
-      # This term is exactly zero there and rises only as the base rotates in
-      # the requested direction.  It supplies a persistent pose-result route
-      # to the later contact/clearance outcome, without a leg target or a
-      # prescribed get-up motion.
-      weight=100.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2),
-        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "num_modes": 3,
-        "power": 1.0,
-        "asset_cfg": SceneEntityCfg("robot"),
-      },
-    ),
     # This single dense score is deliberately additive: it supplies a useful
     # direction from four wheels toward the requested support without making
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      # This is the only held-stance endpoint: target gravity direction and
-      # exactly the named wheel pair.  Earlier versions separately rewarded
-      # absolute base height, free-wheel height, and leg span.  Those are
-      # correlated diagnostics, not independent task goals; together they
-      # created a profitable low slant before the body became upright.
-      weight=180.0,
+      weight=12.0,
       params={
         "command_name": "trick",
-        # Normal's default four-wheel support is supplied by the action gate.
-        # Paying the same support return there let it dominate the harder
-        # upright modes before either had found a valid two-wheel result.
-        # Normal remains trained through its x/yaw commands below; this term
-        # is reserved for the two outcomes that actually need discovery.
-        "modes": (1, 2),
+        "modes": (0, 1, 2),
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "contact_masks": LOCOMOTION_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 3,
-        # Four wheels touching is the reset, not a partial front/rear
-        # support.  Any non-commanded wheel contact must remove the support
-        # fraction, otherwise the policy can improve the attitude score while
-        # retaining the low ordinary gait that the task explicitly rejects.
         "extra_contact_discount": 1.0,
-        # Once the requested pair starts carrying the trunk, prefer a
-        # genuinely extended support leg over the folded low-clearance local
-        # optimum.  This is a measured wheel-to-hip outcome, not a joint pose.
-        "support_leg_length_target": 0.27,
-        # Rear support is the persistent weak branch under locomotion.  Give
-        # its measured physical endpoint more return without prescribing a
-        # pose or changing normal/front behavior.
-        "mode_weights": (0.5, 1.0, 2.0),
-        "asset_cfg": _support_wheels(),
-      },
-    ),
-    "non_support_wheel_clearance": RewardTermCfg(
-      func=trick_rewards.mode_non_support_wheel_clearance,
-      # Contact bits switch only after a wheel has already lifted.  This
-      # continuous height signal gives front/rear modes a route out of the
-      # ordinary four-wheel reset without prescribing a limb trajectory.
-      weight=80.0,
-      params={
-        "command_name": "trick",
-        "modes": (1, 2),
-        "contact_masks": LOCOMOTION_CONTACT_MASKS,
-        "target_height": 0.30,
-        "minimum_height": 0.10,
-        "num_modes": 3,
+        "minimum_root_clearance": (0.18, 0.45, 0.45),
         "asset_cfg": _support_wheels(),
       },
     ),
     "track_x_and_zero_lateral": RewardTermCfg(
       func=trick_rewards.stance_locomotion_linear_velocity_exp,
-      # Support discovery is the prerequisite for useful public x control.
-      # Before a legal two-wheel support exists, a velocity error mostly
-      # encourages a fast four-wheel escape.  Keep x response in this single
-      # policy, but make the physical support result the dominant discovery
-      # return; command tracking remains active throughout the same rollout.
-      weight=60.0,
+      weight=5.0,
       params={
         "command_name": "trick",
         "std": 0.45,
         "lateral_weight": 2.0,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "gravity_power": 1.0,
-        # Keep command tracking dense during the rise and during a mode
-        # transition.  Support and gravity remain the separate endpoint
-        # objective above; multiplying velocity by an eighth-power validity
-        # gate removed nearly all x/yaw gradient before an upright stance was
-        # already solved.
-        "mode_weights": (2.0, 1.0, 1.0),
+        "gravity_power": 3.0,
       },
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      # Yaw stays in the same outcome-conditioned policy, but cannot displace
-      # the still-undiscovered upright support.
-      weight=60.0,
+      weight=6.0,
       params={
         "command_name": "trick",
         "std": 0.60,
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
-        "gravity_power": 1.0,
-        # As with x tracking, leave this signal dense while the robot is
-        # changing support.  The commanded one-hot plus the measured support
-        # endpoint still disambiguate normal/front/rear behaviours.
-        "mode_weights": (2.0, 1.0, 1.0),
+        "gravity_power": 3.0,
       },
     ),
-    # This remains a generic temporal smoothness cost—not a free-leg pose
-    # target—but now has enough scale to reject the visibly flailing airborne
-    # pair once the support and velocity outcomes are already satisfied.
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.01),
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
-  cfg.curriculum = {
-    "locomotion_commands": CurriculumTermCfg(
-      func=trick_curriculums.stance_locomotion_command_stages,
-      params={
-        "command_name": "trick",
-        "stages": (
-          {
-            "step": 0,
-            # Start balanced static discovery in the same fused actor, while
-            # retaining a small default-normal replay share.  The
-            # all-zero normal idle is still supplied by the action gate;
-            # this one-hot share merely keeps its observation branch present
-            # before normal x/yaw commands enter.
-            "mode_probabilities": (0.10, 0.45, 0.45),
-            # Include moving commands from the first rollout.  Static
-            # one-hots remain in the same batch, but withholding all x/yaw
-            # requests for the first 19,200 steps starved the fused actor of
-            # the very response the task is meant to learn.
-            "mode_idle_probabilities": (0.50, 0.50, 0.50),
-            "direct_switch_probability": 0.0,
-            "lin_vel_x_range": (0.0, 0.0),
-            "yaw_rate_range": (0.0, 0.0),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Static audits now reach both pitch supports by update 400.  Start
-            # a small x/yaw command range at that measured milestone so the
-            # fused actor learns locomotion without waiting for an arbitrary
-            # long static-only block.
-            "step": 19_200,
-            "mode_probabilities": (0.20, 0.40, 0.40),
-            "mode_idle_probabilities": (0.25, 0.40, 0.40),
-            "direct_switch_probability": 0.10,
-            "lin_vel_x_range": (-0.15, 0.15),
-            "yaw_rate_range": (-0.20, 0.20),
-            "resampling_time_range": (6.0, 6.0),
-          },
-          {
-            # Expand to the requested walking/turning range after one short
-            # low-speed locomotion block, while retaining all three modes.
-            "step": 38_400,
-            "mode_probabilities": (0.25, 0.375, 0.375),
-            "mode_idle_probabilities": (0.10, 0.30, 0.30),
-            "direct_switch_probability": 0.25,
-            "lin_vel_x_range": (-0.20, 0.20),
-            "yaw_rate_range": (-0.30, 0.30),
-            "resampling_time_range": (6.0, 6.0),
-          },
-        ),
-      },
-    )
-  }
+  # Keep the complete command distribution active from update zero.  The
+  # action/command gate still starts every event from the ordinary reset, but
+  # no staged command range can starve the front branch before locomotion is
+  # actually learned.
+  cfg.curriculum = {}
   return cfg
 
 
