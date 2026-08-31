@@ -175,6 +175,21 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "power": 1.0,
       },
     ),
+    "normal_default_leg_pose": RewardTermCfg(
+      func=trick_rewards.normal_leg_default_pose_exp,
+      # Normal four-wheel locomotion should retain the model's ordinary
+      # silhouette; only the front/rear one-hots are allowed to reshape the
+      # legs for their inverted support.  This is a static measured outcome,
+      # not a reference trajectory or a commanded joint target.
+      weight=8.0,
+      params={
+        "command_name": "trick",
+        "std": 0.45,
+        "asset_cfg": SceneEntityCfg(
+          "robot", joint_names=GO2W_LEG_JOINTS, preserve_order=True
+        ),
+      },
+    ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
