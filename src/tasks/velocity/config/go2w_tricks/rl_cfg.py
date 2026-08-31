@@ -88,6 +88,12 @@ def unitree_go2w_spin_stance_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     std_type="log",
     distribution_params={"min_std": 0.15, "max_std": 0.65},
     entropy_coef=0.005,
+    # The m400->m600 fixed-command audits alternated between a good left/right
+    # support and a collapsed mirror while the command curriculum was
+    # unchanged.  Halve the PPO step so a successful side branch is not
+    # overwritten by the next minibatch; this changes no observation, action,
+    # or reward semantics.
+    learning_rate=5.0e-4,
     # A 1.25 envelope degraded both normal pivoting and front support in the
     # paired fixed-command audit; retain the proven bounded residual range.
     clip_actions=1.0,
