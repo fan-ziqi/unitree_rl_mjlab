@@ -80,6 +80,14 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
+  # The m2700 audit still leaves the front/rear branches at a partial
+  # inversion (gravity alignment around 0.75) without reaching their target
+  # wheel pair.  Give only the active one-hot controller enough bounded
+  # workspace to discover the tall support; the normal idle gate still holds
+  # the model default pose exactly.
+  cfg.actions["joint_pos"].scale[r".*_hip_joint"] = 0.90
+  cfg.actions["joint_pos"].scale[r".*_thigh_joint"] = 0.95
+  cfg.actions["joint_pos"].scale[r".*_calf_joint"] = 0.95
   # Keep the locomotion branch on the compact, proven outcome scale.  Large
   # residual/action overrides make the front support overshoot into a low
   # folded basin; the base actuator limits already provide enough authority.
@@ -128,7 +136,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # action-rate penalty, leaving both inverted branches below the stance
       # gate.  Increase only this measured support outcome; no pose target is
       # introduced.
-      weight=20.0,
+      weight=28.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -160,7 +168,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      weight=6.0,
+      weight=8.0,
       params={
         "command_name": "trick",
         "std": 0.60,
