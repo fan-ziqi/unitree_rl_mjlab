@@ -107,7 +107,13 @@ class StanceSpinCommand(CommandTerm):
     # cause of the m1200->m1400 side collapse.  Keep direct continuity for
     # the dynamic normal/front/rear pivots, but give a side command its full
     # static hold so the shared actor cannot learn only a transient roll.
-    switch &= (modes < 3) & (next_modes < 3)
+    dynamic_switch = (modes < 3) & (next_modes < 3)
+    # Hold side supports during early discovery, then expose genuine
+    # side-to-side transitions once the curriculum reaches its direct-switch
+    # stages.  This preserves a full static interval for forming each pivot
+    # without making a left->right command boundary an unseen failure.
+    side_switch = (modes >= 3) & (next_modes >= 3)
+    switch &= dynamic_switch | (side_switch & (self.cfg.direct_switch_probability >= 0.6))
     next_modes = torch.where(switch, next_modes, modes)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
