@@ -388,7 +388,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # high-speed trunk strike remains more profitable than attempting the
       # rare quiet wheel landing.  This is still an outcome-only cost: it
       # names neither a joint configuration nor a flight trajectory.
-      weight=-30.0,
+      # At m2200 the body-axis policy can still collect roughly 70 points
+      # from a compact turn before the trunk strikes the floor, while the
+      # averaged terminal failure return is only about -3.  That makes the
+      # back direction's wheel-up/body-down landing a profitable local
+      # optimum.  Increase only this existing invalid-event scale so a real
+      # one-turn wheel landing dominates a body-supported crash; the launch
+      # and angle gradients remain unchanged.
+      weight=-80.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
