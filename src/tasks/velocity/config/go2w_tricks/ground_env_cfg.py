@@ -216,6 +216,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
   cfg, wheel_contact_cfg, _ = make_base_go2w_trick_cfg(play)
   configure_ground_support_actuators(cfg)
   _configure_fast_discovery(cfg)
+  # A side roll occasionally grazes a thigh during load transfer before the
+  # selected wheel pair can catch the body.  Keep the short discovery grace
+  # only for this initial transition; persistent body/leg support still
+  # terminates the episode immediately after the window.
+  cfg.terminations["illegal_contact"].params["initial_transition_grace_period_s"] = 0.60
   # A nonzero normal command must reshape the ordinary four-wheel rectangle
   # into a compact common axle while all wheels remain grounded.  A modest
   # extension beyond the shared ±0.55-rad residual makes that geometry
@@ -243,10 +248,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # The left mirror is the only branch that still enters a high-drift
       # basin. Give it extra rollout mass while retaining every other
       # one-hot in the same fused policy.
-      # Keep the two mirror-image static supports equally visible.  A
-      # left-heavy discovery distribution produced a good left stand but a
-      # collapsed right stand in the fixed-command audit.
-      mode_probabilities=(0.20, 0.15, 0.15, 0.25, 0.25),
+      # The left mirror is the current hard branch: it collapses after a
+      # shared PPO update while the right support remains intact.  Give the
+      # hard side more fresh rollouts, but retain every dynamic mode and the
+      # right mirror in this same fused actor.
+      mode_probabilities=(0.15, 0.15, 0.15, 0.35, 0.20),
       spin_idle_probability=0.0,
       upright_static_probability=0.0,
       direct_switch_probability=0.0,
@@ -538,7 +544,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # give the harder left-side one-hot more rollout mass so PPO sees
             # enough braking/support examples to remove that bias.  All five
             # modes remain represented in the same actor.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.15, 0.15, 0.15, 0.35, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -552,7 +558,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # After initial side-support discovery, keep all five outcomes
             # visible so the shared actor cannot trade away front/rear
             # dynamic pivots for the easier static forms.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.15, 0.15, 0.15, 0.35, 0.20),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
             # extra static front/rear holds here was followed by a direct
@@ -568,7 +574,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Once the side supports have a basin, restore all five modes so
             # the shared actor retains the front/rear dynamic pivots instead
             # of collapsing to the easier static side forms.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.15, 0.15, 0.15, 0.35, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,
@@ -581,7 +587,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # zero-rate one-hots never became reliable.  Give both static
             # forms enough rollouts without removing the normal/front/rear
             # dynamic branches.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.15, 0.15, 0.15, 0.35, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -592,7 +598,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Leave the final 600 updates for the high-rate, continuous
             # delivery setting and direct mode changes.
             "step": 115_200,
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            "mode_probabilities": (0.15, 0.15, 0.15, 0.35, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
