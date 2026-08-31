@@ -299,10 +299,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # body-strike with zero strict landings.  Put the compactness bridge on
       # the same scale as one-turn progress so a brief tuck cannot dominate
       # the actual wheel-first endpoint.
-      # The unresolved body-axis branches currently reach the turn but leave
-      # a wide wheel package.  Increase this existing geometric outcome just
-      # enough that pulling the wheels inward competes with raw turn progress.
-      weight=45.0,
+      # Keep the original balance against signed turn progress; only the
+      # measured compact-distance gradient below is widened so a failed wide
+      # package is still recoverable without suppressing the jump itself.
+      weight=30.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -341,7 +341,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # weight suppresses the signed turn before the hard axes discover a
         # ballistic basin; compactness remains shaped by the existing single
         # outcome term and the strict wheel-first endpoint.
-        "dense_geometry_weight": 3.0,
+        "dense_geometry_weight": 2.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
