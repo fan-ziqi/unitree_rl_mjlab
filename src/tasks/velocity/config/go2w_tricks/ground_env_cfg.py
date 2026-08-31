@@ -325,7 +325,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # z separation is set by the model's lateral hip offset (~0.15--0.23
         # m), so retain the reachable side envelope instead of asking PPO for
         # an impossible tall target.
-        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.26, 0.26),
+        # The previous 0.26-m side floor was learned literally: the fixed
+        # audit reached ~0.26 m and the video showed a low, folded support.
+        # Raise only this measured trunk-to-wheel outcome to the reachable
+        # 0.30-m envelope so the side form has to stand clear of the ground.
+        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.30, 0.30),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -475,7 +479,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 28_800,
             # Once the harder left mirror has a support basin, restore equal
             # side replay so the shared actor does not forget the right form.
-            "mode_probabilities": (0.20, 0.10, 0.10, 0.30, 0.30),
+            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.0,
@@ -484,7 +488,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 57_600,
-            "mode_probabilities": (0.20, 0.10, 0.10, 0.30, 0.30),
+            # Once the side supports have a basin, restore all five modes so
+            # the shared actor retains the front/rear dynamic pivots instead
+            # of collapsing to the easier static side forms.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.30,
             "direct_switch_probability": 0.25,
@@ -497,7 +504,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # zero-rate one-hots never became reliable.  Give both static
             # forms enough rollouts without removing the normal/front/rear
             # dynamic branches.
-            "mode_probabilities": (0.20, 0.10, 0.10, 0.30, 0.30),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -508,7 +515,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Leave the final 600 updates for the high-rate, continuous
             # delivery setting and direct mode changes.
             "step": 115_200,
-            "mode_probabilities": (0.20, 0.10, 0.10, 0.30, 0.30),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
