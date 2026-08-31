@@ -363,14 +363,13 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # discover the joint configuration and can still use the existing
         # contact/attitude bridge during the approach.
         # Side support is a 90-degree body roll.  Its attainable root-to-wheel
-        # z separation is set by the model's lateral hip offset (~0.15--0.23
-        # m), so retain the reachable side envelope instead of asking PPO for
-        # an impossible tall target.
-        # The previous 0.26-m side floor was learned literally: the fixed
-        # audit reached ~0.26 m and the video showed a low, folded support.
-        # Raise only this measured trunk-to-wheel outcome to the reachable
-        # 0.30-m envelope so the side form has to stand clear of the ground.
-        "minimum_root_clearance": (0.30, 0.30, 0.30, 0.30, 0.30),
+        # z separation is set by the model's lateral hip/wheel offset
+        # (~0.18 m), not by the 0.35--0.45 m pitch-support envelope.  Asking
+        # for 0.30 m here made the clearance product permanently zero, so the
+        # side branch could not receive its terminal support gradient.  Keep
+        # the measured, physically reachable side envelope; non-support-wheel
+        # clearance and support-centre stillness remain separate outcomes.
+        "minimum_root_clearance": (0.45, 0.45, 0.45, 0.18, 0.18),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
