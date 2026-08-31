@@ -542,6 +542,8 @@ def mode_static_angular_velocity_exp(
   angular_velocity_scale: float,
   num_modes: int = 5,
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
+  contact_masks: tuple[tuple[float, float, float, float], ...] | None = None,
+  sensor_name: str | None = None,
   alignment_power: float = 4.0,
 ) -> torch.Tensor:
   """Reward a formed named support for actually stopping its body rotation.
@@ -555,6 +557,8 @@ def mode_static_angular_velocity_exp(
   """
   if angular_velocity_scale <= 0.0 or alignment_power <= 0.0:
     raise ValueError("angular velocity scale and alignment power must be positive.")
+  if (contact_masks is None) != (sensor_name is None):
+    raise ValueError("contact_masks and sensor_name must be supplied together.")
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
   asset: Entity = env.scene["robot"]
   angular_speed = torch.linalg.vector_norm(asset.data.root_link_ang_vel_w, dim=1)
@@ -577,6 +581,15 @@ def mode_static_angular_velocity_exp(
     # becomes active only as the requested side attitude is physically formed.
     alignment_rise = torch.clamp(2.0 * alignment - 1.0, 0.0, 1.0)
     stillness = stillness * alignment_rise.pow(alignment_power)
+  if contact_masks is not None:
+    assert sensor_name is not None
+    contacts = _wheel_contacts(env, sensor_name).float()
+    masks = torch.tensor(contact_masks, dtype=contacts.dtype, device=env.device)
+    selected = masks[mode]
+    selected_contact = (contacts * selected).sum(dim=1) / selected.sum(dim=1).clamp_min(1.0)
+    # A quiet body is not a valid support while the commanded wheel pair is
+    # floating.  Use measured selected-wheel contact as the final gate.
+    stillness = stillness * selected_contact
   return active.to(stillness.dtype) * stillness
 
 
@@ -589,6 +602,7 @@ def mode_static_support_center_velocity_exp(
   num_modes: int = 5,
   gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
   alignment_power: float = 4.0,
+  sensor_name: str | None = None,
   asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
   """Reward a static named support whose selected wheel midpoint stays local.
@@ -606,6 +620,8 @@ def mode_static_support_center_velocity_exp(
     raise ValueError("contact_masks must cover every command mode.")
   if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
     raise ValueError("support-centre velocity needs four wheel sites.")
+  if sensor_name is None:
+    raise ValueError("sensor_name is required for support-centre contact gating.")
   active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
   asset: Entity = env.scene[asset_cfg.name]
   masks = torch.tensor(
@@ -618,6 +634,10 @@ def mode_static_support_center_velocity_exp(
   )
   midpoint_speed = torch.linalg.vector_norm(midpoint_velocity, dim=1)
   stillness = 1.0 / (1.0 + torch.square(midpoint_speed / velocity_scale))
+  contacts = _wheel_contacts(env, sensor_name).float()
+  selected_contact = (contacts * selected).sum(dim=1) / selected.sum(dim=1).clamp_min(1.0)
+  # Do not reward a stationary, floating wheel pair as a valid side support.
+  stillness = stillness * selected_contact
   if gravity_targets is not None:
     targets = torch.tensor(
       gravity_targets, dtype=asset.data.projected_gravity_b.dtype, device=env.device
