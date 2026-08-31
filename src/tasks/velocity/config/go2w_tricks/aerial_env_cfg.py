@@ -311,10 +311,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Keep the original balance against signed turn progress; only the
       # measured compact-distance gradient below is widened so a failed wide
       # package is still recoverable without suppressing the jump itself.
-      # m1000 still reaches a full turn with a roughly 0.58--0.60 m wheel
-      # package, so the existing compact-flight outcome needs to outweigh the
-      # temptation to trade a wide body strike for angle progress.
-      weight=60.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -391,10 +388,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # whole-body heading.  Strengthen this existing measured orientation /
       # quietness outcome now that the ballistic and wheel-first basins are
       # established; it remains no pose or reference trajectory.
-      # Once the compact package is formed, give the existing measured
-      # orientation/quietness return enough scale to correct off-axis landing
-      # error before the first wheel touchdown.
-      weight=24.0,
+      weight=16.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
