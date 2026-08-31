@@ -282,7 +282,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # trunk, while the configured compact outcome is 0.27 m.  Make that
       # existing measured distance meaningfully discriminative without
       # introducing another pose or phase signal.
-      weight=80.0,
+      # The m800 audit shows this term paying about 37 return on a wide
+      # body-strike with zero strict landings.  Put the compactness bridge on
+      # the same scale as one-turn progress so a brief tuck cannot dominate
+      # the actual wheel-first endpoint.
+      weight=30.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -321,7 +325,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # weight suppresses the signed turn before the hard axes discover a
         # ballistic basin; compactness remains shaped by the existing single
         # outcome term and the strict wheel-first endpoint.
-        "dense_geometry_weight": 1.0,
+        "dense_geometry_weight": 2.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
@@ -397,7 +401,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # exploration before a wheel-first landing is discovered.  The prior
       # -50 branch made early body-axis exploration collapse before it could
       # retain the wheel-first samples seen in the proven branch.
-      weight=-30.0,
+      # At m800 the invalid-event cost is still ramping while the tuck term
+      # pays a large positive return, so body strikes remain profitable.
+      # A moderate stronger boundary, opened earlier, preserves launch
+      # exploration but makes the same invalid landing lose to recovery.
+      weight=-50.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
@@ -433,8 +441,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # Open the invalid-touchdown cost from that point so the next policy
         # update must trade the turn for a wheel-first recovery instead of
         # continuing to optimise a wide body strike.
-        "base_cost_ramp_start_steps": 28_800,
-        "base_cost_ramp_steps": 28_800,
+        "base_cost_ramp_start_steps": 19_200,
+        "base_cost_ramp_steps": 19_200,
       },
     ),
   }
