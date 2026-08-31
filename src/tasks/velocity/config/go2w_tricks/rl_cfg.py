@@ -117,6 +117,10 @@ def unitree_go2w_stance_locomotion_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # without prescribing posture or trajectory.
     init_std=0.8,
     entropy_coef=0.0035,
+    # The previous front-heavy run retained normal walking but left the
+    # rear-support branch weak.  A smaller update reduces cross-mode forgetting
+    # while the balanced sampler supplies both inverted directions.
+    learning_rate=5.0e-4,
     # Fixed front/rear audits show 63%/78% of position outputs beyond the
     # former +/-1 clip while the trunk is still short of its target support.
     # Permit a measured 25% more of the existing joint-residual envelope;
