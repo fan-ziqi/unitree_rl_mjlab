@@ -338,6 +338,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 5,
+        # The fixed audits show the left support has the correct contact and
+        # attitude but still drifts, while the mirrored right support is
+        # already quiet.  Give the existing measured endpoint a modest
+        # left-side weight so the shared actor cannot trade that braking
+        # outcome for the easier mirror.
+        "mode_weights": (1.0, 1.0, 1.0, 1.75, 1.0),
         "extra_contact_discount": 1.0,
         "orientation_power": 1.0,
         # AS2W's lateral two-wheel form is tall and wheel-supported, not a
@@ -399,7 +405,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # a visually correct roll while never learning to brake the selected
         # pair.  Tighten only this measured centre-speed scale; it does not
         # prescribe a pose or alter the front/rear dynamic-rate objective.
-        "static_support_center_speed_scale": 0.20,
+        # At roughly 1.6 m/s left-support drift the 0.20-m/s rational score
+        # was almost flat.  A broader scale restores a usable derivative in
+        # that observed regime; zero-speed still remains the unique optimum.
+        "static_support_center_speed_scale": 0.50,
         "static_stillness_floor": 0.0,
         "static_settling_alignment_threshold": 0.50,
         "static_settling_support_threshold": 0.20,
@@ -506,7 +515,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # give the harder left-side one-hot more rollout mass so PPO sees
             # enough braking/support examples to remove that bias.  All five
             # modes remain represented in the same actor.
-            "mode_probabilities": (0.20, 0.10, 0.10, 0.45, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
