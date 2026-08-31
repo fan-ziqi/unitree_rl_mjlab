@@ -312,8 +312,15 @@ def run(cfg: EvalConfig) -> dict[str, float] | list[dict[str, float]]:
         & (normal_common_axle_line >= 0.85)
         & (normal_compact_span >= 0.50)
       )
+      # The normal/front/rear modes are dynamic pivots and therefore require
+      # their measured wheel-axis geometry.  Left/right are the AS2W-style
+      # static two-wheel supports: they deliberately do not spin and have no
+      # common axle requirement.  Applying the dynamic axle gate to them made
+      # valid side supports report zero success because their selected pair
+      # is not the front/rear axle definition used by this diagnostic.
+      dynamic_axle_mode = active_spin & (modes <= 2)
       axle_ok = torch.where(
-        active_spin,
+        dynamic_axle_mode,
         torch.where(modes == 0, normal_layout_ok, coaxiality >= 0.90),
         torch.ones_like(active_spin),
       )
