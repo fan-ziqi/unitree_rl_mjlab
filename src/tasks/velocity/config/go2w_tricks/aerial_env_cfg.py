@@ -293,18 +293,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # reference pose.  The policy itself determines when it reaches them.
         "tuck_start_turn_fraction": 0.04,
         "tuck_ramp_end_turn_fraction": 0.16,
-        # Give wheel-first deployment more of the final turn.  At m800 the
-        # policy still reached a turn but let the trunk contact first; this
-        # earlier existing geometry window remains outcome-only, not a
-        # reference trajectory.
-        "tuck_end_turn_fraction": 0.54,
+        # Keep wheel-first deployment in the later part of the turn.  The
+        # earlier 0.54 window made the policy extend too soon while still
+        # rotating, causing the trunk to strike before the wheels could
+        # become the lowest links.  This remains an accumulated-turn outcome
+        # window, not a clock or reference trajectory.
+        "tuck_end_turn_fraction": 0.64,
         # The default wheel-root mean is about 0.364 m, while AS2W's airborne
         # package is visibly tighter.  Move the measured compactness optimum
         # modestly inward and strengthen this existing outcome term so a wide
         # body strike is no longer as profitable as folding the wheel package.
         "tuck_target_wheel_root_distance": 0.27,
         "tuck_max_wheel_root_distance": 0.40,
-        "landing_start_turn_fraction": 0.54,
+        "landing_start_turn_fraction": 0.64,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
@@ -392,16 +393,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # high-speed trunk strike remains more profitable than attempting the
       # rare quiet wheel landing.  This is still an outcome-only cost: it
       # names neither a joint configuration nor a flight trajectory.
-      # At m2200 the body-axis policy can still collect roughly 70 points
-      # from a compact turn before the trunk strikes the floor, while the
-      # averaged terminal failure return is only about -3.  That makes the
-      # back direction's wheel-up/body-down landing a profitable local
-      # optimum.  Increase only this existing invalid-event scale so a real
-      # one-turn wheel landing dominates a body-supported crash; the launch
-      # and angle gradients remain unchanged.
       # Keep a meaningful invalid-event boundary without suppressing launch
-      # exploration before the earlier wheel-first window can be discovered.
-      weight=-50.0,
+      # exploration before a wheel-first landing is discovered.  The prior
+      # -50 branch made early body-axis exploration collapse before it could
+      # retain the wheel-first samples seen in the proven branch.
+      weight=-30.0,
       params={
         "command_name": "trick",
         "target_angle": math.tau,
