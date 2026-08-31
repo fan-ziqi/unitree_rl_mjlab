@@ -93,7 +93,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # The final l305 audit retained front support but still failed to form
       # the rear inverted gait.  Give the hard rear branch more rollouts while
       # retaining normal and front commands in the same fused actor.
-      mode_probabilities=(0.15, 0.30, 0.55),
+      # The rear-heavy run improved rear velocity error but starved the
+      # front inverted stance.  Restore balanced front/rear coverage so the
+      # fused actor learns both supports instead of trading one for the other.
+      mode_probabilities=(0.20, 0.40, 0.40),
       mode_idle_probabilities=(0.25, 0.15, 0.15),
       direct_switch_probability=0.0,
       lin_vel_x_range=(-0.20, 0.20),
@@ -121,7 +124,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     # contact an all-or-nothing gate on the attitude signal.
     "commanded_support": RewardTermCfg(
       func=trick_rewards.mode_support_score,
-      weight=12.0,
+      # A 12-point support result was outweighed by velocity terms and the
+      # action-rate penalty, leaving both inverted branches below the stance
+      # gate.  Increase only this measured support outcome; no pose target is
+      # introduced.
+      weight=20.0,
       params={
         "command_name": "trick",
         "modes": (0, 1, 2),
@@ -167,7 +174,7 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # small measured state-alignment bridge gives the front/rear one-hots a
       # dense route out of that reset before the requested pair is formed;
       # it names neither a joint pose nor a transition phase.
-      weight=4.0,
+      weight=6.0,
       params={
         "command_name": "trick",
         "modes": (1, 2),
@@ -191,7 +198,11 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         ),
       },
     ),
-    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
+    # Get-up and inverted walking require a short coordinated reshaping.  The
+    # previous -0.04 term charged more than the support discovery return and
+    # kept the policy near the four-wheel crouch.  Retain smoothness at a
+    # lighter measured cost.
+    "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.015),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
   # Keep the complete command distribution active from update zero.  The
