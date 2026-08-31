@@ -329,7 +329,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
-        "minimum_clearance_for_progress": -0.30,
+        # A body-first strike can still sit roughly 0.2--0.3 m below the
+        # wheel plane in the exploratory branches.  The old -0.30 margin
+        # therefore paid a large clearance score for the very failure we
+        # need to remove (especially back/yaw).  Keep a finite bridge, but
+        # make it vanish once the body is more than 0.10 m below the wheel
+        # plane; this remains the same measured wheel-first outcome and does
+        # not prescribe a leg pose or flight phase.
+        "minimum_clearance_for_progress": -0.10,
         # The one-off high-water signal found a wide, rotating crash and then
         # went silent.  Keep the same measured tuck/clearance outcome dense
         # enough to pull the wheel package inward throughout the legal flight.
@@ -572,21 +579,23 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            # Once the hard signed axes have a launch basin, restore equal
-            # coverage so the already-solvable side/yaw branches are retained.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # The easy front/side branches already have a launch basin.  Keep
+            # extra samples on the unresolved signed back and yaw events so
+            # the single fused actor can discover their wheel-first recovery
+            # without adding a second policy or a mode-specific controller.
+            "mode_probabilities": (0.15, 0.40, 0.10, 0.10, 0.25),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.15, 0.40, 0.10, 0.10, 0.25),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            # Keep the difficult back branch overrepresented in the final
-            # fused policy; front/side/yaw remain present for retention.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # Keep the difficult back and yaw branches overrepresented in the
+            # final fused policy; front/side remain present for retention.
+            "mode_probabilities": (0.15, 0.40, 0.10, 0.10, 0.25),
           },
         ),
       },
