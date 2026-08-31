@@ -84,7 +84,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Every one-hot must stay represented from the very first reset.  This
       # is still one fused actor; it only prevents a lucky easy branch from
       # monopolizing PPO's first updates.
-      mode_probabilities=(0.2, 0.2, 0.2, 0.2, 0.2),
+      # This companion seed focuses rollout mass on the two directions that
+      # remained undiscovered by the balanced seed: back and yaw.  It is still
+      # one fused five-way policy; the other directions remain represented.
+      mode_probabilities=(0.10, 0.30, 0.10, 0.10, 0.40),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -501,17 +504,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # Keep every commanded axis equally visible to this single fused
             # actor.  The earlier hard-branch weighting produced a reliable
             # front flip but weak fixed-command generalization elsewhere.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.10, 0.30, 0.10, 0.10, 0.40),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.10, 0.30, 0.10, 0.10, 0.40),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.10, 0.30, 0.10, 0.10, 0.40),
           },
           {
             # Keep every one-hot active while the shared launch/tuck solution
@@ -519,19 +522,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.15, 0.40, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.10, 0.30, 0.10, 0.10, 0.40),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.15, 0.40, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.10, 0.30, 0.10, 0.10, 0.40),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
             # Keep the difficult back branch overrepresented in the final
             # fused policy; front/side/yaw remain present for retention.
-            "mode_probabilities": (0.15, 0.40, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.10, 0.30, 0.10, 0.10, 0.40),
           },
         ),
       },
