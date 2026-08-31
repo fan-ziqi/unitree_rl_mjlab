@@ -90,11 +90,10 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       # Four seconds exposes a real transition from the ordinary reset while
       # still allowing two command changes in the eight-second rollout.
       resampling_time_range=(4.0, 4.0),
-      # Keep the two inverted walking directions equally visible.  The prior
-      # front-heavy run left the rear branch under-trained despite a healthy
-      # mean return, so preserve a smaller normal-idle share and balance the
-      # two physical support modes.
-      mode_probabilities=(0.20, 0.40, 0.40),
+      # The final l305 audit retained front support but still failed to form
+      # the rear inverted gait.  Give the hard rear branch more rollouts while
+      # retaining normal and front commands in the same fused actor.
+      mode_probabilities=(0.15, 0.30, 0.55),
       mode_idle_probabilities=(0.25, 0.15, 0.15),
       direct_switch_probability=0.0,
       lin_vel_x_range=(-0.20, 0.20),
