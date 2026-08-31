@@ -160,6 +160,21 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "gravity_power": 3.0,
       },
     ),
+    "attitude_alignment_bridge": RewardTermCfg(
+      func=trick_rewards.mode_gravity_alignment_rise,
+      # Contact is intentionally zero at the ordinary four-wheel reset.  A
+      # small measured state-alignment bridge gives the front/rear one-hots a
+      # dense route out of that reset before the requested pair is formed;
+      # it names neither a joint pose nor a transition phase.
+      weight=4.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
+        "num_modes": 3,
+        "power": 1.0,
+      },
+    ),
     "action_rate": RewardTermCfg(func=envs_mdp.action_rate_l2, weight=-0.04),
     "terminated": RewardTermCfg(func=envs_mdp.is_terminated, weight=-50.0),
   }
