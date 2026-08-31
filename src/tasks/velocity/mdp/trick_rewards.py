@@ -575,6 +575,56 @@ def mode_static_angular_velocity_exp(
   return active.to(stillness.dtype) * stillness
 
 
+def mode_static_support_center_velocity_exp(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  modes: tuple[int, ...],
+  velocity_scale: float,
+  contact_masks: tuple[tuple[float, float, float, float], ...],
+  num_modes: int = 5,
+  gravity_targets: tuple[tuple[float, float, float], ...] | None = None,
+  alignment_power: float = 4.0,
+  asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+) -> torch.Tensor:
+  """Reward a static named support whose selected wheel midpoint stays local.
+
+  Lateral two-wheel forms in the reference are balance supports, not a
+  bicycle driving a circle.  Body angular stillness alone cannot detect that
+  failure: a policy can keep the trunk nearly quiet while translating the
+  selected wheel pair.  This outcome therefore measures the selected pair's
+  planar midpoint velocity directly and gates it by the requested attitude.
+  It contains no pose or transition target.
+  """
+  if velocity_scale <= 0.0 or alignment_power <= 0.0:
+    raise ValueError("velocity_scale and alignment_power must be positive.")
+  if len(contact_masks) != num_modes:
+    raise ValueError("contact_masks must cover every command mode.")
+  if isinstance(asset_cfg.site_ids, slice) or len(asset_cfg.site_ids) != 4:
+    raise ValueError("support-centre velocity needs four wheel sites.")
+  active, mode = _mode_mask(env, command_name, modes, num_modes=num_modes)
+  asset: Entity = env.scene[asset_cfg.name]
+  masks = torch.tensor(
+    contact_masks, dtype=asset.data.site_pos_w.dtype, device=env.device
+  )
+  selected = masks[mode]
+  wheel_velocity = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
+  midpoint_velocity = (wheel_velocity * selected.unsqueeze(2)).sum(dim=1) / (
+    selected.sum(dim=1, keepdim=True).clamp_min(1.0)
+  )
+  midpoint_speed = torch.linalg.vector_norm(midpoint_velocity, dim=1)
+  stillness = 1.0 / (1.0 + torch.square(midpoint_speed / velocity_scale))
+  if gravity_targets is not None:
+    targets = torch.tensor(
+      gravity_targets, dtype=asset.data.projected_gravity_b.dtype, device=env.device
+    )
+    gravity = torch.nn.functional.normalize(asset.data.projected_gravity_b, dim=1)
+    alignment = torch.clamp(
+      0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
+    )
+    stillness = stillness * alignment.pow(alignment_power)
+  return active.to(stillness.dtype) * stillness
+
+
 def mode_gravity_alignment_rise(
   env: ManagerBasedRlEnv,
   command_name: str,

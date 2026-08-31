@@ -237,10 +237,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
     "trick": StanceSpinCommandCfg(
       entity_name="robot",
       resampling_time_range=(6.0, 6.0),
-      # The right-side mirror is mechanically easier in this model and was
-      # monopolising the shared actor.  Oversample the harder left support
-      # while retaining both side one-hots in the same policy.
-      mode_probabilities=(0.20, 0.10, 0.10, 0.45, 0.15),
+      # Keep the mirrored side one-hots equally visible.  A side support is
+      # accepted only when its selected wheel midpoint remains local, so
+      # oversampling one mirror merely made the other branch regress.
+      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
       spin_idle_probability=0.0,
       upright_static_probability=0.0,
       direct_switch_probability=0.0,
@@ -338,12 +338,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "contact_masks": STANCE_CONTACT_MASKS,
         "sensor_name": wheel_contact_cfg.name,
         "num_modes": 5,
-        # The fixed audits show the left support has the correct contact and
-        # attitude but still drifts, while the mirrored right support is
-        # already quiet.  Give the existing measured endpoint a modest
-        # left-side weight so the shared actor cannot trade that braking
-        # outcome for the easier mirror.
-        "mode_weights": (1.0, 1.0, 1.0, 1.75, 1.0),
+        # Left/right are mirror-equivalent outcomes; do not let the actor
+        # trade one side for the other through an asymmetric scalar weight.
+        "mode_weights": (1.0, 1.0, 1.0, 1.0, 1.0),
         "extra_contact_discount": 1.0,
         "orientation_power": 1.0,
         # AS2W's lateral two-wheel form is tall and wheel-supported, not a
@@ -470,6 +467,24 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "num_modes": 5,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "alignment_power": 4.0,
+      },
+    ),
+    "side_static_support_center_velocity": RewardTermCfg(
+      func=trick_rewards.mode_static_support_center_velocity_exp,
+      # AS2W's side support turns about a local wheel-pair midpoint.  This
+      # separate measured term prevents a quiet trunk with a translating
+      # support pair (the bicycle/large-circle failure) from scoring as a
+      # completed side stand.
+      weight=140.0,
+      params={
+        "command_name": "trick",
+        "modes": (3, 4),
+        "velocity_scale": 0.12,
+        "contact_masks": STANCE_CONTACT_MASKS,
+        "num_modes": 5,
+        "gravity_targets": STANCE_GRAVITY_TARGETS,
+        "alignment_power": 4.0,
+        "asset_cfg": _support_wheels(),
       },
     ),
     "normal_default_leg_pose": RewardTermCfg(
