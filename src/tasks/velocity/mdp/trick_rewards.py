@@ -1597,7 +1597,12 @@ class AerialTuckThenWheelLanding:
     # The earlier two-width Gaussian made a 0.55--0.60 m package retain too
     # much return relative to the desired compact form; a narrower scale
     # supplies a stronger gradient without naming a joint pose.
-    tuck_distance_scale = 1.2 * (
+    # Keep the compactness outcome informative from the wide exploratory
+    # package seen in the failed body-axis branches (~0.5--0.6 m).  A scale
+    # that is too narrow makes this score numerically zero before PPO can
+    # discover the recovery action; the target distance remains its unique
+    # maximum.
+    tuck_distance_scale = 2.0 * (
       tuck_max_wheel_root_distance - tuck_target_wheel_root_distance
     )
     tuck_score = torch.exp(

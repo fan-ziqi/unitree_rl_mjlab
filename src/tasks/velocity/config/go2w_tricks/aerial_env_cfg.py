@@ -97,7 +97,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # signed front/back events plateau with a large post-turn orientation
       # error.  Keep all five one-hots in this fused actor but give the two
       # unresolved body-axis directions the majority of discovery rollouts.
-      mode_probabilities=(0.25, 0.30, 0.15, 0.15, 0.15),
+      # Front/back/yaw are the unresolved signed body-axis events.  Give them
+      # most early rollouts while retaining both side signs for the fused
+      # actor; later curriculum stages restore equal coverage.
+      mode_probabilities=(0.32, 0.32, 0.10, 0.10, 0.16),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -133,7 +136,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # off.  Extend the same contact-braking window modestly so the policy
       # can finish the measured wheel-first recovery; no new target or phase
       # signal is introduced.
-      landing_control_time=0.90,
+      landing_control_time=1.20,
       debug_vis=False,
     )
   }
@@ -296,7 +299,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # body-strike with zero strict landings.  Put the compactness bridge on
       # the same scale as one-turn progress so a brief tuck cannot dominate
       # the actual wheel-first endpoint.
-      weight=30.0,
+      # The unresolved body-axis branches currently reach the turn but leave
+      # a wide wheel package.  Increase this existing geometric outcome just
+      # enough that pulling the wheels inward competes with raw turn progress.
+      weight=45.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -335,7 +341,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # weight suppresses the signed turn before the hard axes discover a
         # ballistic basin; compactness remains shaped by the existing single
         # outcome term and the strict wheel-first endpoint.
-        "dense_geometry_weight": 2.0,
+        "dense_geometry_weight": 3.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
@@ -548,17 +554,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # Keep every commanded axis equally visible to this single fused
             # actor.  The earlier hard-branch weighting produced a reliable
             # front flip but weak fixed-command generalization elsewhere.
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.32, 0.32, 0.10, 0.10, 0.16),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.32, 0.32, 0.10, 0.10, 0.16),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.32, 0.32, 0.10, 0.10, 0.16),
           },
           {
             # Keep every one-hot active while the shared launch/tuck solution
@@ -566,19 +572,21 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            # Once the hard signed axes have a launch basin, restore equal
+            # coverage so the already-solvable side/yaw branches are retained.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
             # Keep the difficult back branch overrepresented in the final
             # fused policy; front/side/yaw remain present for retention.
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
         ),
       },
