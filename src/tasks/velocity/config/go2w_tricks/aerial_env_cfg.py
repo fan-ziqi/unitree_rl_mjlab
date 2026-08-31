@@ -139,10 +139,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # off.  Extend the same contact-braking window modestly so the policy
       # can finish the measured wheel-first recovery; no new target or phase
       # signal is introduced.
-      # Several fixed audits reach a full turn and visibly touch a wheel but
-      # fail to bring all four wheels down before the command hand-off.  Give
-      # the same landing controller a little more physical settling time.
-      landing_control_time=1.50,
+      landing_control_time=1.20,
       debug_vis=False,
     )
   }
@@ -173,11 +170,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a full turn).  Use a middle .50 residual: enough workspace to bring
       # the wheels below the links, while the measured compactness outcome
       # still discourages the wide .55 exploratory package.
-      # The current seed reaches a full turn but the trunk contacts first;
-      # keep the leg package compact while leaving enough hip/thigh room for
-      # the wheel-first recovery to be discovered.
-      r".*_hip_joint": 0.40,
-      r".*_thigh_joint": 0.40,
+      r".*_hip_joint": 0.50,
+      r".*_thigh_joint": 0.50,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
@@ -186,10 +180,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Expose the native calf actuator's remaining bounded position range so
       # PPO can discover a stronger single launch impulse; this is not a
       # torque-limit change and does not prescribe a jump pose.
-      # Add launch impulse through the existing calf residual only.  The
-      # model's torque limit is unchanged; the extra bounded command gives
-      # the body the height needed to finish one turn before touchdown.
-      r".*_calf_joint": 1.55,
+      r".*_calf_joint": 1.35,
     },
     use_default_offset=True,
   )
@@ -320,7 +311,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Keep the original balance against signed turn progress; only the
       # measured compact-distance gradient below is widened so a failed wide
       # package is still recoverable without suppressing the jump itself.
-        weight=36.0,
+      weight=30.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -336,17 +327,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # rotating, causing the trunk to strike before the wheels could
         # become the lowest links.  This remains an accumulated-turn outcome
         # window, not a clock or reference trajectory.
-        # Start wheel-first deployment before the final tenth of the turn.
-        # The previous 0.64 boundary left several signed modes with a full
-        # turn but no four-wheel touchdown inside the landing window.
-        "tuck_end_turn_fraction": 0.58,
+        "tuck_end_turn_fraction": 0.64,
         # The default wheel-root mean is about 0.364 m, while AS2W's airborne
         # package is visibly tighter.  Move the measured compactness optimum
         # modestly inward and strengthen this existing outcome term so a wide
         # body strike is no longer as profitable as folding the wheel package.
         "tuck_target_wheel_root_distance": 0.27,
         "tuck_max_wheel_root_distance": 0.40,
-        "landing_start_turn_fraction": 0.58,
+        "landing_start_turn_fraction": 0.64,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
@@ -369,7 +357,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # weight suppresses the signed turn before the hard axes discover a
         # ballistic basin; compactness remains shaped by the existing single
         # outcome term and the strict wheel-first endpoint.
-        "dense_geometry_weight": 3.0,
+        "dense_geometry_weight": 2.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
@@ -587,19 +575,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            # Once every axis has a launch basin, focus fresh rollouts on the
-            # unresolved front/right/yaw landings instead of waiting until
-            # the final curriculum stage.
-            "mode_probabilities": (0.30, 0.10, 0.10, 0.25, 0.25),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            # Bring the unresolved signed front/right/yaw events forward as
-            # soon as the common launch basin exists; back/left remain
-            # represented and retain their learned coverage in this one
-            # fused actor.
-            "mode_probabilities": (0.30, 0.10, 0.10, 0.25, 0.25),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             # Keep every one-hot active while the shared launch/tuck solution
@@ -607,23 +588,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            # The easy front/side branches already have a launch basin.  Keep
-            # extra samples on the unresolved signed back and yaw events so
-            # the single fused actor can discover their wheel-first recovery
-            # without adding a second policy or a mode-specific controller.
-            "mode_probabilities": (0.30, 0.10, 0.10, 0.25, 0.25),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.30, 0.10, 0.10, 0.25, 0.25),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            # Keep the difficult back and yaw branches overrepresented in the
-            # final fused policy; front/side remain present for retention.
-            "mode_probabilities": (0.30, 0.10, 0.10, 0.25, 0.25),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
         ),
       },
