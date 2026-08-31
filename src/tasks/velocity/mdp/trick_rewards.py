@@ -57,6 +57,31 @@ def _has_any_contact(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   return torch.any(_wheel_contacts(env, sensor_name), dim=1)
 
 
+def _has_illegal_contact(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  force_threshold: float = 10.0,
+) -> torch.Tensor:
+  """Match aerial reward validity to the non-wheel termination predicate.
+
+  The contact sensor's ``found`` bit also fires for a very small geometric
+  graze.  Ground tasks intentionally use that bit for wheel support, but an
+  aerial touchdown is only illegal when the non-wheel load crosses the same
+  force threshold used by ``illegal_contact_after_grace``.  Keeping these
+  predicates identical prevents a harmless sub-threshold scrape from erasing
+  the landing gradient while still rejecting genuine body/leg support.
+  """
+  if force_threshold <= 0.0:
+    raise ValueError("force_threshold must be positive.")
+  sensor: ContactSensor = env.scene[sensor_name]
+  if sensor.data.force_history is not None:
+    force_mag = torch.norm(sensor.data.force_history, dim=-1)
+    return (force_mag > force_threshold).any(dim=-1).any(dim=-1)
+  # Older sensor backends may not expose force history.  Preserve the strict
+  # found-bit fallback in that case rather than silently allowing body support.
+  return torch.any(_wheel_contacts(env, sensor_name), dim=1)
+
+
 def normal_four_wheel_pivot_geometry(
   wheel_axles: torch.Tensor,
   wheel_positions: torch.Tensor,
@@ -1286,7 +1311,7 @@ class AerialBallisticLaunch:
     self.current_duration[reset] = 0.0
     self.peak_duration[reset] = 0.0
     wheel_free = ~_has_any_contact(env, sensor_name)
-    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    legal = ~_has_illegal_contact(env, nonwheel_sensor_name)
     grounded = torch.all(_wheel_contacts(env, sensor_name), dim=1)
     upward_speed = torch.clamp(
       asset.data.root_link_lin_vel_w[:, 2] / target_upward_speed,
@@ -1400,7 +1425,7 @@ class AerialNetRotationProgress:
       torch.zeros_like(self.peak_progress),
     )
     self.previous_active = active
-    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    legal = ~_has_illegal_contact(env, nonwheel_sensor_name)
     result = (
       active.to(increment.dtype)
       * legal.to(increment.dtype)
@@ -1597,7 +1622,7 @@ class AerialTuckThenWheelLanding:
     was_airborne = getattr(command_term, "was_airborne", torch.zeros_like(active))
     landing_started = getattr(command_term, "_landing_started", torch.zeros_like(active))
     wheel_free = ~_has_any_contact(env, sensor_name)
-    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    legal = ~_has_illegal_contact(env, nonwheel_sensor_name)
     turn_fraction = torch.clamp(progress / target_angle, min=0.0, max=1.0)
     wheel_top = torch.amax(asset.data.site_pos_w[:, asset_cfg.site_ids, 2], dim=1)
     lowest_nonwheel_link = torch.amin(
@@ -1798,7 +1823,7 @@ class AerialRotationCompletion:
       torch.zeros_like(asset.data.root_link_quat_w),
     )
     contacts = _wheel_contacts(env, sensor_name)
-    legal = ~_has_any_contact(env, nonwheel_sensor_name)
+    legal = ~_has_illegal_contact(env, nonwheel_sensor_name)
     normal_gravity = torch.tensor(
       (0.0, 0.0, -1.0), dtype=asset.data.projected_gravity_b.dtype, device=env.device
     )
