@@ -303,7 +303,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # launch/rotation basin (a277 m200 fell from ~0.7 turn to ~0.2--0.4).
         # Keep a modest 2x bridge over the original value so compactness can
         # shape the flight without becoming the task itself.
-        "dense_geometry_weight": 1.0,
+        # The hard-axis companion seed needs the measured compact-flight
+        # bridge to remain active after its first tuck high-water mark;
+        # otherwise the legs can reopen while preserving one-turn credit.
+        "dense_geometry_weight": 2.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
