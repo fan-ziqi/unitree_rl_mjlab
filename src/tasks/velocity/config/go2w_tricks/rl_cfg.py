@@ -171,5 +171,7 @@ def unitree_go2w_aerial_rotation_ppo_runner_cfg() -> RslRlOnPolicyRunnerCfg:
     # The large batch already produces a low-variance PPO gradient.  A
     # smaller actor step prevents a rare successful mode from overwriting
     # still-exploring command branches between checkpoints.
-    learning_rate=5.0e-4,
+    # Equal five-way sampling keeps each signed axis in the batch; a smaller
+    # update prevents a newly successful branch from overwriting its mirrors.
+    learning_rate=2.5e-4,
   )
