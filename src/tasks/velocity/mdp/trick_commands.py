@@ -101,6 +101,13 @@ class StanceSpinCommand(CommandTerm):
     # the public command tensor or inserts a hidden target: a zero probability
     # merely holds the sampled one-hot until its next resample.
     switch = torch.rand(count, device=self.device) < self.cfg.direct_switch_probability
+    # Left/right are held two-wheel supports in the AS2W manoeuvre, not
+    # rotating modes.  A direct switch out of (or into) one of these forms
+    # cuts the support before its centre has settled and was the repeatable
+    # cause of the m1200->m1400 side collapse.  Keep direct continuity for
+    # the dynamic normal/front/rear pivots, but give a side command its full
+    # static hold so the shared actor cannot learn only a transient roll.
+    switch &= (modes < 3) & (next_modes < 3)
     next_modes = torch.where(switch, next_modes, modes)
     self.command_buf[env_ids] = 0.0
     self._target_spin_rate[env_ids] = 0.0
