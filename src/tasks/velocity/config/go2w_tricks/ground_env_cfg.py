@@ -287,7 +287,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # bad exploration trade before PPO ever sampled a better geometry.
       # This matches the practical scale of the proven support objective;
       # no target or action authority changes.
-      weight=80.0,
+      # The equal-coverage seed over-trained the static side outcome: its
+      # much larger aggregate return overwrote the shared actor's dynamic
+      # front/rear and normal pivot.  Raise only this existing measured
+      # commanded-rate term so dynamic modes retain a usable PPO gradient;
+      # side supports remain governed by their dedicated static outcomes.
+      weight=140.0,
       params={
         "command_name": "trick",
         "speed_deadband": 0.20,
@@ -551,7 +556,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # give the harder left-side one-hot more rollout mass so PPO sees
             # enough braking/support examples to remove that bias.  All five
             # modes remain represented in the same actor.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # Establish the moving normal/front/rear basin before the static
+            # lateral supports compete for the shared actor.
+            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -565,6 +572,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # After initial side-support discovery, keep all five outcomes
             # visible so the shared actor cannot trade away front/rear
             # dynamic pivots for the easier static forms.
+            # Bring both lateral supports back only after dynamic pivots have
+            # a basin; all five remain in this same fused policy.
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
@@ -581,7 +590,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Once the side supports have a basin, restore all five modes so
             # the shared actor retains the front/rear dynamic pivots instead
             # of collapsing to the easier static side forms.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # Give the hard static mirror a focused discovery window while
+            # retaining all dynamic branches at equal signed-rate coverage.
+            "mode_probabilities": (0.15, 0.15, 0.15, 0.275, 0.275),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,

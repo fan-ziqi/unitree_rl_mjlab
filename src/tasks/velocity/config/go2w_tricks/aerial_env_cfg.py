@@ -170,8 +170,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a full turn).  Use a middle .50 residual: enough workspace to bring
       # the wheels below the links, while the measured compactness outcome
       # still discourages the wide .55 exploratory package.
-      r".*_hip_joint": 0.50,
-      r".*_thigh_joint": 0.50,
+      # The current seed reaches a full turn but the trunk contacts first;
+      # keep the leg package compact while leaving enough hip/thigh room for
+      # the wheel-first recovery to be discovered.
+      r".*_hip_joint": 0.45,
+      r".*_thigh_joint": 0.45,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
@@ -180,7 +183,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Expose the native calf actuator's remaining bounded position range so
       # PPO can discover a stronger single launch impulse; this is not a
       # torque-limit change and does not prescribe a jump pose.
-      r".*_calf_joint": 1.35,
+      # Add launch impulse through the existing calf residual only.  The
+      # model's torque limit is unchanged; the extra bounded command gives
+      # the body the height needed to finish one turn before touchdown.
+      r".*_calf_joint": 1.55,
     },
     use_default_offset=True,
   )
