@@ -1345,9 +1345,14 @@ class AerialNetRotationProgress:
     command_name: str,
     nonwheel_sensor_name: str,
     target_angle: float,
+    mode_weights: tuple[float, ...] | None = None,
   ) -> torch.Tensor:
     if target_angle <= 0.0:
       raise ValueError("target_angle must be positive.")
+    if mode_weights is not None and (
+      len(mode_weights) != 5 or any(weight < 0.0 for weight in mode_weights)
+    ):
+      raise ValueError("mode_weights must contain five non-negative aerial values.")
     command = _command(env, command_name)
     active = torch.sum(command[:, :5], dim=1) > 0.5
     # Reset at the literal idle boundary as well as the environment reset.  A
@@ -1376,12 +1381,17 @@ class AerialNetRotationProgress:
     )
     self.previous_active = active
     legal = ~_has_any_contact(env, nonwheel_sensor_name)
-    return (
+    result = (
       active.to(increment.dtype)
       * legal.to(increment.dtype)
       * increment / target_angle
       / env.step_dt
     )
+    if mode_weights is not None:
+      mode = torch.argmax(command[:, :5], dim=1)
+      weights = torch.tensor(mode_weights, dtype=result.dtype, device=env.device)
+      result = result * weights[mode]
+    return result
 
 
 def aerial_event_failure(

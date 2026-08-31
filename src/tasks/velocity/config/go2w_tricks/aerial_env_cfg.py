@@ -264,6 +264,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
         "target_angle": math.tau,
+        # The m1200 fixed-command audit completes front/left/right/yaw but
+        # back remains at roughly 0.31 turn despite a sufficient vertical
+        # launch.  Weight only this existing measured signed-angle outcome
+        # for the unresolved back one-hot; no rate, pose, or trajectory target
+        # is introduced.
+        "mode_weights": (1.0, 2.0, 1.0, 1.0, 1.0),
       },
     ),
     "tuck_then_wheel_landing": RewardTermCfg(
