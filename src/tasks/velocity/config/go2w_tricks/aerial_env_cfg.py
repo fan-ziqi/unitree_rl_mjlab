@@ -137,8 +137,13 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # wheels.  Tighten only the two swing-producing joints; the calf keeps
       # its native launch authority so this remains a physically reachable
       # compact tuck rather than a frozen jump.
-      r".*_hip_joint": 0.40,
-      r".*_thigh_joint": 0.40,
+      # The .40 envelope preserved rotation but made the wheel-first landing
+      # geometry unreachable in a276/a278 (zero visual wheel contact even at
+      # a full turn).  Use a middle .50 residual: enough workspace to bring
+      # the wheels below the links, while the measured compactness outcome
+      # still discourages the wide .55 exploratory package.
+      r".*_hip_joint": 0.50,
+      r".*_thigh_joint": 0.50,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
