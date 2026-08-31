@@ -49,6 +49,54 @@ def illegal_contact_after_grace(
   )
 
 
+def illegal_contact_after_mode_switch_grace(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  command_name: str,
+  switch_grace_period_s: float = 0.20,
+  force_threshold: float = 10.0,
+) -> torch.Tensor:
+  """Allow a brief physical load-transfer window at a direct mode switch.
+
+  A side-support change has to unload one wheel pair before the other pair can
+  catch the body.  Terminating on the first transient thigh/trunk contact
+  cuts that sequence off before PPO can observe the new support.  The grace is
+  restricted to the command term's actual second (post-switch) transition
+  phase and only when the one-hot really changed; outside that narrow window
+  non-wheel contact remains an immediate failure.
+  """
+  if switch_grace_period_s < 0.0:
+    raise ValueError("switch_grace_period_s must be non-negative.")
+  command_term = env.command_manager.get_term(command_name)
+  phase = getattr(
+    command_term,
+    "_transition_phase",
+    torch.full((env.num_envs,), 3, dtype=torch.int8, device=env.device),
+  )
+  transition_time = getattr(
+    command_term,
+    "_transition_time",
+    torch.zeros(env.num_envs, device=env.device),
+  )
+  scheduled = getattr(command_term, "_scheduled_command", None)
+  next_scheduled = getattr(command_term, "_next_scheduled_command", None)
+  if scheduled is None or next_scheduled is None:
+    return illegal_contact(env, sensor_name=sensor_name, force_threshold=force_threshold)
+  changed = torch.argmax(scheduled[:, :5], dim=1) != torch.argmax(
+    next_scheduled[:, :5], dim=1
+  )
+  active_time = float(getattr(command_term.cfg, "transition_active_time", 0.0))
+  switch_start = 0.5 * active_time
+  in_window = (
+    changed
+    & (phase == 2)
+    & (transition_time <= switch_start + switch_grace_period_s)
+  )
+  return (~in_window) & illegal_contact(
+    env, sensor_name=sensor_name, force_threshold=force_threshold
+  )
+
+
 def terrain_contact_after_grace(
   env: ManagerBasedRlEnv,
   sensor_name: str,

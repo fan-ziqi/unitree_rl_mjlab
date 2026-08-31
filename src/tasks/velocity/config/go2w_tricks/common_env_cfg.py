@@ -303,8 +303,18 @@ def make_base_go2w_trick_cfg(
     # A thigh, calf, hip, or trunk is never a valid support.  This is a
     # physical validity rule, not a pose target or reference trajectory.
     "illegal_contact": TerminationTermCfg(
-      func=mdp.illegal_contact,
-      params={"sensor_name": nonwheel_contact_cfg.name, "force_threshold": 10.0},
+      # A direct one-hot switch needs a very short load-transfer window: one
+      # wheel pair unloads before the requested pair can catch the body.  The
+      # termination function grants that window only during the command
+      # term's real post-switch phase; outside it, body/leg support remains an
+      # immediate failure.
+      func=mdp.illegal_contact_after_mode_switch_grace,
+      params={
+        "sensor_name": nonwheel_contact_cfg.name,
+        "command_name": "trick",
+        "switch_grace_period_s": 0.20,
+        "force_threshold": 10.0,
+      },
     ),
   }
   if play:
