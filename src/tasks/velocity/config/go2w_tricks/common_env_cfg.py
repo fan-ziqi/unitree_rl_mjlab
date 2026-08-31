@@ -313,6 +313,12 @@ def make_base_go2w_trick_cfg(
         "sensor_name": nonwheel_contact_cfg.name,
         "command_name": "trick",
         "switch_grace_period_s": 0.20,
+        # Entering a side/front/rear support from the default four-wheel
+        # reset also needs a short load-transfer window.  Without this, the
+        # first transient thigh/trunk graze terminates the rollout before PPO
+        # can lift the uncommanded wheel pair; direct A->B switches retain the
+        # shorter window above.
+        "initial_transition_grace_period_s": 0.45,
         "force_threshold": 10.0,
       },
     ),

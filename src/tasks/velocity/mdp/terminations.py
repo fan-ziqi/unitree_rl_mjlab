@@ -54,19 +54,25 @@ def illegal_contact_after_mode_switch_grace(
   sensor_name: str,
   command_name: str,
   switch_grace_period_s: float = 0.20,
+  initial_transition_grace_period_s: float = 0.45,
   force_threshold: float = 10.0,
 ) -> torch.Tensor:
-  """Allow a brief physical load-transfer window at a direct mode switch.
+  """Allow brief load-transfer windows when entering or switching modes.
 
   A side-support change has to unload one wheel pair before the other pair can
-  catch the body.  Terminating on the first transient thigh/trunk contact
-  cuts that sequence off before PPO can observe the new support.  The grace is
-  restricted to the command term's actual second (post-switch) transition
-  phase and only when the one-hot really changed; outside that narrow window
-  non-wheel contact remains an immediate failure.
+  catch the body.  The same is true for the first idle -> one-hot entry: the
+  policy must be allowed to roll away from the four-wheel reset before a
+  selected pair can carry the trunk.  Terminating on the first transient
+  thigh/trunk contact cuts either sequence off before PPO can observe the new
+  support.  The entry window is restricted to the command term's initial
+  active phase; the shorter post-switch window is restricted to its actual
+  second phase.  Outside those windows non-wheel contact remains an immediate
+  failure.
   """
   if switch_grace_period_s < 0.0:
     raise ValueError("switch_grace_period_s must be non-negative.")
+  if initial_transition_grace_period_s < 0.0:
+    raise ValueError("initial_transition_grace_period_s must be non-negative.")
   command_term = env.command_manager.get_term(command_name)
   phase = getattr(
     command_term,
@@ -87,10 +93,19 @@ def illegal_contact_after_mode_switch_grace(
   )
   active_time = float(getattr(command_term.cfg, "transition_active_time", 0.0))
   switch_start = 0.5 * active_time
+  initial_active = torch.sum(scheduled[:, :5], dim=1) > 0.5
+  in_initial_window = (
+    initial_active
+    & (phase == 1)
+    & (transition_time <= initial_transition_grace_period_s)
+  )
   in_window = (
-    changed
-    & (phase == 2)
-    & (transition_time <= switch_start + switch_grace_period_s)
+    in_initial_window
+    | (
+      changed
+      & (phase == 2)
+      & (transition_time <= switch_start + switch_grace_period_s)
+    )
   )
   return (~in_window) & illegal_contact(
     env, sensor_name=sensor_name, force_threshold=force_threshold
