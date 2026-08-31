@@ -95,7 +95,6 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
       direct_switch_probability=0.0,
       lin_vel_x_range=(-0.20, 0.20),
       yaw_rate_range=(-0.30, 0.30),
-      initialize_stance_on_reset=False,
       debug_vis=False,
     )
   }
