@@ -571,7 +571,12 @@ def mode_static_angular_velocity_exp(
     alignment = torch.clamp(
       0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
     )
-    stillness = stillness * alignment.pow(alignment_power)
+    # At the ordinary four-wheel reset alignment is exactly 0.5 for a side
+    # command.  Do not pay a large zero-velocity bonus there: that would make
+    # the actor prefer never attempting the roll.  The support-centre result
+    # becomes active only as the requested side attitude is physically formed.
+    alignment_rise = torch.clamp(2.0 * alignment - 1.0, 0.0, 1.0)
+    stillness = stillness * alignment_rise.pow(alignment_power)
   return active.to(stillness.dtype) * stillness
 
 
@@ -621,7 +626,8 @@ def mode_static_support_center_velocity_exp(
     alignment = torch.clamp(
       0.5 * (1.0 + torch.sum(gravity * targets[mode], dim=1)), 0.0, 1.0
     )
-    stillness = stillness * alignment.pow(alignment_power)
+    alignment_rise = torch.clamp(2.0 * alignment - 1.0, 0.0, 1.0)
+    stillness = stillness * alignment_rise.pow(alignment_power)
   return active.to(stillness.dtype) * stillness
 
 
