@@ -114,7 +114,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # A wheel touch closes the flight immediately, but the actor retains
       # this same one-hot for a short contact-braking interval before public
       # idle/default-pose settlement begins.  Rebound remains a termination.
-      landing_control_time=0.40,
+      # Give the landing controller a little longer to bring the remaining
+      # wheels down after the first touchdown.  This is the only difference
+      # in the landing-window comparison branch; the public command remains
+      # one-shot and no second aerial attempt is permitted.
+      landing_control_time=0.60,
       debug_vis=False,
     )
   }
