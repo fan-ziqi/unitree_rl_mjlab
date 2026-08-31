@@ -18,6 +18,7 @@ from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
+from src.assets.robots.unitree_go2w.go2w_constants import GO2W_LEG_JOINTS
 from src.tasks.velocity.mdp import trick_curriculums, trick_rewards
 from src.tasks.velocity.mdp.trick_commands import (
   StanceLocomotionCommandCfg,
@@ -552,6 +553,22 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "num_modes": 5,
         "gravity_targets": STANCE_GRAVITY_TARGETS,
         "alignment_power": 4.0,
+      },
+    ),
+    "normal_default_leg_pose": RewardTermCfg(
+      func=trick_rewards.normal_leg_default_pose_exp,
+      # Normal one-hot spinning must retain the ordinary Go2W four-leg
+      # silhouette; the only allowed change is the small geometry adjustment
+      # needed to bring wheel axes together.  This measured result is active
+      # for normal (including nonzero-rate) commands only and names no
+      # trajectory or target pose for the other four modes.
+      weight=25.0,
+      params={
+        "command_name": "trick",
+        "std": 0.55,
+        "asset_cfg": SceneEntityCfg(
+          "robot", joint_names=GO2W_LEG_JOINTS, preserve_order=True
+        ),
       },
     ),
     # Common-axis formation is a coordinated but smooth movement over many
