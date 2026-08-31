@@ -93,7 +93,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # m500 achieved strict right completions but no yaw turns.  Retain
       # extra back/right coverage while restoring enough yaw events for the
       # fused actor to learn all five one-hots.
-      mode_probabilities=(0.15, 0.25, 0.15, 0.25, 0.20),
+      # The m800--m900 fixed audits already close left/right/yaw, while the
+      # signed front/back events plateau with a large post-turn orientation
+      # error.  Keep all five one-hots in this fused actor but give the two
+      # unresolved body-axis directions the majority of discovery rollouts.
+      mode_probabilities=(0.25, 0.30, 0.15, 0.15, 0.15),
       resampling_time_range=(3.5, 3.5),
       sensor_name=wheel_contact_cfg.name,
       axes=AERIAL_AXES,
@@ -358,7 +362,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # A m300 audit still overshot to roughly 1.1--1.25 turns.  Strengthen
       # the existing whole-body orientation/quietness return so PPO learns to
       # brake at one turn instead of trading the endpoint for excess rate.
-      weight=8.0,
+      # Front/back can already complete a wheel landing but keep an unwanted
+      # whole-body heading.  Strengthen this existing measured orientation /
+      # quietness outcome now that the ballistic and wheel-first basins are
+      # established; it remains no pose or reference trajectory.
+      weight=16.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -540,17 +548,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # Keep every commanded axis equally visible to this single fused
             # actor.  The earlier hard-branch weighting produced a reliable
             # front flip but weak fixed-command generalization elsewhere.
-            "mode_probabilities": (0.15, 0.25, 0.15, 0.25, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.15, 0.25, 0.15, 0.25, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.15, 0.25, 0.15, 0.25, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             # Keep every one-hot active while the shared launch/tuck solution
@@ -558,19 +566,19 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.15, 0.25, 0.15, 0.25, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.15, 0.25, 0.15, 0.25, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
             # Keep the difficult back branch overrepresented in the final
             # fused policy; front/side/yaw remain present for retention.
-            "mode_probabilities": (0.15, 0.25, 0.15, 0.25, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
         ),
       },
