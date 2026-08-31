@@ -118,7 +118,12 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # wheels down after the first touchdown.  This is the only difference
       # in the landing-window comparison branch; the public command remains
       # one-shot and no second aerial attempt is permitted.
-      landing_control_time=0.60,
+      # m600--m700 reaches the first wheel contact reliably, but only about
+      # 20% of those events bring all four wheels down before the 0.60-s hand
+      # off.  Extend the same contact-braking window modestly so the policy
+      # can finish the measured wheel-first recovery; no new target or phase
+      # signal is introduced.
+      landing_control_time=0.90,
       debug_vis=False,
     )
   }
