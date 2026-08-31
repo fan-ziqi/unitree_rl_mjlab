@@ -487,9 +487,16 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 28_800,
             # Once the harder left mirror has a support basin, restore equal
             # side replay so the shared actor does not forget the right form.
-            "mode_probabilities": (0.20, 0.15, 0.15, 0.25, 0.25),
+            # After initial side-support discovery, keep all five outcomes
+            # visible so the shared actor cannot trade away front/rear
+            # dynamic pivots for the easier static forms.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
+            # Static side supports already have zero-rate semantics.  Adding
+            # extra static front/rear holds here was followed by a direct
+            # m600->m700 collapse of the dynamic-rate branches, so keep the
+            # dynamic command distribution intact.
+            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
             "spin_rate_range": (0.5, 2.0),
             "resampling_time_range": (6.0, 6.0),
@@ -501,7 +508,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # of collapsing to the easier static side forms.
             "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
-            "upright_static_probability": 0.30,
+            "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,
             "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
