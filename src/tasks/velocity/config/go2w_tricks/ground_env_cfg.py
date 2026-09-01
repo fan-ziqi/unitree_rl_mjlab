@@ -613,9 +613,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # give the harder left-side one-hot more rollout mass so PPO sees
             # enough braking/support examples to remove that bias.  All five
             # modes remain represented in the same actor.
-            # Establish the moving normal/front/rear basin before the static
-            # lateral supports compete for the shared actor.
-            "mode_probabilities": (0.30, 0.25, 0.25, 0.10, 0.10),
+            # Keep all five outcomes visible from update zero.  The moving
+            # modes already have a usable basin; delaying the lateral mirrors
+            # until a later stage leaves the shared actor in a low side-roll
+            # solution for too long.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
