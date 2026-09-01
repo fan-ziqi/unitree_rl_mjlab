@@ -624,12 +624,12 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 28_800,
-            # Keep the three moving pivots in most rollouts after the initial
-            # basin.  The previous side-heavy stage made both front/rear and
-            # normal forget their rate response even though the side supports
-            # improved.  Keep the better left mirror represented while giving
-            # the low-clearance right mirror a little more fresh experience.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
+            # Once the normal/front/rear basin exists, expose both lateral
+            # mirrors equally often.  The previous dynamic-heavy mix left
+            # the side commands in a low, rolling basin; equal coverage keeps
+            # the fused actor's moving modes represented without inventing a
+            # separate side policy.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
             # extra static front/rear holds here was followed by a direct
@@ -642,10 +642,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 57_600,
-            # Preserve the same dynamic-heavy mix while raising the requested
-            # rate.  This prevents a curriculum boundary from overwriting the
-            # moving skills with the easier static side return.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
+            # Keep the five physical outcomes equally visible while raising
+            # the requested rate.  Side commands remain held supports and
+            # therefore ignore this rate slot; the dynamic branches retain
+            # their signed-rate curriculum below.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             # Keep the dynamic basin longer; the previous 2--5 jump
@@ -656,9 +657,10 @@ def unitree_go2w_spin_stance_flat_env_cfg(
           },
           {
             "step": 86_400,
-            # Keep dynamic rate response visible during the reference-speed
-            # stage; the two static mirrors remain explicitly represented.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
+            # Preserve equal mirror coverage during the faster dynamic stage;
+            # direct switching is introduced only after every support has
+            # had a chance to settle.
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,
@@ -671,7 +673,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # common-axle and side supports caused a late left-side collapse;
             # 8 rad/s is already the visually estimated AS2W pivot rate.
             "step": 115_200,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
