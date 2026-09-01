@@ -309,7 +309,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
       # Keep every fused spin outcome equally visible.  The prior side-heavy
       # replay stabilized the mirror pair but starved normal/front/rear, so
       # those dynamic branches were forgotten by the shared actor.
-      mode_probabilities=(0.20, 0.20, 0.20, 0.20, 0.20),
+      # Keep dynamic modes dominant while exposing the harder left support
+      # slightly more often than its right mirror.
+      mode_probabilities=(0.25, 0.25, 0.25, 0.15, 0.10),
       spin_idle_probability=0.0,
       upright_static_probability=0.0,
       direct_switch_probability=0.0,
@@ -414,7 +416,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "num_modes": 5,
         # Left/right are mirror-equivalent outcomes; do not let the actor
         # trade one side for the other through an asymmetric scalar weight.
-        "mode_weights": (1.0, 1.0, 1.0, 1.0, 1.0),
+        "mode_weights": (1.0, 1.0, 1.0, 1.15, 1.0),
         "extra_contact_discount": 1.0,
         "orientation_power": 1.0,
         # AS2W's lateral two-wheel form is tall and wheel-supported, not a
@@ -443,7 +445,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # side branch could not receive its terminal support gradient.  Keep
         # the measured, physically reachable side envelope; non-support-wheel
         # clearance and support-centre stillness remain separate outcomes.
-        "minimum_root_clearance": (0.45, 0.45, 0.45, 0.18, 0.18),
+        # A slightly taller measured side envelope rejects the low folded
+        # roll while remaining reachable through the existing support bridge.
+        "minimum_root_clearance": (0.45, 0.45, 0.45, 0.22, 0.22),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -487,7 +491,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "attitude_progress_rate_scale": 4.0,
         # Reuse the existing hip-to-wheel extension outcome so a low folded
         # side support is not the easiest way to satisfy contact and attitude.
-        "support_leg_length_target": 0.30,
+        "support_leg_length_target": 0.32,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -520,8 +524,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "command_name": "trick",
         "modes": (3, 4),
         "contact_masks": STANCE_CONTACT_MASKS,
-        "target_height": 0.30,
-        "minimum_height": 0.10,
+        "target_height": 0.35,
+        "minimum_height": 0.12,
         "num_modes": 5,
         "asset_cfg": _support_wheels(),
       },
@@ -625,7 +629,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # normal forget their rate response even though the side supports
             # improved.  Keep the better left mirror represented while giving
             # the low-clearance right mirror a little more fresh experience.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
             # extra static front/rear holds here was followed by a direct
@@ -641,22 +645,24 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Preserve the same dynamic-heavy mix while raising the requested
             # rate.  This prevents a curriculum boundary from overwriting the
             # moving skills with the easier static side return.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.25,
-            "spin_rate_range": (2.0, 5.0),
+            # Keep the dynamic basin longer; the previous 2--5 jump
+            # collapsed front/rear rate tracking at the curriculum boundary.
+            "direct_switch_probability": 0.0,
+            "spin_rate_range": (1.0, 3.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
             "step": 86_400,
             # Keep dynamic rate response visible during the reference-speed
             # stage; the two static mirrors remain explicitly represented.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 0.60,
-            "spin_rate_range": (5.0, 8.0),
+            "direct_switch_probability": 0.25,
+            "spin_rate_range": (2.0, 5.0),
             "resampling_time_range": (6.0, 6.0),
           },
           {
@@ -665,11 +671,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # common-axle and side supports caused a late left-side collapse;
             # 8 rad/s is already the visually estimated AS2W pivot rate.
             "step": 115_200,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.15, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
-            "direct_switch_probability": 1.0,
-            "spin_rate_range": (7.0, 8.0),
+            "direct_switch_probability": 0.60,
+            "spin_rate_range": (5.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
