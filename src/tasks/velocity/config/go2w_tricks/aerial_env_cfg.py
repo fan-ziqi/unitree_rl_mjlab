@@ -187,7 +187,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Expose the native calf actuator's remaining bounded position range so
       # PPO can discover a stronger single launch impulse; this is not a
       # torque-limit change and does not prescribe a jump pose.
-      r".*_calf_joint": 1.55,
+      # Give the calf the extra bounded position workspace needed for one
+      # decisive launch impulse; hip/thigh authority stays unchanged so the
+      # policy cannot buy rotation by throwing the whole leg package wider.
+      r".*_calf_joint": 1.75,
     },
     use_default_offset=True,
   )
@@ -242,7 +245,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # measured impulse/duration result rather than a pose or timing trace.
       # A slightly larger share of the existing launch outcome makes the
       # higher/cleaner jump competitive with the easy side flips.
-      weight=14.0,
+      # Aerial telemetry still shows a short, low hop.  Make the measured
+      # launch outcome large enough to compete with the tuck return so PPO
+      # first discovers a useful flight envelope.
+      weight=22.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -271,7 +277,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # 20-point tuck return.  Raise only this existing normalized net-angle
       # outcome so the fused actor keeps rotating while it searches for the
       # same wheel-first landing; no rate, phase, or pose target is added.
-      weight=20.0,
+      # The previous checkpoint preferred compact but under-rotated hops.
+      # Increase the existing signed net-angle outcome; it is still only the
+      # measured fraction of the one requested turn.
+      weight=36.0,
       params={
         "command_name": "trick",
         "nonwheel_sensor_name": nonwheel_contact_cfg.name,
@@ -328,7 +337,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # package in instead of trading the final turn for a body-first crash.
       # The m400 audit still paid about 42 return for a wide default-like
       # package, so the old target was not discriminative enough.
-      weight=40.0,
+      # Keep compactness important for wheel-first recovery, but below the
+      # launch/turn outcomes so a wide partial crash is not the best basin.
+      weight=28.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -352,8 +363,8 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # Tighten only this measured wheel/root distance outcome.  The
         # nominal reset is about 0.36 m; a 0.22-m target makes a real tucked
         # package materially better than leaving the legs at reset spread.
-        "tuck_target_wheel_root_distance": 0.22,
-        "tuck_max_wheel_root_distance": 0.36,
+        "tuck_target_wheel_root_distance": 0.25,
+        "tuck_max_wheel_root_distance": 0.40,
         "landing_start_turn_fraction": 0.60,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
@@ -379,7 +390,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # outcome term and the strict wheel-first endpoint.
         # Keep the compactness signal active after the first brief tuck so a
         # later wide leg throw is not equally profitable.
-        "dense_geometry_weight": 10.0,
+        "dense_geometry_weight": 8.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
@@ -522,7 +533,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # The m400 replay reaches body-first contact around one second, before
       # the wheel package can deploy.  Allow the full physical turn/landing
       # window, while retaining termination for sustained body support.
-      "grace_period_s": 1.50,
+      "grace_period_s": 1.80,
     },
   )
   # Collision ends an episode immediately.  The decisive terminal term
