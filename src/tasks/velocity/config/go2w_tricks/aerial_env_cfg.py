@@ -174,11 +174,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # a full turn).  Use a middle .50 residual: enough workspace to bring
       # the wheels below the links, while the measured compactness outcome
       # still discourages the wide .55 exploratory package.
-      # Narrow the two swing-producing joints: the m400 replay still throws
-      # the leg package wide during flight.  Keep the calf impulse available
-      # for the jump and let PPO discover the compact tuck.
-      r".*_hip_joint": 0.42,
-      r".*_thigh_joint": 0.42,
+      # Keep the proven body-axis turning workspace; compactness is shaped by
+      # the measured tuck outcome below rather than an overly tight action
+      # clamp that prevents a full revolution.
+      r".*_hip_joint": 0.50,
+      r".*_thigh_joint": 0.50,
       # Keep hip/thigh motion compliant while exposing more of the native
       # calf torque range for the single launch impulse.  This is an action
       # envelope, not a prescribed tuck or jump trajectory.
@@ -187,7 +187,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Expose the native calf actuator's remaining bounded position range so
       # PPO can discover a stronger single launch impulse; this is not a
       # torque-limit change and does not prescribe a jump pose.
-      r".*_calf_joint": 1.45,
+      r".*_calf_joint": 1.55,
     },
     use_default_offset=True,
   )
@@ -514,10 +514,10 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # current model.  The stronger launch experiment needs a little more
       # physical room to complete the wheel-first touchdown; body support is
       # still an illegal outcome once this short discovery window expires.
-      # The m400 replay reaches the body-first collision just after the old
-      # grace window.  Allow one complete turn plus wheel-first deployment,
-      # while retaining termination for sustained body support.
-      "grace_period_s": 1.10,
+      # The m400 replay reaches body-first contact around one second, before
+      # the wheel package can deploy.  Allow the full physical turn/landing
+      # window, while retaining termination for sustained body support.
+      "grace_period_s": 1.50,
     },
   )
   # Collision ends an episode immediately.  The decisive terminal term
