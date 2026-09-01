@@ -237,7 +237,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # reaches the plane before the wheel package.  Strengthen this single
       # launch outcome so PPO values a higher, longer hop; it remains a
       # measured impulse/duration result rather than a pose or timing trace.
-      weight=10.0,
+      # A slightly larger share of the existing launch outcome makes the
+      # higher/cleaner jump competitive with the easy side flips.
+      weight=14.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -276,7 +278,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # launch.  Weight only this existing measured signed-angle outcome
         # for the unresolved back one-hot; no rate, pose, or trajectory target
         # is introduced.
-        "mode_weights": (1.0, 2.0, 1.0, 1.0, 1.0),
+        # Keep one fused actor, but give the unresolved back and yaw events a
+        # little more signed-angle return while they discover recovery.
+        "mode_weights": (1.0, 1.5, 1.0, 1.0, 1.35),
       },
     ),
     "tuck_then_wheel_landing": RewardTermCfg(
@@ -574,17 +578,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # Keep every commanded axis equally visible to this single fused
             # actor.  The earlier hard-branch weighting produced a reliable
             # front flip but weak fixed-command generalization elsewhere.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.24, 0.28, 0.16, 0.16, 0.16),
           },
           {
             # Keep every one-hot active while the shared launch/tuck solution
@@ -592,17 +596,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.22, 0.26, 0.18, 0.18, 0.16),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.22, 0.26, 0.18, 0.18, 0.16),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.22, 0.26, 0.18, 0.18, 0.16),
           },
         ),
       },

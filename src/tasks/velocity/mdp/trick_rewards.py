@@ -1431,8 +1431,11 @@ class AerialNetRotationProgress:
     # visible in the yaw event: it reaches one turn, then falls onto the body
     # instead of returning wheel-first.  Use the already measured root angular
     # velocity and launch axis to retain a dense turn signal while favouring
-    # rotation about the requested axis.  Keep a 25% floor so early discovery
-    # is not made binary when the angular velocity is still small.
+    # rotation about the requested axis.  Keep a moderate floor so early
+    # discovery is not made binary when the angular velocity is still small.
+    # The former 25% floor removed most of the useful gradient for signed
+    # back/yaw launches when their first impulse also contained a small
+    # off-axis component.
     launch_axis = getattr(
       command_term,
       "_launch_axis_w",
@@ -1446,7 +1449,7 @@ class AerialNetRotationProgress:
     ).clamp_min(1.0e-6)
     axis_purity_factor = torch.where(
       getattr(command_term, "was_airborne", torch.zeros_like(active)),
-      0.25 + 0.75 * torch.clamp(axis_purity, min=0.0, max=1.0),
+      0.45 + 0.55 * torch.clamp(axis_purity, min=0.0, max=1.0),
       torch.ones_like(axis_purity),
     )
     increment = increment * axis_purity_factor
