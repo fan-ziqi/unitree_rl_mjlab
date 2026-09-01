@@ -416,7 +416,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "num_modes": 5,
         # Left/right are mirror-equivalent outcomes; do not let the actor
         # trade one side for the other through an asymmetric scalar weight.
-        "mode_weights": (1.0, 1.0, 1.0, 1.10, 1.0),
+        "mode_weights": (1.0, 1.0, 1.0, 1.30, 1.0),
         "extra_contact_discount": 1.0,
         "orientation_power": 1.0,
         # AS2W's lateral two-wheel form is tall and wheel-supported, not a
@@ -617,7 +617,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # modes already have a usable basin; delaying the lateral mirrors
             # until a later stage leaves the shared actor in a low side-roll
             # solution for too long.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.30, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.0,
@@ -631,7 +631,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the side commands in a low, rolling basin; equal coverage keeps
             # the fused actor's moving modes represented without inventing a
             # separate side policy.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.30, 0.10),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
             # extra static front/rear holds here was followed by a direct
@@ -648,7 +648,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # the requested rate.  Side commands remain held supports and
             # therefore ignore this rate slot; the dynamic branches retain
             # their signed-rate curriculum below.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.30, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             # Keep the dynamic basin longer; the previous 2--5 jump
@@ -662,7 +662,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Preserve equal mirror coverage during the faster dynamic stage;
             # direct switching is introduced only after every support has
             # had a chance to settle.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.30, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,
@@ -675,7 +675,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # common-axle and side supports caused a late left-side collapse;
             # 8 rad/s is already the visually estimated AS2W pivot rate.
             "step": 115_200,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.30, 0.10),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
