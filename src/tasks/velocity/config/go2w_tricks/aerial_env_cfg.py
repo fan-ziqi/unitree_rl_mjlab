@@ -326,7 +326,9 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # wheel touchdown.  Increase this existing compact-flight outcome only
       # after the turn basin is established so PPO values pulling the wheel
       # package in instead of trading the final turn for a body-first crash.
-      weight=45.0,
+      # The m400 audit still paid about 42 return for a wide default-like
+      # package, so the old target was not discriminative enough.
+      weight=40.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -347,8 +349,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # package is visibly tighter.  Move the measured compactness optimum
         # modestly inward and strengthen this existing outcome term so a wide
         # body strike is no longer as profitable as folding the wheel package.
-        "tuck_target_wheel_root_distance": 0.27,
-        "tuck_max_wheel_root_distance": 0.40,
+        # Tighten only this measured wheel/root distance outcome.  The
+        # nominal reset is about 0.36 m; a 0.22-m target makes a real tucked
+        # package materially better than leaving the legs at reset spread.
+        "tuck_target_wheel_root_distance": 0.22,
+        "tuck_max_wheel_root_distance": 0.36,
         "landing_start_turn_fraction": 0.60,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
@@ -374,7 +379,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # outcome term and the strict wheel-first endpoint.
         # Keep the compactness signal active after the first brief tuck so a
         # later wide leg throw is not equally profitable.
-        "dense_geometry_weight": 6.0,
+        "dense_geometry_weight": 10.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
