@@ -606,17 +606,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # Keep every commanded axis equally visible to this single fused
             # actor.  The earlier hard-branch weighting produced a reliable
             # front flip but weak fixed-command generalization elsewhere.
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 19_200,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.25, 0.30, 0.15, 0.15, 0.15),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 38_400,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.24, 0.28, 0.16, 0.16, 0.16),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             # Keep every one-hot active while the shared launch/tuck solution
@@ -624,17 +624,17 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
             # extra samples without splitting the policy.
             "step": 57_600,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.22, 0.26, 0.18, 0.18, 0.16),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 76_800,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.22, 0.26, 0.18, 0.18, 0.16),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
           {
             "step": 96_000,
             "idle_probability": 0.0,
-            "mode_probabilities": (0.22, 0.26, 0.18, 0.18, 0.16),
+            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
           },
         ),
       },
