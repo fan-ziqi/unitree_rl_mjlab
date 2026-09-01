@@ -614,9 +614,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Keep the three moving pivots in most rollouts after the initial
             # basin.  The previous side-heavy stage made both front/rear and
             # normal forget their rate response even though the side supports
-            # improved.  Twelve-and-a-half percent per static mirror is still
-            # enough to retain both held forms in the same actor.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            # improved.  Keep the better left mirror represented while giving
+            # the low-clearance right mirror a little more fresh experience.
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
             # extra static front/rear holds here was followed by a direct
@@ -632,7 +632,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # Preserve the same dynamic-heavy mix while raising the requested
             # rate.  This prevents a curriculum boundary from overwriting the
             # moving skills with the easier static side return.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.25,
@@ -643,7 +643,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "step": 86_400,
             # Keep dynamic rate response visible during the reference-speed
             # stage; the two static mirrors remain explicitly represented.
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -656,7 +656,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # common-axle and side supports caused a late left-side collapse;
             # 8 rad/s is already the visually estimated AS2W pivot rate.
             "step": 115_200,
-            "mode_probabilities": (0.25, 0.25, 0.25, 0.125, 0.125),
+            "mode_probabilities": (0.25, 0.25, 0.25, 0.10, 0.15),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
