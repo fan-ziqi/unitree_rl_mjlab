@@ -1426,6 +1426,30 @@ class AerialNetRotationProgress:
     )
     self.previous_active = active
     legal = ~_has_illegal_contact(env, nonwheel_sensor_name)
+    # The signed integral alone can be gamed by combining the commanded-axis
+    # rate with a large off-axis roll/pitch component.  That loophole is most
+    # visible in the yaw event: it reaches one turn, then falls onto the body
+    # instead of returning wheel-first.  Use the already measured root angular
+    # velocity and launch axis to retain a dense turn signal while favouring
+    # rotation about the requested axis.  Keep a 25% floor so early discovery
+    # is not made binary when the angular velocity is still small.
+    launch_axis = getattr(
+      command_term,
+      "_launch_axis_w",
+      torch.zeros(env.num_envs, 3, device=env.device),
+    )
+    axis_norm = torch.linalg.vector_norm(launch_axis, dim=1)
+    angular_velocity = env.scene["robot"].data.root_link_ang_vel_w
+    angular_norm = torch.linalg.vector_norm(angular_velocity, dim=1)
+    axis_purity = torch.abs(torch.sum(angular_velocity * launch_axis, dim=1)) / (
+      axis_norm * angular_norm
+    ).clamp_min(1.0e-6)
+    axis_purity_factor = torch.where(
+      getattr(command_term, "was_airborne", torch.zeros_like(active)),
+      0.25 + 0.75 * torch.clamp(axis_purity, min=0.0, max=1.0),
+      torch.ones_like(axis_purity),
+    )
+    increment = increment * axis_purity_factor
     result = (
       active.to(increment.dtype)
       * legal.to(increment.dtype)
