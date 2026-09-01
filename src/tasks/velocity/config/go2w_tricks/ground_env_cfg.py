@@ -416,7 +416,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "num_modes": 5,
         # Left/right are mirror-equivalent outcomes; do not let the actor
         # trade one side for the other through an asymmetric scalar weight.
-        "mode_weights": (1.0, 1.0, 1.0, 1.15, 1.0),
+        "mode_weights": (1.0, 1.0, 1.0, 1.10, 1.0),
         "extra_contact_discount": 1.0,
         "orientation_power": 1.0,
         # AS2W's lateral two-wheel form is tall and wheel-supported, not a
@@ -445,9 +445,9 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         # side branch could not receive its terminal support gradient.  Keep
         # the measured, physically reachable side envelope; non-support-wheel
         # clearance and support-centre stillness remain separate outcomes.
-        # A slightly taller measured side envelope rejects the low folded
-        # roll while remaining reachable through the existing support bridge.
-        "minimum_root_clearance": (0.45, 0.45, 0.45, 0.22, 0.22),
+        # Keep the measured, physically reachable side envelope.  The
+        # support/attitude outcomes remain responsible for improving the form.
+        "minimum_root_clearance": (0.45, 0.45, 0.45, 0.18, 0.18),
         # Contact bits are binary and provide no signal while the side pair
         # is approaching the floor.  These measured wheel-centre terms give
         # the side modes a continuous route to the AS2W support line without
@@ -491,7 +491,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "attitude_progress_rate_scale": 4.0,
         # Reuse the existing hip-to-wheel extension outcome so a low folded
         # side support is not the easiest way to satisfy contact and attitude.
-        "support_leg_length_target": 0.32,
+        "support_leg_length_target": 0.30,
         "asset_cfg": _support_wheels(),
       },
     ),
@@ -524,8 +524,8 @@ def unitree_go2w_spin_stance_flat_env_cfg(
         "command_name": "trick",
         "modes": (3, 4),
         "contact_masks": STANCE_CONTACT_MASKS,
-        "target_height": 0.35,
-        "minimum_height": 0.12,
+        "target_height": 0.30,
+        "minimum_height": 0.10,
         "num_modes": 5,
         "asset_cfg": _support_wheels(),
       },
