@@ -593,7 +593,11 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # dynamic pivots for the easier static forms.
             # Bring both lateral supports back only after dynamic pivots have
             # a basin; all five remain in this same fused policy.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            # Keep a little extra replay on the two lateral held supports.
+            # They are the fragile branches in the fused actor; the previous
+            # equal mix was adequate until the final high-rate stage caused
+            # the left mirror to be forgotten.
+            "mode_probabilities": (0.17, 0.17, 0.17, 0.245, 0.245),
             "spin_idle_probability": 0.0,
             # Static side supports already have zero-rate semantics.  Adding
             # extra static front/rear holds here was followed by a direct
@@ -624,7 +628,7 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             # zero-rate one-hots never became reliable.  Give both static
             # forms enough rollouts without removing the normal/front/rear
             # dynamic branches.
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.17, 0.17, 0.17, 0.245, 0.245),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 0.60,
@@ -632,14 +636,16 @@ def unitree_go2w_spin_stance_flat_env_cfg(
             "resampling_time_range": (6.0, 6.0),
           },
           {
-            # Leave the final 600 updates for the high-rate, continuous
-            # delivery setting and direct mode changes.
+            # Keep the final stage at the reference-rate envelope.  Pushing
+            # the shared actor to 10--15 rad/s after it had learned the
+            # common-axle and side supports caused a late left-side collapse;
+            # 8 rad/s is already the visually estimated AS2W pivot rate.
             "step": 115_200,
-            "mode_probabilities": (0.20, 0.20, 0.20, 0.20, 0.20),
+            "mode_probabilities": (0.17, 0.17, 0.17, 0.245, 0.245),
             "spin_idle_probability": 0.0,
             "upright_static_probability": 0.0,
             "direct_switch_probability": 1.0,
-            "spin_rate_range": (10.0, 15.0),
+            "spin_rate_range": (7.0, 8.0),
             "resampling_time_range": (6.0, 6.0),
           },
         ),
