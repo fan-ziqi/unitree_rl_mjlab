@@ -182,21 +182,30 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
     ),
     "track_x_and_zero_lateral": RewardTermCfg(
       func=trick_rewards.stance_locomotion_linear_velocity_exp,
-      weight=5.0,
+      # The m2500 audit shows the front inverted support is stable but its
+      # forward command is still ignored (roughly -0.15 m/s for a +0.20
+      # request).  Increase only this measured velocity outcome and weight the
+      # two inverted modes more heavily; normal four-wheel idle/rolling keeps
+      # its original contribution.
+      weight=12.0,
       params={
         "command_name": "trick",
         "std": 0.45,
         "lateral_weight": 2.0,
+        "mode_weights": (1.0, 2.5, 2.5),
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 3.0,
       },
     ),
     "track_yaw": RewardTermCfg(
       func=trick_rewards.stance_locomotion_yaw_rate_exp,
-      weight=8.0,
+      # Match the x-command correction for inverted front/rear walking while
+      # retaining the normal-mode yaw contribution.
+      weight=12.0,
       params={
         "command_name": "trick",
         "std": 0.60,
+        "mode_weights": (1.0, 2.5, 2.5),
         "gravity_targets": LOCOMOTION_GRAVITY_TARGETS,
         "gravity_power": 3.0,
       },
