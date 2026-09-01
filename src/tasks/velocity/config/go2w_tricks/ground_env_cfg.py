@@ -146,12 +146,37 @@ def unitree_go2w_stance_locomotion_flat_env_cfg(
         "num_modes": 3,
         "extra_contact_discount": 1.0,
         "minimum_root_clearance": (0.18, 0.45, 0.45),
+        # Binary contacts alone leave the inverted branch with no gradient
+        # while all four wheels are still on the floor.  Blend in the same
+        # measured pair-height bridge used by the spin task so lifting the
+        # non-support wheels and keeping the requested pair at ground height
+        # becomes discoverable without naming a leg pose or transition.
+        "soft_support_height": 0.086,
+        "soft_support_height_std": 0.050,
+        "soft_support_pair_height_std": 0.040,
         # At the ordinary four-wheel reset the exact two-wheel support score
         # is zero because the requested pair has not yet formed.  This
         # measured angular-progress bridge supplies a continuous route into
         # the front/rear gravity targets without prescribing a pose or phase.
         "attitude_progress_weight": 0.30,
         "attitude_progress_rate_scale": 4.0,
+        "asset_cfg": _support_wheels(),
+      },
+    ),
+    "inverted_non_support_clearance": RewardTermCfg(
+      func=trick_rewards.mode_non_support_wheel_clearance,
+      # The front/rear walking forms require the opposite wheel pair to leave
+      # the floor.  This measured wheel-centre outcome supplies a continuous
+      # lift-off route; target-pair ground contact gates it against simply
+      # rolling to the wrong side.
+      weight=12.0,
+      params={
+        "command_name": "trick",
+        "modes": (1, 2),
+        "contact_masks": LOCOMOTION_CONTACT_MASKS,
+        "target_height": 0.30,
+        "minimum_height": 0.10,
+        "num_modes": 3,
         "asset_cfg": _support_wheels(),
       },
     ),
