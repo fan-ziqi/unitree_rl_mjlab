@@ -319,7 +319,11 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
       # Keep the original balance against signed turn progress; only the
       # measured compact-distance gradient below is widened so a failed wide
       # package is still recoverable without suppressing the jump itself.
-      weight=30.0,
+      # m600 now turns reliably, but back/yaw still strike the body before
+      # wheel touchdown.  Increase this existing compact-flight outcome only
+      # after the turn basin is established so PPO values pulling the wheel
+      # package in instead of trading the final turn for a body-first crash.
+      weight=45.0,
       params={
         "command_name": "trick",
         "sensor_name": wheel_contact_cfg.name,
@@ -335,14 +339,14 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # rotating, causing the trunk to strike before the wheels could
         # become the lowest links.  This remains an accumulated-turn outcome
         # window, not a clock or reference trajectory.
-        "tuck_end_turn_fraction": 0.64,
+        "tuck_end_turn_fraction": 0.60,
         # The default wheel-root mean is about 0.364 m, while AS2W's airborne
         # package is visibly tighter.  Move the measured compactness optimum
         # modestly inward and strengthen this existing outcome term so a wide
         # body strike is no longer as profitable as folding the wheel package.
         "tuck_target_wheel_root_distance": 0.27,
         "tuck_max_wheel_root_distance": 0.40,
-        "landing_start_turn_fraction": 0.64,
+        "landing_start_turn_fraction": 0.60,
         # Keep the wheel-first result dense even when an exploratory leg is
         # still below the wheel plane; the identical clearance score reaches
         # one only when every non-wheel link is safely above it.
@@ -365,7 +369,7 @@ def unitree_go2w_aerial_rotation_flat_env_cfg(
         # weight suppresses the signed turn before the hard axes discover a
         # ballistic basin; compactness remains shaped by the existing single
         # outcome term and the strict wheel-first endpoint.
-        "dense_geometry_weight": 2.0,
+        "dense_geometry_weight": 3.0,
         "target_clearance": 0.12,
         "asset_cfg": _aerial_wheels(),
       },
